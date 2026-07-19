@@ -1,0 +1,8 @@
+.git
+.env
+dist
+node_modules
+data/*
+!data/.gitkeep
+
+bun.lock

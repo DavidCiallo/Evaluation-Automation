@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 32" role="img" aria-label="Tiny-Web">
+  <rect width="32" height="32" rx="7" fill="#0a0a0a" />
+  <rect x="7" y="7" width="9" height="9" rx="1.8" fill="#fafafa" />
+  <text x="42" y="22" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="17" font-weight="600" letter-spacing="-0.01em" fill="#0a0a0a">Tiny-Web</text>
+</svg>

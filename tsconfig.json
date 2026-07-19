@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "lib": [
+      "DOM",
+      "ES2021"
+    ],
+    "types": [
+      "node",
+      "bun"
+    ],
+    "jsx": "react-jsx",
+    "target": "ES2021",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "shared",
+    "client",
+    "server"
+  ]
+}
