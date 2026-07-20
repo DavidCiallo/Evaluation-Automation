@@ -8,16 +8,18 @@ import { ThemeToggle } from "@/client/components/theme-toggle"
 import { UserMenu } from "@/client/components/admin/user-menu"
 
 const titleMap: Record<string, string> = {
-  "/dashboard": "Dashboard",
-  "/demo": "Demo",
-  "/blog": "Blog",
-  "/account": "Accounts",
-  "/settings": "Settings",
+  "/dashboard": "总览仪表盘",
+  "/workbench": "客服工作台",
+  "/orders": "订单管理",
+  "/account": "客服账号",
+  "/settings": "系统配置",
 }
 
 export function Topbar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
   const { pathname } = useLocation()
-  const title = titleMap[pathname] ?? "Tiny-Web"
+  const title = titleMap[pathname]
+    ?? Object.entries(titleMap).find(([k]) => pathname.startsWith(k + "/"))?.[1]
+    ?? "Tiny-Web"
 
   return (
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30 flex h-16 items-center gap-2 border-b px-4 backdrop-blur sm:gap-4 sm:px-6">

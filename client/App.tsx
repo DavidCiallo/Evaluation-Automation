@@ -11,9 +11,10 @@ import { Toaster } from "@/client/components/ui/sonner";
 import { AdminLayout } from "@/client/components/admin/layout";
 import { AuthPage } from "./pages/auth/AuthPage";
 import { AccountPage } from "./pages/account/AccountPage";
-import { DemoPage } from "./pages/demo/DemoPage";
-import { BlogPage } from "./pages/blog/BlogPage";
 import { DashboardPage } from "./pages/dashboard/DashboardPage";
+import { WorkbenchPage } from "./pages/workbench/WorkbenchPage";
+import { OrdersPage } from "./pages/orders/OrdersPage";
+import { OrderDetailPage } from "./pages/orders/OrderDetailPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
 import { getAuth } from "./methods/auth";
 
@@ -35,8 +36,10 @@ export default function App() {
                         <Route element={<AdminLayout />}>
                             <Route path="/" element={<Navigate to="/dashboard" replace />} />
                             <Route path="/dashboard" element={<DashboardPage />} />
-                            <Route path="/demo" element={<DemoPage />} />
-                            <Route path="/blog" element={<BlogPage />} />
+                            <Route path="/workbench" element={<WorkbenchPage />} />
+                            <Route path="/workbench/:chatId" element={<WorkbenchPage />} />
+                            <Route path="/orders" element={<OrdersPage />} />
+                            <Route path="/orders/:id" element={<OrderDetailPage />} />
                             <Route path="/account" element={<AccountPage />} />
                             <Route path="/settings" element={<SettingsPage />} />
                         </Route>

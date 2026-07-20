@@ -1,9 +1,9 @@
 import { NavLink } from "react-router-dom"
 import {
   LayoutDashboard,
-  Newspaper,
+  Headset,
+  ClipboardList,
   Users,
-  FlaskConical,
   Settings,
   type LucideIcon,
 } from "lucide-react"
@@ -20,14 +20,14 @@ type NavItem = {
 }
 
 const mainNav: NavItem[] = [
-  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { title: "Demo", href: "/demo", icon: FlaskConical },
-  { title: "Blog", href: "/blog", icon: Newspaper, badge: "New" },
-  { title: "Accounts", href: "/account", icon: Users },
+  { title: "总览仪表盘", href: "/dashboard", icon: LayoutDashboard },
+  { title: "客服工作台", href: "/workbench", icon: Headset, badge: "AI" },
+  { title: "订单管理", href: "/orders", icon: ClipboardList },
+  { title: "客服账号", href: "/account", icon: Users },
 ]
 
 const secondaryNav: NavItem[] = [
-  { title: "Settings", href: "/settings", icon: Settings },
+  { title: "系统配置", href: "/settings", icon: Settings },
 ]
 
 export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
@@ -35,19 +35,19 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
     <>
       <div className="flex h-16 items-center gap-2 border-b px-6">
         <img src={logoUrl} alt="" className="size-8" aria-hidden="true" />
-        <span className="text-lg font-semibold tracking-tight">Tiny-Web</span>
+        <span className="text-lg font-semibold tracking-tight">自动化服务评估台</span>
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         <p className="text-muted-foreground px-3 pb-2 pt-2 text-xs font-semibold uppercase tracking-wider">
-          Workspace
+          工作区
         </p>
         {mainNav.map((item) => (
           <SidebarItem key={item.href} item={item} onNavigate={onNavigate} />
         ))}
 
         <p className="text-muted-foreground px-3 pb-2 pt-6 text-xs font-semibold uppercase tracking-wider">
-          General
+          管理
         </p>
         {secondaryNav.map((item) => (
           <SidebarItem key={item.href} item={item} onNavigate={onNavigate} />
@@ -56,7 +56,8 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="border-t p-3">
         <div className="bg-sidebar-accent text-sidebar-accent-foreground rounded-lg p-3 text-xs">
-          <p className="font-medium">Tiny-Web Admin</p>
+          <p className="font-medium">智能评价与自动化</p>
+          <p className="text-muted-foreground mt-1">V1.0 · 评审稿</p>
         </div>
       </div>
     </>

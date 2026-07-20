@@ -54,13 +54,7 @@ export function AccountPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Accounts</h2>
-          <p className="text-muted-foreground text-sm">
-            Users registered in your workspace.
-          </p>
-        </div>
+      <div className="flex items-center justify-end">
         <Badge variant="secondary">
           <Users className="mr-1 size-3" />
           {total} total
