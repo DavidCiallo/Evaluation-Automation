@@ -11,6 +11,7 @@ import { intentRoutes } from "../../shared/modules/intent/intent.router";
 import { workbenchRoutes } from "../../shared/modules/workbench/workbench.router";
 import { configRoutes } from "../../shared/modules/config/config.router";
 import { syncRoutes } from "../../shared/modules/sync/sync.router";
+import { exemptionRoutes } from "../../shared/modules/exemption/exemption.router";
 
 export const authApi = createClient(authRoutes);
 export const accountApi = createClient(accountRoutes);
@@ -24,3 +25,4 @@ export const intentApi = createClient(intentRoutes);
 export const workbenchApi = createClient(workbenchRoutes);
 export const configApi = createClient(configRoutes);
 export const syncApi = createClient(syncRoutes);
+export const exemptionApi = createClient(exemptionRoutes);

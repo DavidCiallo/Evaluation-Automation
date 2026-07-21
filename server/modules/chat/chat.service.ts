@@ -35,6 +35,8 @@ export async function listChats(opts: { agentId?: string; status: "all" | "pendi
     // For chats missing a snapshot, build from conversation history
     const missingIds = chatIds.filter((id) => !snapshotMap.has(id));
     if (missingIds.length > 0) {
+        const { getExemption, computeExemptUnread } = await import("../exemption/exemption.service");
+        const ex = await getExemption();
         const convRows = await conversationRepo.find({ chat_id: { $in: missingIds } } as any);
         const chatMsgs = new Map<string, ConversationEntity[]>();
         for (const row of convRows) {
@@ -50,10 +52,7 @@ export async function listChats(opts: { agentId?: string; status: "all" | "pendi
             if (msgs.length === 0) continue;
             msgs.sort((a, b) => (a.send_time || 0) - (b.send_time || 0));
             const last = msgs[msgs.length - 1];
-            let lastAgentTime = 0;
-            for (const m of msgs) { if (m.from_role === "agent") lastAgentTime = m.send_time || 0; }
-            let unreadCount = 0;
-            for (const m of msgs) { if (m.from_role === "customer" && (m.send_time || 0) > lastAgentTime) unreadCount++; }
+            const unreadCount = computeExemptUnread(msgs, ex, cid);
             const cust = customerMap.get(cid);
             const snapshot: ChatSnapshotEntity = {
                 id: crypto.randomUUID(),
@@ -75,7 +74,9 @@ export async function listChats(opts: { agentId?: string; status: "all" | "pendi
     const out: any[] = [];
     for (const c of chats) {
         const snap = snapshotMap.get(c.id);
-        const isPending = snap ? snap.last_from_role === "customer" : false;
+        // Pending is derived from exemption-aware unread_count (not last_from_role,
+        // which is still used for the [客服]/[客户] prefix display).
+        const isPending = snap ? (snap.unread_count || 0) > 0 : false;
         if (opts.status === "pending" && !isPending) continue;
 
         out.push({

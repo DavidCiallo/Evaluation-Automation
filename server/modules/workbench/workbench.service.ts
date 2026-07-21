@@ -15,11 +15,15 @@ const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSn
  * Resolve the agent identity from the auth token (admin email).
  * If admin logs in, fall back to "first agent in system" so the demo works.
  */
-export async function resolveAgent(identity: string): Promise<{ id: string; name: string; wechat_id: string } | null> {
+export async function resolveAgent(identity: string): Promise<{ id: string; name: string; wechat_id: string; isAdmin?: boolean } | null> {
     // First try matching Account row by email
     const byEmail = await accountRepo.findOne({ email: identity });
     if (byEmail?.wechat_id) {
         return { id: byEmail.id, name: byEmail.name, wechat_id: byEmail.wechat_id };
+    }
+    // Admin without wechat_id → return with isAdmin flag
+    if (byEmail && !byEmail.wechat_id) {
+        return { id: byEmail.id, name: byEmail.name || "Admin", wechat_id: "", isAdmin: true };
     }
     // Fall back: pick first agent account
     const any = await accountRepo.findOne({ role: "agent" } as any);
@@ -31,90 +35,69 @@ export async function getHome(agentIdentity: string) {
     const agent = await resolveAgent(agentIdentity);
     if (!agent) return { agent: null, chats: [] };
 
-    // Get all chats for this agent
-    const myMembers = await memberRepo.find({ wechat_id: agent.wechat_id, role: "agent" });
-    const ids = new Set(myMembers.map((m) => m.chat_id));
-
-    // Find chats that have at least one customer (exclude internal-only chats)
-    const relevantMembers = await memberRepo.find({ chat_id: { $in: [...ids] } } as any);
-    const chatHasCustomer = new Set<string>();
-    for (const m of relevantMembers) {
-        if (m.role === "customer") chatHasCustomer.add(m.chat_id);
-    }
-
-    const filteredIds = [...ids].filter((id) => chatHasCustomer.has(id));
-
-    // Batch-load chats and snapshots in two queries
-    const [chatRows, snapshotRows] = await Promise.all([
-        Promise.all(filteredIds.map((id) => chatRepo.findOne({ id }))),
-        snapshotRepo.find({ chat_id: { $in: filteredIds } } as any),
+    // Batch-load ALL data in one pass each (avoids N×M scans with $in)
+    const [allMembers, allChats, allSnapshots] = await Promise.all([
+        memberRepo.findAllIgnoreDelete(),
+        chatRepo.findAllIgnoreDelete(),
+        snapshotRepo.findAllIgnoreDelete(),
     ]);
 
-    const snapshotMap = new Map(snapshotRows.map((s) => [s.chat_id, s]));
+    // Build lookup maps
+    const chatMap = new Map(allChats.map((c) => [c.id, c]));
+    const snapshotMap = new Map(allSnapshots.map((s) => [s.chat_id, s]));
 
-    // For chats missing a snapshot, batch-query last message from conversation table and persist snapshot
-    const missingIds = filteredIds.filter((id) => !snapshotMap.has(id));
-    if (missingIds.length > 0) {
-        const convRows = await conversationRepo.find({ chat_id: { $in: missingIds } } as any);
-        // Group by chat_id: track last message + count
-        // Group by chat_id: track last message, count, and last agent reply time
-        const chatMsgs = new Map<string, ConversationEntity[]>();
-        for (const row of convRows) {
-            const arr = chatMsgs.get(row.chat_id);
-            if (arr) arr.push(row); else chatMsgs.set(row.chat_id, [row]);
-        }
-        const convGroup = new Map<string, { last: ConversationEntity; count: number; unreadCount: number }>();
-        for (const [chatId, msgs] of chatMsgs) {
-            // Sort by send_time to process in chronological order
-            msgs.sort((a, b) => (a.send_time || 0) - (b.send_time || 0));
-            const last = msgs[msgs.length - 1];
-            // Find last agent message time, then count customer messages after it
-            let lastAgentTime = 0;
-            for (const m of msgs) {
-                if (m.from_role === "agent") lastAgentTime = m.send_time || 0;
+    // Build customer set from in-memory data
+    const customerChatIds = new Set(allMembers.filter((m) => m.role === "customer").map((m) => m.chat_id));
+
+    // Admin sees all chats with customers; agent sees only their own
+    let filteredIds: string[];
+    if (agent.isAdmin) {
+        filteredIds = [...customerChatIds];
+    } else {
+        const agentChatIds = new Set(allMembers.filter((m) => m.role === "agent" && m.wechat_id === agent.wechat_id).map((m) => m.chat_id));
+        filteredIds = [...agentChatIds].filter((id) => customerChatIds.has(id));
+    }
+
+    // Build customer name map: prefer name with most readable characters
+    const customerMap = new Map<string, { name: string; remark: string }>();
+    for (const m of allMembers) {
+        if (m.role === "customer" && (m.name || m.remark)) {
+            const entry = { name: m.name || "", remark: m.remark || "" };
+            const existing = customerMap.get(m.chat_id);
+            // Prefer the customer with a more human-readable name
+            if (!existing || (entry.remark && !existing.remark)) {
+                customerMap.set(m.chat_id, entry);
             }
-            let unreadCount = 0;
-            for (const m of msgs) {
-                if (m.from_role === "customer" && (m.send_time || 0) > lastAgentTime) unreadCount++;
-            }
-            convGroup.set(chatId, { last, count: msgs.length, unreadCount });
-        }
-        // Persist snapshot for each missing chat that has messages
-        const memberRows = await memberRepo.find({ chat_id: { $in: missingIds } } as any);
-        const customerMap = new Map<string, ChatMemberEntity>();
-        for (const m of memberRows) {
-            if (m.role === "customer" && !customerMap.has(m.chat_id)) {
-                customerMap.set(m.chat_id, m);
-            }
-        }
-        for (const [chatId, info] of convGroup) {
-            const cust = customerMap.get(chatId);
-            const snapshot: ChatSnapshotEntity = {
-                id: crypto.randomUUID(),
-                chat_id: chatId,
-                last_content: info.last.content || "",
-                last_from_role: info.last.from_role || "customer",
-                last_send_time: info.last.send_time,
-                last_msg_type: info.last.msg_type || "text",
-                msg_count: info.count,
-                unread_count: info.unreadCount,
-                customer_name: cust?.name || "",
-                customer_avatar: cust?.avatar || null,
-            };
-            await snapshotRepo.insert(snapshot);
-            snapshotMap.set(chatId, snapshot);
         }
     }
 
     const chats: any[] = [];
-    for (let i = 0; i < filteredIds.length; i++) {
-        const c = chatRows[i];
+    for (const chatId of filteredIds) {
+        const c = chatMap.get(chatId);
         if (!c) continue;
-        const snap = snapshotMap.get(c.id);
+        const snap = snapshotMap.get(chatId);
+
+        let displayName = c.name;
+        const cust = customerMap.get(chatId);
+
+        if (c.type === "private" || c.type === "single") {
+            // Private chats: always show customer nickname (remark rendered separately on frontend)
+            if (cust) {
+                displayName = cust.name || cust.remark;
+            }
+        } else if (cust) {
+            // Group chats: replace raw wechat_id names with customer nickname
+            const looksLikeWxId = /^[a-zA-Z0-9_-]{15,}$/.test(c.name) || c.name.startsWith("wrsMmSYQAA");
+            if (looksLikeWxId) {
+                displayName = cust.remark || cust.name;
+            }
+        }
+
         chats.push({
             id: c.id,
             chat_id: c.chat_id,
-            name: c.name,
+            name: displayName,
+            customer_remark: cust?.remark || "",
             type: c.type,
             last_send_time: c.last_send_time || 0,
             unread: snap?.unread_count || 0,
@@ -122,7 +105,9 @@ export async function getHome(agentIdentity: string) {
             last_msg_time: snap?.last_send_time || c.last_send_time || 0,
             last_msg_type: snap?.last_msg_type || "text",
             msg_count: snap?.msg_count || 0,
-            pending: snap?.last_from_role === "customer" || false,
+            // Pending is derived from exemption-aware unread_count (not last_from_role,
+            // which is still used for the [客服]/[客户] prefix display).
+            pending: (snap?.unread_count || 0) > 0,
             last_from_role: snap?.last_from_role || "",
         });
     }
@@ -131,12 +116,58 @@ export async function getHome(agentIdentity: string) {
 }
 
 export async function getChatBundle(chatId: string) {
-    const chat = await chatRepo.findOne({ id: chatId });
+    let chat = await chatRepo.findOne({ id: chatId });
     if (!chat) throw "chat not found";
-    const members = await memberRepo.find({ chat_id: chatId });
+    let members = await memberRepo.find({ chat_id: chatId });
     const messages = await conversationRepo.find({ chat_id: chatId }, { limit: 200 });
     messages.sort((a, b) => a.send_time - b.send_time);
     const drafts = await orderRepo.find({ chat_id: chatId });
+
+    // Fetch missing names from WeCom API on-demand
+    try {
+        const { getExternalContact, isWxConfigured } = await import("../../lib/wx");
+        if (isWxConfigured()) {
+            const ext = getExternalContact();
+            if (ext) {
+                // 1. Refresh customer names that are still raw wechat_ids
+                const needsName = members.filter(
+                    (m: any) => m.role === "customer" && /^[a-zA-Z0-9_-]{15,}$/.test(m.name || ""),
+                );
+                let updated = false;
+                for (const m of needsName) {
+                    try {
+                        const detail = await ext.getExternalContact((m as any).wechat_id);
+                        if (detail?.external_contact?.name) {
+                            const patch: any = {};
+                            if (detail.external_contact.name !== m.name) patch.name = detail.external_contact.name;
+                            if (detail.external_contact.avatar && detail.external_contact.avatar !== (m as any).avatar) patch.avatar = detail.external_contact.avatar;
+                            if (Object.keys(patch).length > 0) {
+                                await memberRepo.update({ id: m.id }, patch);
+                                updated = true;
+                            }
+                        }
+                    } catch { /* skip */ }
+                }
+                if (updated) members = await memberRepo.find({ chat_id: chatId });
+
+                // 2. Refresh group chat name if it's still a raw wechat_id
+                if (chat.type === "group") {
+                    const looksLikeWxId = /^[a-zA-Z0-9_-]{15,}$/.test(chat.name) || chat.name.startsWith("wrsMmSYQAA");
+                    if (looksLikeWxId) {
+                        try {
+                            const detail = await ext.getGroupchatDetail(chat.chat_id);
+                            const newName = detail?.group_chat?.name;
+                            if (newName && newName !== chat.name) {
+                                await chatRepo.update({ id: chat.id }, { name: newName });
+                                chat = { ...chat, name: newName } as any;
+                            }
+                        } catch { /* skip */ }
+                    }
+                }
+            }
+        }
+    } catch { /* wx not available */ }
+
     return {
         chat,
         members,
