@@ -4,7 +4,7 @@ import path from "node:path";
 
 export default defineConfig({
     html: {
-        title: "Tiny-Web",
+        title: "Evaluation-Automation",
     },
     plugins: [pluginReact()],
     source: {

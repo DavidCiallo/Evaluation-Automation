@@ -20,6 +20,7 @@ import { intentMount } from "../modules/intent/intent.controller";
 import { workbenchMount } from "../modules/workbench/workbench.controller";
 import { configMount } from "../modules/config/config.controller";
 import { syncMount } from "../modules/sync/sync.controller";
+import { exemptionMount } from "../modules/exemption/exemption.controller";
 import { startPoller } from "../modules/sync/sync.service";
 import { startMetricsJob } from "../modules/metric/metric.service";
 import { isWxConfigured } from "../lib/wx";
@@ -33,9 +34,11 @@ if (process.env.WECOM_DB_PATH && !isWecomSeeded()) {
     await seedFromWecomDb(process.env.WECOM_DB_PATH);
 }
 
-// Start poller: live WeChat or mock fallback. Skip only when static seed data was loaded.
+// Start poller: live SDK or mock fallback. Skip only when static seed data was loaded.
 const seeded = isWecomSeeded();
-if (isWxConfigured() || !seeded) {
+const sdkHost = process.env.SDK_HOST || "http://121.196.237.175:8899";
+const hasLiveSdk = sdkHost !== "http://127.0.0.1:8899";
+if (isWxConfigured() || hasLiveSdk || !seeded) {
     startPoller().catch((e) => console.error("[boot] poller failed", e));
 } else {
     console.log("[boot] data seeded from WeCom DB — poller disabled");
@@ -51,6 +54,24 @@ Bun.serve({
         const url = new URL(req.url);
         const pathName = url.pathname;
 
+        // Serve cached media files (images from WeCom SDK)
+        if (pathName.startsWith("/api/media/") && req.method === "GET") {
+            const { serveCachedMedia } = await import("../lib/media");
+            const filename = pathName.replace("/api/media/", "");
+            if (filename && !filename.includes("..")) {
+                const file = serveCachedMedia(filename);
+                if (file) {
+                    return new Response(file.buffer, {
+                        headers: {
+                            "Content-Type": file.contentType,
+                            "Cache-Control": "public, max-age=86400",
+                        },
+                    });
+                }
+            }
+            return new Response("Not Found", { status: 404 });
+        }
+
         const apiResponse = await mounthttp(req, [
             authMount,
             accountMount,
@@ -62,6 +83,7 @@ Bun.serve({
             workbenchMount,
             configMount,
             syncMount,
+            exemptionMount,
             demoMount,
             blogMount,
         ]);

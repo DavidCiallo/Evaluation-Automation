@@ -1,0 +1,72 @@
+import path from "path";
+import fs from "fs";
+import { getWxBin, isWxConfigured } from "./wx";
+
+const MEDIA_DIR = path.resolve(process.cwd(), "data/media");
+
+function ensureDir() {
+    if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
+}
+
+/**
+ * Download a WeCom media file (image/voice/video/file) by sdkfileid and cache it locally.
+ * Returns the local filename (e.g. "abc123.jpg") or null on failure.
+ */
+export async function downloadAndCacheMedia(sdkfileid: string): Promise<string | null> {
+    if (!isWxConfigured()) return null;
+    const bin = getWxBin();
+    if (!bin) return null;
+
+    ensureDir();
+
+    // Check if already cached (look for any file starting with the sdkfileid)
+    const existing = fs.readdirSync(MEDIA_DIR).find((f) => f.startsWith(sdkfileid));
+    if (existing) return existing;
+
+    try {
+        const result = await bin.getMedia(sdkfileid);
+        if (!result) return null;
+
+        const ext = guessExt(result.contentType);
+        const filename = `${sdkfileid}${ext}`;
+        fs.writeFileSync(path.join(MEDIA_DIR, filename), Buffer.from(result.buffer));
+        console.log(`[media] cached ${filename} (${(result.buffer.byteLength / 1024).toFixed(1)}KB)`);
+        return filename;
+    } catch (e) {
+        console.error(`[media] download failed for ${sdkfileid}:`, e);
+        return null;
+    }
+}
+
+function guessExt(contentType: string): string {
+    if (contentType.includes("image/jpeg") || contentType.includes("image/jpg")) return ".jpg";
+    if (contentType.includes("image/png")) return ".png";
+    if (contentType.includes("image/gif")) return ".gif";
+    if (contentType.includes("image/webp")) return ".webp";
+    if (contentType.includes("video/mp4")) return ".mp4";
+    if (contentType.includes("audio")) return ".amr";
+    return ".bin";
+}
+
+/**
+ * Serve a cached media file. Returns { buffer, contentType } or null if not found.
+ */
+export function serveCachedMedia(filename: string): { buffer: Buffer; contentType: string } | null {
+    const filePath = path.join(MEDIA_DIR, filename);
+    if (!fs.existsSync(filePath)) return null;
+    const ext = path.extname(filename).toLowerCase();
+    const contentTypeMap: Record<string, string> = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".mp4": "video/mp4",
+        ".amr": "audio/amr",
+        ".bin": "application/octet-stream",
+    };
+    return {
+        buffer: fs.readFileSync(filePath),
+        contentType: contentTypeMap[ext] || "application/octet-stream",
+    };
+}

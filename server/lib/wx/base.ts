@@ -53,4 +53,23 @@ export class WeComBin {
         });
         return { data: await res.json() };
     }
+
+    /**
+     * Download media (image/voice/video/file) by media_id or sdkfileid.
+     * Returns { buffer, contentType } or null on failure.
+     */
+    async getMedia(mediaId: string): Promise<{ buffer: ArrayBuffer; contentType: string } | null> {
+        const token = await this.getAccessToken();
+        const url = `${this.baseUrl}/media/get?access_token=${encodeURIComponent(token)}&media_id=${encodeURIComponent(mediaId)}`;
+        const res = await fetch(url);
+        const contentType = res.headers.get("content-type") || "application/octet-stream";
+        if (contentType.includes("application/json") || contentType.includes("text/plain")) {
+            // Error response (json with errcode)
+            const err = await res.json().catch(() => ({}));
+            // console.error("[WeComBin] getMedia error:", (err as any).errmsg || err);
+            return null;
+        }
+        const buffer = await res.arrayBuffer();
+        return { buffer, contentType };
+    }
 }

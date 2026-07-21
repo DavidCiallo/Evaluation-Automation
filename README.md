@@ -1,4 +1,4 @@
-# Tiny-Web
+# Evaluation-Automation
 
 Full-stack TypeScript app — React frontend + Bun backend, single service.
 

@@ -12,7 +12,7 @@ import { toast } from "@/client/methods/notify"
 
 export function AuthPage() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState("admin@tiny-web.local")
+  const [email, setEmail] = useState("admin@Evaluation-Automation.local")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -38,7 +38,7 @@ export function AuthPage() {
             T
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
-          <CardDescription>Sign in to your Tiny-Web admin panel</CardDescription>
+          <CardDescription>Sign in to your Evaluation-Automation admin panel</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onLogin} className="space-y-4">

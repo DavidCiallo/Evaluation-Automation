@@ -17,6 +17,7 @@ export interface MockEvent {
     msgtype: string;
     msgtime: number;
     text?: { content: string };
+    image?: { sdkfileid: string };
 }
 
 // Deterministic pool — kept small so seeding is reproducible

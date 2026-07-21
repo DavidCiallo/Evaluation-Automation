@@ -14,7 +14,7 @@ export function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div className="bg-background flex min-h-screen w-full">
+    <div className="bg-background flex h-screen w-full overflow-hidden">
       <DesktopSidebar />
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -30,7 +30,7 @@ export function AdminLayout() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar onOpenMobileNav={() => setMobileOpen(true)} />
-        <main className="bg-muted/30 flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="bg-muted/30 flex flex-1 flex-col overflow-y-auto p-4 sm:p-6 min-h-0">
           <Outlet />
         </main>
       </div>
