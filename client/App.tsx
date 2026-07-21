@@ -16,6 +16,8 @@ import { WorkbenchPage } from "./pages/workbench/WorkbenchPage";
 import { OrdersPage } from "./pages/orders/OrdersPage";
 import { OrderDetailPage } from "./pages/orders/OrderDetailPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
+import { StatisticsPage } from "./pages/settings/StatisticsPage";
+import { AgentConfigPage } from "./pages/settings/AgentConfigPage";
 import { getAuth } from "./methods/auth";
 
 function PrivateRoute() {
@@ -41,6 +43,8 @@ export default function App() {
                             <Route path="/orders" element={<OrdersPage />} />
                             <Route path="/orders/:id" element={<OrderDetailPage />} />
                             <Route path="/account" element={<AccountPage />} />
+                            <Route path="/statistics" element={<StatisticsPage />} />
+                            <Route path="/agent-config" element={<AgentConfigPage />} />
                             <Route path="/settings" element={<SettingsPage />} />
                         </Route>
                     </Route>

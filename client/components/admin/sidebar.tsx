@@ -5,6 +5,8 @@ import {
   ClipboardList,
   Users,
   Settings,
+  BarChart3,
+  Bot,
   type LucideIcon,
 } from "lucide-react"
 
@@ -27,6 +29,8 @@ const mainNav: NavItem[] = [
 ]
 
 const secondaryNav: NavItem[] = [
+  { title: "统计管理", href: "/statistics", icon: BarChart3 },
+  { title: "智能体配置", href: "/agent-config", icon: Bot },
   { title: "系统配置", href: "/settings", icon: Settings },
 ]
 
