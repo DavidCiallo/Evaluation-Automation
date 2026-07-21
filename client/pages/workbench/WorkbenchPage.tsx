@@ -37,6 +37,7 @@ type Chat = {
     msg_count: number
     pending?: boolean
     last_from_role?: string
+    customer_remark?: string
 }
 type Member = {
     id: string
@@ -98,6 +99,8 @@ export function WorkbenchPage() {
     })
     const [selectedId, setSelectedId] = useState<string | null>((params.chatId as string) || null)
     const [status, setStatus] = useState<"all" | "pending">("all")
+    const [chatSearch, setChatSearch] = useState("")
+    const [visibleCount, setVisibleCount] = useState(50)
     const [members, setMembers] = useState<Member[]>([])
     const [messages, setMessages] = useState<Message[]>([])
     const [drafts, setDrafts] = useState<Order[]>([])
@@ -132,7 +135,7 @@ export function WorkbenchPage() {
             }
         }
         fetchOnce()
-        const id = setInterval(fetchOnce, 10_000)
+        const id = setInterval(fetchOnce, 30_000)
         return () => { alive = false; clearInterval(id) }
     }, [auth, navigate, selectedId])
 
@@ -157,19 +160,30 @@ export function WorkbenchPage() {
         if (!selectedId) return
         const reqId = ++chatReqId.current
         setLoadingChat(true)
-        workbenchApi.chat({ chat_id: selectedId, auth }).then((res: any) => {
-            if (reqId !== chatReqId.current) return  // stale — user already switched
-            const d = res?.data
-            if (d) {
-                setMembers(d.members || [])
-                setMessages(d.messages || [])
-                setDrafts(d.drafts || [])
-                setSummary(d.summary || "")
-            }
-            setLoadingChat(false)
-        }).catch(() => {
-            if (reqId === chatReqId.current) setLoadingChat(false)
-        })
+
+        let first = true
+        const fetchChat = () => {
+            workbenchApi.chat({ chat_id: selectedId, auth }).then((res: any) => {
+                if (reqId !== chatReqId.current) return
+                const d = res?.data
+                if (d) {
+                    setMembers(d.members || [])
+                    setMessages(d.messages || [])
+                    if (first) {
+                        setDrafts(d.drafts || [])
+                        setSummary(d.summary || "")
+                        first = false
+                    }
+                }
+                setLoadingChat(false)
+            }).catch(() => {
+                if (reqId === chatReqId.current) setLoadingChat(false)
+            })
+        }
+
+        fetchChat()
+        const id = setInterval(fetchChat, 30_000)
+        return () => { clearInterval(id) }
     }, [selectedId, auth])
 
     // Auto-scroll to bottom
@@ -180,9 +194,17 @@ export function WorkbenchPage() {
     }, [messages.length])
 
     const filteredChats = useMemo(() => {
-        if (status === "pending") return chats.filter((c) => c.pending)
-        return chats
-    }, [chats, status])
+        let list = chats
+        if (status === "pending") list = list.filter((c) => c.pending)
+        if (chatSearch.trim()) {
+            const q = chatSearch.trim().toLowerCase()
+            list = list.filter((c) => c.name.toLowerCase().includes(q) || c.chat_id.toLowerCase().includes(q))
+        }
+        return list
+    }, [chats, status, chatSearch])
+
+    const visibleChats = useMemo(() => filteredChats.slice(0, visibleCount), [filteredChats, visibleCount])
+    const hasMore = visibleCount < filteredChats.length
 
     const activeDraft = useMemo(() => drafts.find((d) => d.status === "draft") || null, [drafts])
 
@@ -250,7 +272,7 @@ export function WorkbenchPage() {
     }
 
     return (
-        <div className="flex h-[calc(100vh-7rem)] flex-col gap-3">
+        <div className="flex flex-1 min-h-0 flex-col gap-3">
             <div className="flex items-center justify-end">
                 <div className="flex gap-2">
                     <Badge variant={status === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setStatus("all")}>
@@ -262,18 +284,26 @@ export function WorkbenchPage() {
                 </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[260px_1fr_320px]">
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[320px_1fr_320px]">
                 {/* Left: chat list */}
                 <Card className="min-h-0 overflow-hidden py-0">
                     <div className="flex h-full flex-col">
-                        <div className="border-b p-3 text-xs font-semibold uppercase text-muted-foreground">
-                            会话 ({filteredChats.length})
+                        <div className="border-b p-3 space-y-2">
+                            <div className="text-xs font-semibold uppercase text-muted-foreground">
+                                会话 ({filteredChats.length})
+                            </div>
+                            <Input
+                                placeholder="搜索会话..."
+                                value={chatSearch}
+                                onChange={(e) => { setChatSearch(e.target.value); setVisibleCount(50) }}
+                                className="h-7 text-xs"
+                            />
                         </div>
                         <div className="min-h-0 flex-1 overflow-y-auto">
-                            {filteredChats.length === 0 && (
+                            {visibleChats.length === 0 && (
                                 <p className="text-muted-foreground p-3 text-sm">暂无会话</p>
                             )}
-                            {filteredChats.map((c) => (
+                            {visibleChats.map((c) => (
                                 <button
                                     key={c.id}
                                     onClick={() => setSelectedId(c.id)}
@@ -282,7 +312,12 @@ export function WorkbenchPage() {
                                     }`}
                                 >
                                     <div className="flex items-center gap-2">
-                                        <span className="truncate text-sm font-medium">{c.name}</span>
+                                        <span className="truncate text-sm font-medium">
+                                            {c.name}
+                                            {c.type === "single" && c.customer_remark && (
+                                                <span className="text-muted-foreground/60 ml-1 text-xs font-normal">（{c.customer_remark}）</span>
+                                            )}
+                                        </span>
                                         {c.pending && (
                                             <Badge variant="destructive" className="h-4 px-1 text-[10px]">
                                                 待回复
@@ -299,6 +334,14 @@ export function WorkbenchPage() {
                                     </div>
                                 </button>
                             ))}
+                            {hasMore && (
+                                <button
+                                    onClick={() => setVisibleCount((v) => v + 50)}
+                                    className="text-muted-foreground hover:text-foreground w-full py-2 text-xs text-center transition"
+                                >
+                                    加载更多 ({filteredChats.length - visibleCount} 条未显示)
+                                </button>
+                            )}
                         </div>
                     </div>
                 </Card>
@@ -344,7 +387,11 @@ export function WorkbenchPage() {
                                                     {displayName} · {new Date(m.send_time).toLocaleString("zh-CN", { hour12: false })}
                                                 </div>
                                                 <div className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground whitespace-pre-wrap break-all relative">
-                                                    {showTruncated ? (
+                                                {m.msg_type === "image" && m.content && m.content.startsWith("/api/media/") ? (
+                                                        <a href={m.content} target="_blank" rel="noopener noreferrer">
+                                                            <img src={m.content} alt="图片" className="max-w-[280px] max-h-[200px] rounded cursor-pointer hover:opacity-90 transition" />
+                                                        </a>
+                                                    ) : showTruncated ? (
                                                         <>
                                                             {fullText.slice(0, 150)}
                                                             <span className="text-muted-foreground">...</span>

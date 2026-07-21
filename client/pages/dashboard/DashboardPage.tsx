@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/client/components/ui/badge"
 import { Skeleton } from "@/client/components/ui/skeleton"
 import { Button } from "@/client/components/ui/button"
-import { metricApi } from "@/client/api/instance"
+import { metricApi, configApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 
 type Overview = {
@@ -42,9 +42,10 @@ type Anomaly = {
 
 function fmtSec(s: number): string {
     if (!s) return "—"
-    if (s < 60) return `${s}s`
-    const m = Math.floor(s / 60)
-    const r = s % 60
+    const v = Math.round(s * 10) / 10
+    if (v < 60) return `${v}s`
+    const m = Math.floor(v / 60)
+    const r = Math.round((v - m * 60) * 10) / 10
     return r ? `${m}m${r}s` : `${m}m`
 }
 
@@ -57,34 +58,39 @@ export function DashboardPage() {
     const [agents, setAgents] = useState<Agent[]>([])
     const [sort, setSort] = useState<"rate30" | "frt" | "art">("rate30")
     const [anomalies, setAnomalies] = useState<Anomaly[]>([])
+    const [instantThreshold, setInstantThreshold] = useState(30)
     const [loading, setLoading] = useState(true)
 
     const maxTrend = useMemo(() => Math.max(1, ...trend.map((p) => p.value)), [trend])
 
     useEffect(() => {
+        let cancelled = false
         async function load() {
             setLoading(true)
-            const [ov, tr, lb, an] = await Promise.all([
-                metricApi.overview({ range: "7d", auth }),
-                metricApi.trend({ range: trendRange, metric: trendMetric, auth }),
-                metricApi.leaderboard({ range: "7d", sort, auth }),
-                metricApi.anomalies({ range: "7d", threshold: 300, auth }),
-            ])
-            setOverview((ov as any)?.data || null)
-            setTrend(((tr as any)?.data?.points) as TrendPoint[] || [])
-            setAgents(((lb as any)?.data?.agents) as Agent[] || [])
-            setAnomalies(((an as any)?.data?.anomalies) as Anomaly[] || [])
-            setLoading(false)
+            try {
+                const [ov, tr, lb, an, cfg] = await Promise.all([
+                    metricApi.overview({ range: "7d", auth }),
+                    metricApi.trend({ range: trendRange, metric: trendMetric, auth }),
+                    metricApi.leaderboard({ range: "7d", sort, auth }),
+                    metricApi.anomalies({ range: "7d", threshold: 300, auth }),
+                    configApi.get({ auth }),
+                ])
+                if (cancelled) return
+                setOverview((ov as any)?.data || null)
+                setTrend(((tr as any)?.data?.points) as TrendPoint[] || [])
+                setAgents(((lb as any)?.data?.agents) as Agent[] || [])
+                setAnomalies(((an as any)?.data?.anomalies) as Anomaly[] || [])
+                const thr = Number((cfg as any)?.data?.rate30_threshold_sec)
+                if (Number.isFinite(thr) && thr > 0) setInstantThreshold(thr)
+            } catch (err) {
+                console.error("[Dashboard] API error:", err)
+            } finally {
+                if (!cancelled) setLoading(false)
+            }
         }
         load()
+        return () => { cancelled = true }
     }, [auth, trendRange, trendMetric, sort])
-
-    const loadTrend = async (m: typeof trendMetric, r: typeof trendRange) => {
-        setTrendMetric(m)
-        setTrendRange(r)
-        const tr = await metricApi.trend({ range: r, metric: m, auth })
-        setTrend(((tr as any)?.data?.points) as TrendPoint[] || [])
-    }
 
     return (
         <div className="space-y-6">
@@ -92,28 +98,24 @@ export function DashboardPage() {
                 <KpiCard
                     title="今日咨询量"
                     value={overview ? String(overview.today_volume) : undefined}
-                    loading={loading}
                     icon={Activity}
                     hint="客户消息总数"
                 />
                 <KpiCard
                     title="平均首次响应"
                     value={overview ? fmtSec(overview.frt_avg_sec) : undefined}
-                    loading={loading}
                     icon={Clock}
                     hint="7天平均 FRT"
                 />
                 <KpiCard
-                    title="30秒应答率"
+                    title="即时应答率"
                     value={overview ? `${overview.rate30}%` : undefined}
-                    loading={loading}
                     icon={Gauge}
-                    hint="7天平均"
+                    hint={`≤${instantThreshold}s 内应答 · 7天平均`}
                 />
                 <KpiCard
                     title="待处理订单"
                     value={overview ? String(overview.pending_orders) : undefined}
-                    loading={loading}
                     icon={Inbox}
                     hint="草稿中订单"
                 />
@@ -130,43 +132,53 @@ export function DashboardPage() {
                                     key={m}
                                     variant={trendMetric === m ? "default" : "outline"}
                                     className="cursor-pointer"
-                                    onClick={() => loadTrend(m, trendRange)}
+                                    onClick={() => setTrendMetric(m)}
                                 >
                                     {m === "volume" ? "咨询量" : m === "frt" ? "首次响应(s)" : "平均响应(s)"}
                                 </Badge>
                             ))}
                             <div className="ml-auto flex gap-2">
-                                {(["7d", "30d"] as const).map((r) => (
-                                    <Badge
-                                        key={r}
-                                        variant={trendRange === r ? "default" : "outline"}
-                                        className="cursor-pointer"
-                                        onClick={() => loadTrend(trendMetric, r)}
-                                    >
-                                        {r === "7d" ? "7 天" : "30 天"}
-                                    </Badge>
-                                ))}
+                                {(["7d", "30d"] as const).map((r) => {
+                                    const disabled = r === "30d"
+                                    return (
+                                        <Badge
+                                            key={r}
+                                            variant={trendRange === r ? "default" : "outline"}
+                                            className={disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"}
+                                            onClick={() => !disabled && setTrendRange(r)}
+                                        >
+                                            {r === "7d" ? "7 天" : "30 天"}
+                                        </Badge>
+                                    )
+                                })}
                             </div>
                         </div>
                     </CardHeader>
-                    <CardContent>
-                        <div className="flex h-56 items-end gap-2">
-                            {trend.length === 0 && loading ? (
+                    <CardContent className="flex flex-1 flex-col">
+                        <div className="flex min-h-80 flex-1 gap-2">
+                            {trend.length === 0 ? (
                                 <Skeleton className="h-full w-full" />
                             ) : (
-                                trend.map((p, i) => (
-                                    <div key={i} className="group flex flex-1 flex-col items-center gap-1">
-                                        <div
-                                            className="bg-primary/80 hover:bg-primary relative flex w-full rounded-t-md transition-all"
-                                            style={{ height: `${(p.value / maxTrend) * 100}%`, minHeight: 2 }}
-                                        >
-                                            <span className="text-primary-foreground absolute -top-6 left-1/2 -translate-x-1/2 text-xs opacity-0 group-hover:opacity-100">
-                                                {p.value}
-                                            </span>
+                                trend.map((p, i) => {
+                                    const label = trendMetric === "volume"
+                                        ? String(p.value)
+                                        : fmtSec(p.value)
+                                    return (
+                                        <div key={i} className="group flex min-w-0 flex-1 flex-col items-center gap-1">
+                                            <div className="flex w-full flex-1 items-end">
+                                                <div
+                                                    className="bg-primary/80 hover:bg-primary relative w-full rounded-t-md transition-all"
+                                                    style={{ height: `${(p.value / maxTrend) * 100}%`, minHeight: 2 }}
+                                                >
+                                                    <div className="pointer-events-none absolute bottom-full left-1/2 z-10 -translate-x-1/2 rounded bg-foreground px-2 py-1 text-xs text-background opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap mb-1">
+                                                        {p.date} · {label}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <span className="text-muted-foreground truncate text-[10px]">{p.date}</span>
                                         </div>
-                                        <span className="text-muted-foreground truncate text-[10px]">{p.date}</span>
-                                    </div>
-                                ))
+                                    )
+                                })
                             )}
                         </div>
                     </CardContent>
@@ -177,9 +189,12 @@ export function DashboardPage() {
                         <CardTitle>异常预警</CardTitle>
                         <CardDescription>首响 &gt; 5 分钟的会话</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-2">
+                    <CardContent className="h-80 space-y-2 overflow-y-auto">
                         {anomalies.length === 0 && !loading && (
                             <p className="text-muted-foreground text-sm">无异常</p>
+                        )}
+                        {anomalies.length === 0 && loading && (
+                            <Skeleton className="h-12 w-full" />
                         )}
                         {anomalies.slice(0, 8).map((a, i) => (
                             <Link
@@ -212,7 +227,7 @@ export function DashboardPage() {
                                 className="cursor-pointer"
                                 onClick={() => setSort(s)}
                             >
-                                {s === "rate30" ? "按 30 秒应答率" : s === "frt" ? "按 FRT 升序" : "按 ART 升序"}
+                                {s === "rate30" ? "按即时应答率" : s === "frt" ? "按 FRT 升序" : "按 ART 升序"}
                             </Badge>
                         ))}
                     </div>
@@ -226,19 +241,20 @@ export function DashboardPage() {
                                     <th className="py-2 pr-3">客服</th>
                                     <th className="py-2 pr-3">FRT</th>
                                     <th className="py-2 pr-3">ART</th>
-                                    <th className="py-2 pr-3">30s 应答率</th>
+                                    <th className="py-2 pr-3">即时应答率</th>
                                     <th className="py-2 pr-3">会话数</th>
                                     <th className="py-2 pr-3">回复数</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {loading && (
-                                    <tr>
-                                        <td colSpan={7}>
-                                            <Skeleton className="h-8 w-full" />
-                                        </td>
-                                    </tr>
-                                )}
+                                {loading && agents.length === 0 &&
+                                    Array.from({ length: 5 }).map((_, i) => (
+                                        <tr key={i}>
+                                            <td colSpan={7}>
+                                                <Skeleton className="h-8 w-full" />
+                                            </td>
+                                        </tr>
+                                    ))}
                                 {!loading && agents.length === 0 && (
                                     <tr>
                                         <td colSpan={7} className="text-muted-foreground py-6 text-center">
@@ -289,13 +305,11 @@ export function DashboardPage() {
 function KpiCard({
     title,
     value,
-    loading,
     icon: Icon,
     hint,
 }: {
     title: string
     value?: string
-    loading: boolean
     icon: React.ComponentType<{ className?: string }>
     hint?: string
 }) {
@@ -309,7 +323,7 @@ function KpiCard({
                     </div>
                 </div>
                 <CardTitle className="text-3xl">
-                    {loading || value === undefined ? <Skeleton className="h-8 w-16" /> : value}
+                    {value === undefined ? <Skeleton className="h-9 w-16" /> : value}
                 </CardTitle>
                 {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
             </CardHeader>
