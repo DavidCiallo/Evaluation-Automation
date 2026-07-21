@@ -3,6 +3,9 @@ export interface ConfigBundle {
     rate30_threshold_sec: number;
     intent_prompt: string;
     summary_prompt: string;
+    business_start_hour: number;
+    business_end_hour: number;
+    business_days: number[];
     wx_connected: boolean;
     llm_connected: boolean;
     poller_running: boolean;

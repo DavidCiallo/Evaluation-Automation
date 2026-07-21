@@ -46,6 +46,13 @@ const DEFAULTS: Record<string, any> = {
     rate30_threshold_sec: 30,
     intent_prompt: DEFAULT_INTENT_PROMPT,
     summary_prompt: DEFAULT_SUMMARY_PROMPT,
+    business_start_hour: 8,
+    business_end_hour: 18,
+    business_days: [1, 2, 3, 4, 5], // Mon–Fri (JS getDay(): 0=Sun…6=Sat)
+    // Per-agent working-hour overrides keyed by agent wechat_id. Each value is a
+    // partial { start_hour?, end_hour?, days? } merged on top of the defaults
+    // above; agents absent here simply use the default calendar.
+    agent_business_hours: {},
 };
 
 export async function getConfigValue<T = any>(key: string): Promise<T> {
@@ -74,6 +81,9 @@ export async function getBundle(): Promise<ConfigBundle> {
         rate30_threshold_sec: Number(await getConfigValue("rate30_threshold_sec")),
         intent_prompt: String(await getConfigValue("intent_prompt")),
         summary_prompt: String(await getConfigValue("summary_prompt")),
+        business_start_hour: Number(await getConfigValue("business_start_hour")),
+        business_end_hour: Number(await getConfigValue("business_end_hour")),
+        business_days: (await getConfigValue<number[]>("business_days")) ?? [1, 2, 3, 4, 5],
         wx_connected: isWxConfigured(),
         llm_connected: isLlmConfigured(),
         poller_running: isPollerRunning(),
@@ -85,6 +95,9 @@ const ALLOWED_KEYS = new Set([
     "rate30_threshold_sec",
     "intent_prompt",
     "summary_prompt",
+    "business_start_hour",
+    "business_end_hour",
+    "business_days",
 ]);
 
 export function isEditableKey(key: string): boolean {

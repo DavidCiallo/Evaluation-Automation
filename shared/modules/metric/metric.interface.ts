@@ -138,3 +138,67 @@ export class MetricAnomaliesResponse {
         this.message = data.message;
     }
 }
+
+/** Working-hour schedule (hours are whole numbers 0–23; days use JS getDay(): 0=Sun…6=Sat). */
+export interface BusinessHours {
+    start_hour: number;
+    end_hour: number;
+    days: number[];
+}
+
+export interface AgentHoursEntry extends BusinessHours {
+    agent_id: string;
+    agent_name: string;
+    /** Whether this agent has a custom override (false → uses the default schedule). */
+    custom: boolean;
+}
+
+export class MetricAgentHoursResponse {
+    public success: boolean;
+    public data?: {
+        default: BusinessHours;
+        agents: AgentHoursEntry[];
+    };
+    public message?: string;
+
+    constructor(data: any) {
+        this.success = data.success;
+        this.data = data.data;
+        this.message = data.message;
+    }
+}
+
+export class MetricAgentHoursUpdateRequest {
+    public agent_id: string;
+    public start_hour?: number;
+    public end_hour?: number;
+    public days?: number[];
+    /** When true, remove the agent's override so they fall back to the default. */
+    public reset: boolean;
+    public auth?: string;
+
+    constructor(data: any) {
+        this.agent_id = String(data.agent_id || "");
+        this.start_hour = data.start_hour != null ? Number(data.start_hour) : undefined;
+        this.end_hour = data.end_hour != null ? Number(data.end_hour) : undefined;
+        this.days = Array.isArray(data.days) ? data.days.map((d: any) => Number(d)) : undefined;
+        this.reset = !!data.reset;
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new MetricAgentHoursUpdateRequest(data);
+    }
+}
+
+export class MetricAgentHoursUpdateResponse {
+    public success: boolean;
+    public data?: AgentHoursEntry;
+    public message?: string;
+
+    constructor(data: any) {
+        this.success = data.success;
+        this.data = data.data;
+        this.message = data.message;
+    }
+}

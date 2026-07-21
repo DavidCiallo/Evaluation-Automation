@@ -3,6 +3,8 @@ import {
     MetricTrendResponse,
     MetricLeaderboardResponse,
     MetricAnomaliesResponse,
+    MetricAgentHoursResponse,
+    MetricAgentHoursUpdateResponse,
 } from "./metric.interface";
 
 export const metricRoutes = {
@@ -27,5 +29,15 @@ export const metricRoutes = {
         path: "/anomalies",
         request: {} as { range?: "1d" | "7d"; threshold?: number; auth?: string },
         response: {} as MetricAnomaliesResponse,
+    },
+    agentHours: {
+        path: "/agent-hours",
+        request: {} as { auth?: string },
+        response: {} as MetricAgentHoursResponse,
+    },
+    agentHoursUpdate: {
+        path: "/agent-hours-update",
+        request: {} as { agent_id?: string; start_hour?: number; end_hour?: number; days?: number[]; reset?: boolean; auth?: string },
+        response: {} as MetricAgentHoursUpdateResponse,
     },
 } as const;
