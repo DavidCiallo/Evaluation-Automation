@@ -9,6 +9,8 @@ export class AccountDTO {
     public id: string;
     public name: string;
     public email: string;
+    public wechat_id: string;
+    public role: string;
 
     private isTypeSafe: symbol = Symbol();
 
@@ -16,6 +18,8 @@ export class AccountDTO {
         this.id = origin.id;
         this.name = origin.name;
         this.email = origin.email;
+        this.wechat_id = origin.wechat_id || "";
+        this.role = origin.role || "";
     }
 }
 
@@ -48,16 +52,23 @@ export class AccountCreateBody {
     public name: string;
     public email: string;
     public password: string;
+    public wechat_id: string;
+    public role: string;
 
     private isTypeSafe: symbol = Symbol();
 
-    constructor(origin: Pick<AccountEntity, "name" | "email" | "password">) {
-        if (!origin.name || !origin.email || !origin.password) {
-            throw new Error("Name and email are required");
+    constructor(origin: Partial<Pick<AccountEntity, "name" | "email" | "password" | "wechat_id">> & { role?: string }) {
+        if (!origin.name) {
+            throw new Error("Name is required");
+        }
+        if (!origin.email && !origin.wechat_id) {
+            throw new Error("Email or wechat_id is required");
         }
         this.name = origin.name;
-        this.email = origin.email;
-        this.password = origin.password;
+        this.email = origin.email || "";
+        this.password = origin.password || "";
+        this.wechat_id = origin.wechat_id || "";
+        this.role = origin.role || "";
     }
 
     static self(unsafe: AccountCreateBody) {

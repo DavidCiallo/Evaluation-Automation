@@ -1,7 +1,13 @@
 import Repository from "../../lib/repository";
 import { AccountEntity } from "../../../shared/modules/account/account.entity";
+import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
+import type { ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
+import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 
 const accountRepository: Repository<AccountEntity> = Repository.instance("Account");
+const conversationRepo: Repository<ConversationEntity> = Repository.instance("Conversation");
+const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
+const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
 
 export class AccountService {
     static async find(page: number, filter: Partial<AccountEntity>): Promise<{ list: AccountEntity[]; total: number }> {
@@ -15,6 +21,10 @@ export class AccountService {
         const result = await accountRepository.findOne({ id });
         if (!result) return null;
         return result;
+    }
+
+    static async findByWechatId(wechatId: string): Promise<AccountEntity | null> {
+        return accountRepository.findOne({ wechat_id: wechatId });
     }
 
     static async create(data: Partial<AccountEntity>): Promise<AccountEntity> {
@@ -31,5 +41,63 @@ export class AccountService {
 
     static async delete(id: string): Promise<void> {
         await accountRepository.delete({ id });
+    }
+
+    /**
+     * Register a wechat_id as an agent account and backfill historical data:
+     * 1. Flip from_role of all past messages sent by this wechat_id to "agent"
+     * 2. Flip role of all chat member records for this wechat_id to "agent"
+     * 3. Recompute snapshots (unread_count etc.) for every affected chat
+     */
+    static async backfillAgent(wechatId: string): Promise<{ chats: number }> {
+        await conversationRepo.update({ from_id: wechatId } as any, { from_role: "agent" } as any);
+        await memberRepo.update({ wechat_id: wechatId } as any, { role: "agent" } as any);
+
+        const affectedMembers = await memberRepo.find({ wechat_id: wechatId } as any);
+        const affectedChatIds = [...new Set(affectedMembers.map((m) => m.chat_id))];
+        if (affectedChatIds.length === 0) return { chats: 0 };
+
+        const { getExemption, computeExemptUnread } = await import("../exemption/exemption.service");
+        const ex = await getExemption();
+
+        const convRows = await conversationRepo.find({ chat_id: { $in: affectedChatIds } } as any);
+        const chatMsgs = new Map<string, ConversationEntity[]>();
+        for (const row of convRows) {
+            const arr = chatMsgs.get(row.chat_id);
+            if (arr) arr.push(row);
+            else chatMsgs.set(row.chat_id, [row]);
+        }
+
+        const memberRows = await memberRepo.find({ chat_id: { $in: affectedChatIds } } as any);
+        const customerMap = new Map<string, ChatMemberEntity>();
+        for (const m of memberRows) {
+            if (m.role === "customer" && !customerMap.has(m.chat_id)) customerMap.set(m.chat_id, m);
+        }
+
+        for (const cid of affectedChatIds) {
+            const msgs = chatMsgs.get(cid);
+            if (!msgs || msgs.length === 0) continue;
+            msgs.sort((a, b) => (a.send_time || 0) - (b.send_time || 0));
+            const last = msgs[msgs.length - 1];
+            const unreadCount = computeExemptUnread(msgs, ex, cid);
+            const cust = customerMap.get(cid);
+            const snapshotData: Partial<ChatSnapshotEntity> = {
+                last_content: last.content || "",
+                last_from_role: last.from_role || "customer",
+                last_send_time: last.send_time,
+                last_msg_type: last.msg_type || "text",
+                msg_count: msgs.length,
+                unread_count: unreadCount,
+                customer_name: cust?.name || "",
+                customer_avatar: cust?.avatar || null,
+            };
+            const existing = await snapshotRepo.findOne({ chat_id: cid });
+            if (existing) {
+                await snapshotRepo.update({ chat_id: cid }, snapshotData);
+            } else {
+                await snapshotRepo.insert({ chat_id: cid, ...snapshotData } as Partial<ChatSnapshotEntity>);
+            }
+        }
+        return { chats: affectedChatIds.length };
     }
 }

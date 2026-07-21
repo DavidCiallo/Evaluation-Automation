@@ -51,8 +51,26 @@ async function create(request: AccountCreateRequest) {
     if (!auth || !getIdentifyByVerify(auth)) {
         throw "Authorization failed";
     }
-    const data = await AccountService.create(request.account);
+
+    const body = { ...request.account };
+    // WeChat agent account: email/password/role are derived automatically
+    if (body.wechat_id) {
+        const existing = await AccountService.findByWechatId(body.wechat_id);
+        if (existing) throw "该企微ID已注册为客服账号";
+        if (!body.email) body.email = `${body.wechat_id}@wecom.local`;
+        if (!body.password) body.password = "$mock_no_login";
+        if (!body.role) body.role = "agent";
+    }
+
+    const data = await AccountService.create(body as Partial<AccountEntity>);
     if (!data) throw "create failed";
+
+    // Backfill historical messages/members/snapshots so the new agent is
+    // recognized in already-synced chats (fixes wrong "pending" states).
+    if (body.wechat_id) {
+        await AccountService.backfillAgent(body.wechat_id);
+    }
+
     const account = new AccountDTO(data);
     return { account };
 }

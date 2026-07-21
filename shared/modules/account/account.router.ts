@@ -21,7 +21,7 @@ export const accountRoutes = {
     },
     create: {
         path: "/create",
-        request: {} as { account: { name: string; email: string; password: string }; auth?: string },
+        request: {} as { account: { name: string; email?: string; password?: string; wechat_id?: string; role?: string }; auth?: string },
         response: {} as AccountCreateResponse,
     },
     update: {
