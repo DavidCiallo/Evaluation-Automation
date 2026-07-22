@@ -20,6 +20,14 @@ export default defineConfig({
     output: {
         filenameHash: false,
     },
+    tools: {
+        rspack: {
+            // 后端会将新消息写入 data/*.jsonl，避免 dev server 监听数据文件变化而频繁重载页面
+            watchOptions: {
+                ignored: /(^|[\\/])data([\\/]|$)/,
+            },
+        },
+    },
     server: {
         proxy: {
             "/api": {

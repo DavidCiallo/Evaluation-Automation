@@ -1,15 +1,17 @@
+/**
+ * 意图提取服务（纯提取，不再创建订单）。
+ * 职责：从对话中提取办签意图草稿（extractDraft）、检测需记录的额外需求/特殊情况（detectRemarkUpdates）、
+ *       对话摘要（summarizeChat）。订单的创建与草稿填充由订单内核 + 标准插件负责。
+ */
 import Repository from "../../lib/repository";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
-import type { AiDraft } from "../../../shared/modules/order/order.entity";
-import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
+import type { IntentDraftData } from "../../../shared/modules/intent/intent.interface";
 import { isLlmConfigured, llmChat, extractJson } from "../../lib/llm";
 import { getConfigValue } from "../config/config.service";
-import * as orderService from "../order/order.service";
 
 const conversationRepo: Repository<ConversationEntity> = Repository.instance("Conversation");
-const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
 
-// ---------- rule-based fallback ----------
+// ---------- 规则兜底 ----------
 
 const COUNTRY_PATTERNS: Array<[RegExp, string]> = [
     [/日本|东京|大阪|京都|北海道|冲绳/i, "日本"],
@@ -34,7 +36,12 @@ const VISA_TYPE_PATTERNS: Array<[RegExp, string]> = [
 
 const INTENT_KEYWORDS = /(办|签证|申请|办理|加急|面签|材料|护照|出签|出签率|多少钱|费用)/i;
 
-function extractDraftByRules(text: string): { hasIntent: boolean; draft: AiDraft | null } {
+/** 廉价的意图信号预判，用于在调用 LLM 前过滤掉"谢谢/好的"之类的消息。 */
+export function hasIntentSignal(text: string): boolean {
+    return INTENT_KEYWORDS.test(text || "");
+}
+
+function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentDraftData | null } {
     if (!INTENT_KEYWORDS.test(text)) return { hasIntent: false, draft: null };
 
     let country: string | null = null;
@@ -52,7 +59,6 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: AiDraft
         }
     }
 
-    // applicant count: "两个人" / "2人" / "我们三个"
     let count: number | null = null;
     const cnNumMap: Record<string, number> = { 一: 1, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
     const m1 = text.match(/([\d]+)\s*(人|位|个人)/);
@@ -62,7 +68,6 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: AiDraft
         if (m2 && m2[2] && cnNumMap[m2[2]] !== undefined) count = cnNumMap[m2[2]];
     }
 
-    // date: YYYY-MM-DD or YYYY年MM月DD日 or "下个月" / "10月初"
     let date: string | null = null;
     const d1 = text.match(/(\d{4})[-\/年.](\d{1,2})[-\/月.](\d{1,2})/);
     if (d1) date = `${d1[1]}-${d1[2].padStart(2, "0")}-${d1[3].padStart(2, "0")}`;
@@ -79,7 +84,6 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: AiDraft
         }
     }
 
-    // phone
     let phone: string | null = null;
     const ph = text.match(/1[3-9]\d{9}/);
     if (ph) phone = ph[0];
@@ -96,33 +100,36 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: AiDraft
     return {
         hasIntent: true,
         draft: {
-            visa_country: country || undefined,
-            visa_type: visaType || undefined,
-            trip_start_date: date || undefined,
-            applicant_count: count ?? undefined,
-            customer_phone: phone || undefined,
+            visa_country: country || null,
+            visa_type: visaType || null,
+            trip_start_date: date || null,
+            applicant_count: count ?? null,
+            customer_phone: phone || null,
             missing_fields: missing,
         },
     };
 }
 
-// ---------- LLM-driven ----------
+// ---------- LLM 提取 ----------
 
-async function extractDraftByLLM(messages: ConversationEntity[]): Promise<{ raw: string; draft: AiDraft | null; hasIntent: boolean }> {
+async function extractDraftByLLM(messages: ConversationEntity[]): Promise<{ raw: string; draft: IntentDraftData | null; hasIntent: boolean }> {
     const prompt = await getConfigValue<string>("intent_prompt");
     const transcript = messages
         .slice(-20)
         .map((m) => `[${m.from_role}] ${m.content}`)
         .join("\n");
-    const raw = await llmChat([
-        { role: "system", content: prompt },
-        { role: "user", content: transcript },
-    ], { temperature: 0.1, maxTokens: 600 });
+    const raw = await llmChat(
+        [
+            { role: "system", content: prompt },
+            { role: "user", content: transcript },
+        ],
+        { temperature: 0.1, maxTokens: 600 },
+    );
     const parsed = extractJson(raw);
     if (!parsed) return { raw, draft: null, hasIntent: false };
     const hasIntent = parsed.intent !== false;
     if (!hasIntent) return { raw, draft: null, hasIntent: false };
-    const draft: AiDraft = {
+    const draft: IntentDraftData = {
         visa_country: parsed.visa_country ?? null,
         visa_type: parsed.visa_type ?? null,
         trip_start_date: parsed.trip_start_date ?? null,
@@ -134,7 +141,83 @@ async function extractDraftByLLM(messages: ConversationEntity[]): Promise<{ raw:
     return { raw, draft, hasIntent };
 }
 
-// ---------- summary ----------
+// ---------- 对外：草稿提取 ----------
+
+async function loadRecent(chatId: string, limit = 20): Promise<ConversationEntity[]> {
+    const all = await conversationRepo.find({ chat_id: chatId }, { limit });
+    all.sort((a, b) => a.send_time - b.send_time);
+    return all.slice(-limit);
+}
+
+export async function extractDraft(messages: ConversationEntity[]): Promise<{ draft: IntentDraftData | null; raw: string }> {
+    if (messages.length === 0) return { draft: null, raw: "(no messages)" };
+    const lastText = messages[messages.length - 1]?.content || "";
+    if (isLlmConfigured()) {
+        try {
+            const r = await extractDraftByLLM(messages);
+            return { draft: r.hasIntent ? r.draft : null, raw: r.raw };
+        } catch (e) {
+            console.error("[intent] LLM extract failed, fallback to rules:", e);
+            const r = extractDraftByRules(lastText);
+            return { draft: r.hasIntent ? r.draft : null, raw: "(rule-fallback)" };
+        }
+    }
+    const r = extractDraftByRules(lastText);
+    return { draft: r.hasIntent ? r.draft : null, raw: "(rule-fallback)" };
+}
+
+/** 供 /intent/draft 端点使用：加载近期消息并提取草稿（纯提取，不建单）。 */
+export async function extractDraftForChat(chatId: string, limit = 20): Promise<{
+    chat_id: string;
+    msg_id: string;
+    has_intent: boolean;
+    draft: IntentDraftData | null;
+    raw: string;
+}> {
+    const messages = await loadRecent(chatId, limit);
+    const { draft, raw } = await extractDraft(messages);
+    return {
+        chat_id: chatId,
+        msg_id: messages[messages.length - 1]?.msg_id || "",
+        has_intent: !!draft,
+        draft,
+        raw,
+    };
+}
+
+// ---------- 对外：备注更新检测 ----------
+
+/** 检测对话中是否出现需记录的额外需求/特殊情况，返回备注文本（无则 null）。仅 LLM 可用时生效。 */
+export async function detectRemarkUpdates(messages: ConversationEntity[]): Promise<string | null> {
+    if (!isLlmConfigured() || messages.length === 0) return null;
+    try {
+        const prompt = await getConfigValue<string>("remark_detect_prompt");
+        const transcript = messages
+            .slice(-10)
+            .map((m) => `[${m.from_role}] ${m.content}`)
+            .join("\n");
+        const raw = await llmChat(
+            [
+                { role: "system", content: prompt },
+                { role: "user", content: transcript },
+            ],
+            { temperature: 0.1, maxTokens: 200 },
+        );
+        const parsed = extractJson(raw);
+        if (parsed && parsed.has_update && parsed.remark) return String(parsed.remark);
+        return null;
+    } catch (e) {
+        console.error("[intent] remark detect failed:", e);
+        return null;
+    }
+}
+
+/** 供标准插件 onMessage 使用：加载指定会话的近期消息。 */
+export async function loadRecentMessages(chatId: string, limit = 20): Promise<ConversationEntity[]> {
+    return loadRecent(chatId, limit);
+}
+
+// ---------- 对外：对话摘要 ----------
 
 export async function summarizeChat(chatId: string): Promise<string> {
     const messages = await loadRecent(chatId, 50);
@@ -144,10 +227,13 @@ export async function summarizeChat(chatId: string): Promise<string> {
         try {
             const prompt = await getConfigValue<string>("summary_prompt");
             const transcript = messages.map((m) => `[${m.from_role}] ${m.content}`).join("\n");
-            const out = await llmChat([
-                { role: "system", content: prompt },
-                { role: "user", content: transcript },
-            ], { temperature: 0.3, maxTokens: 300 });
+            const out = await llmChat(
+                [
+                    { role: "system", content: prompt },
+                    { role: "user", content: transcript },
+                ],
+                { temperature: 0.3, maxTokens: 300 },
+            );
             return out.trim() || fallbackSummary(messages);
         } catch (e) {
             console.error("[intent] summary LLM error", e);
@@ -161,101 +247,4 @@ function fallbackSummary(messages: ConversationEntity[]): string {
     if (customers.length === 0) return "（无客户消息）";
     const last = customers[customers.length - 1];
     return `客户最近诉求：${last.content}（共 ${messages.length} 条消息）`;
-}
-
-// ---------- core: generate draft ----------
-
-async function loadRecent(chatId: string, limit = 20): Promise<ConversationEntity[]> {
-    const all = await conversationRepo.find({ chat_id: chatId }, { limit });
-    all.sort((a, b) => a.send_time - b.send_time);
-    return all.slice(-limit);
-}
-
-export async function generateDraftForChat(chatId: string, opts?: { msgId?: string | null; force?: boolean }): Promise<{
-    chat_id: string;
-    msg_id: string;
-    has_intent: boolean;
-    draft: AiDraft | null;
-    order_id: string | null;
-    raw: string;
-}> {
-    // Existing draft for this chat? Don't overwrite unless forced
-    if (!opts?.force) {
-        const existing = await orderService.findDraftForChat(chatId);
-        if (existing && existing.ai_draft) {
-            return {
-                chat_id: chatId,
-                msg_id: existing.source_msg_id,
-                has_intent: true,
-                draft: existing.ai_draft,
-                order_id: existing.id,
-                raw: "(cached)",
-            };
-        }
-    }
-
-    const messages = await loadRecent(chatId, 20);
-    if (messages.length === 0) {
-        return { chat_id: chatId, msg_id: "", has_intent: false, draft: null, order_id: null, raw: "(no messages)" };
-    }
-    const last = messages[messages.length - 1];
-    const lastText = last.content || "";
-
-    let result: { hasIntent: boolean; draft: AiDraft | null; raw: string };
-    if (isLlmConfigured()) {
-        try {
-            const llmResult = await extractDraftByLLM(messages);
-            result = { hasIntent: llmResult.hasIntent, draft: llmResult.draft, raw: llmResult.raw };
-        } catch (e) {
-            console.error("[intent] LLM call failed, fallback to rules:", e);
-            const r = extractDraftByRules(lastText);
-            result = { hasIntent: r.hasIntent, draft: r.draft, raw: "(rule-fallback)" };
-        }
-    } else {
-        const r = extractDraftByRules(lastText);
-        result = { hasIntent: r.hasIntent, draft: r.draft, raw: "(rule-fallback)" };
-    }
-
-    let orderId: string | null = null;
-    if (result.hasIntent && result.draft) {
-        // Resolve customer name from snapshot (avoids member query)
-        const snap = await snapshotRepo.findOne({ chat_id: chatId });
-        const draft = await orderService.createDraft({
-            chat_id: chatId,
-            customer_name: snap?.customer_name || "",
-            source_msg_id: last.msg_id,
-            ai_draft: result.draft,
-        });
-        orderId = draft.id;
-    }
-
-    return {
-        chat_id: chatId,
-        msg_id: last.msg_id,
-        has_intent: result.hasIntent,
-        draft: result.draft,
-        order_id: orderId,
-        raw: result.raw,
-    };
-}
-
-// ---------- background hook (called by sync on each new message) ----------
-
-export async function onNewMessage(chatInternalId: string, msg: ConversationEntity): Promise<void> {
-    // Only consider customer messages as potential intent triggers
-    if (msg.from_role !== "customer") return;
-    const text = msg.content || "";
-    if (!text) return;
-    // Cheap pre-filter to avoid running extraction on every "谢谢"
-    if (!INTENT_KEYWORDS.test(text)) return;
-
-    // Don't create another draft if one already exists for this chat
-    const existing = await orderService.findDraftForChat(chatInternalId);
-    if (existing) return;
-
-    try {
-        await generateDraftForChat(chatInternalId);
-    } catch (e) {
-        console.error("[intent] background generate failed", e);
-    }
 }

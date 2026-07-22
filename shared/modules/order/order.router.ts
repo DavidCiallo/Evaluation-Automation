@@ -1,10 +1,9 @@
 import {
     OrderListResponse,
     OrderDetailResponse,
-    OrderCreateResponse,
-    OrderUpdateResponse,
     OrderTransitionResponse,
-    OrderExportResponse,
+    OrderPluginActionResponse,
+    OrderRemarkResponse,
 } from "./order.interface";
 
 export const orderRoutes = {
@@ -28,36 +27,21 @@ export const orderRoutes = {
         request: {} as { id: string; auth?: string },
         response: {} as OrderDetailResponse,
     },
-    create: {
-        path: "/create",
-        request: {} as {
-            chat_id: string;
-            customer_name?: string;
-            ai_draft?: Record<string, any>;
-            source_msg_id?: string;
-            auth?: string;
-        },
-        response: {} as OrderCreateResponse,
-    },
-    update: {
-        path: "/update",
-        request: {} as { id: string; patch: Record<string, any>; note?: string; auth?: string },
-        response: {} as OrderUpdateResponse,
-    },
     transition: {
         path: "/transition",
         request: {} as { id: string; status: string; note?: string; auth?: string },
         response: {} as OrderTransitionResponse,
     },
-    export: {
-        path: "/export",
-        request: {} as {
-            status?: string;
-            agent_id?: string;
-            start?: number;
-            end?: number;
-            auth?: string;
-        },
-        response: {} as OrderExportResponse,
+    /** 触发插件动作：{ id, plugin_id, action, payload } */
+    pluginAction: {
+        path: "/plugin-action",
+        request: {} as { id: string; plugin_id: string; action: string; payload?: Record<string, any>; auth?: string },
+        response: {} as OrderPluginActionResponse,
+    },
+    /** 客服手动追加备注 */
+    remark: {
+        path: "/remark",
+        request: {} as { id: string; content: string; auth?: string },
+        response: {} as OrderRemarkResponse,
     },
 } as const;

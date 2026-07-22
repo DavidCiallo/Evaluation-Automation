@@ -1,10 +1,10 @@
 import { intentRoutes } from "../../../shared/modules/intent/intent.router";
 import { IntentDraftRequest, IntentSummaryRequest } from "../../../shared/modules/intent/intent.interface";
-import { generateDraftForChat, summarizeChat } from "./intent.service";
+import { extractDraftForChat, summarizeChat } from "./intent.service";
 
 async function draft(request: IntentDraftRequest) {
     const req = IntentDraftRequest.self(request);
-    return generateDraftForChat(req.chat_id, { msgId: req.msg_id, force: req.force });
+    return extractDraftForChat(req.chat_id);
 }
 
 async function summary(request: IntentSummaryRequest) {

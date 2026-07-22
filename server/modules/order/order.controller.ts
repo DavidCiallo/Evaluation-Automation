@@ -2,12 +2,10 @@ import { orderRoutes } from "../../../shared/modules/order/order.router";
 import {
     OrderListRequest,
     OrderDetailRequest,
-    OrderCreateRequest,
-    OrderUpdateRequest,
     OrderTransitionRequest,
-    OrderListResponse,
+    OrderPluginActionRequest,
+    OrderRemarkRequest,
 } from "../../../shared/modules/order/order.interface";
-import { OrderDTO } from "../../../shared/modules/order/order.entity";
 import * as svc from "./order.service";
 
 async function list(request: OrderListRequest) {
@@ -20,56 +18,37 @@ async function list(request: OrderListRequest) {
         start: req.start,
         end: req.end,
     });
-    return { list: list.map((o) => new OrderDTO(o)), total };
+    return { list: await svc.toDTOs(list), total };
 }
 
 async function detail(request: OrderDetailRequest) {
     const req = OrderDetailRequest.self(request);
     const order = await svc.findOne(req.id);
     if (!order) throw "order not found";
-    const versions = await svc.findVersions(req.id);
-    return { order: new OrderDTO(order), versions };
-}
-
-async function create(request: OrderCreateRequest) {
-    const req = OrderCreateRequest.self(request);
-    const order = await svc.createDraft({
-        chat_id: req.chat_id,
-        customer_name: req.customer_name,
-        ai_draft: req.ai_draft,
-        source_msg_id: req.source_msg_id,
-    });
-    return { order: new OrderDTO(order) };
-}
-
-async function update(request: OrderUpdateRequest) {
-    const req = OrderUpdateRequest.self(request);
-    const order = await svc.applyPatch(req.id, req.patch, "user", req.note);
-    if (!order) throw "update failed";
-    return { order: new OrderDTO(order) };
+    return { order: await svc.toDTO(order) };
 }
 
 async function transition(request: OrderTransitionRequest) {
     const req = OrderTransitionRequest.self(request);
-    const order = await svc.transition(req.id, req.status, "user", req.note);
+    const order = await svc.transition(req.id, req.status, req.note);
     if (!order) throw "transition failed";
-    return { order: new OrderDTO(order) };
+    return { order: await svc.toDTO(order) };
 }
 
-async function exportData(request: any) {
-    const rows = await svc.exportRows({
-        status: request.status,
-        agent_id: request.agent_id || null,
-        start: request.start ? Number(request.start) : null,
-        end: request.end ? Number(request.end) : null,
-    });
-    return { rows };
+async function pluginAction(request: OrderPluginActionRequest) {
+    const req = OrderPluginActionRequest.self(request);
+    const { result, order } = await svc.dispatchPluginAction(req.id, req.plugin_id, req.action, req.payload);
+    return { result, order: await svc.toDTO(order) };
+}
+
+async function remark(request: OrderRemarkRequest) {
+    const req = OrderRemarkRequest.self(request);
+    const order = await svc.appendRemark(req.id, req.content, "manual");
+    if (!order) throw "order not found";
+    return { order: await svc.toDTO(order) };
 }
 
 export const orderMount = {
     routes: orderRoutes,
-    handlers: { list, detail, create, update, transition, export: exportData },
+    handlers: { list, detail, transition, pluginAction, remark },
 };
-
-// keep type referenced for build-time check
-export type _OrderListResponse = OrderListResponse;

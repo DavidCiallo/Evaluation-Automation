@@ -5,7 +5,7 @@ export interface ChatEntity {
     delete_time: number | null;
     chat_id: string;
     name: string;
-    type: "group" | "single";
+    type: "group" | "single" | "private";
     last_send_time: number;
 }
 
@@ -26,7 +26,7 @@ export class ChatDTO {
     public id: string;
     public chat_id: string;
     public name: string;
-    public type: "group" | "single";
+    public type: "group" | "single"|"private";
     public last_send_time: number;
     public unread: number;
     public last_message: string;

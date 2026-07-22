@@ -233,12 +233,14 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
         });
     }
 
-    // Lazy import to avoid circulars
-    const { onNewMessage } = await import("../intent/intent.service");
+    // 群聊即订单：仅群聊建单，并依次执行启用插件的 onMessage 钩子
+    // （标准插件更新草稿/追加备注）。单聊不建单，远古群聊无新消息不回填。
     try {
-        await onNewMessage(chatInternalId, row as any);
+        const { ensureOrderForChat, runMessageHooks } = await import("../order/order.service");
+        const order = await ensureOrderForChat(chatInternalId);
+        if (order) await runMessageHooks(order, row as any);
     } catch (e) {
-        console.error("[sync] intent hook failed", e);
+        console.error("[sync] order hook failed", e);
     }
     return { chatInternalId, convId: row.id };
 }

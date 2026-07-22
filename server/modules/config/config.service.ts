@@ -41,11 +41,19 @@ export const DEFAULT_SUMMARY_PROMPT = `你是签证客服助理。请将以下�
 - 待办/待确认事项
 直接输出要点，不要前后缀、不要 Markdown 标题。`;
 
+export const DEFAULT_REMARK_DETECT_PROMPT = `你是一名签证客服助理。请判断以下对话片段中，客户是否提出了【新的额外需求】或出现了【需要记录的特殊情况】（如加急、特殊材料、客户顾虑、需求变更、重要约定等）。
+要求：
+- 只输出 JSON，不要解释文字
+- 如果没有值得记录的新信息，输出 {"has_update": false}
+- 如果有，输出 {"has_update": true, "remark": "用一句中文简要概括需要记录的信息"}
+- 不要重复记录对话中已明确的基础办签信息（国家/类型/日期/人数），只关注额外需求与特殊情况`;
+
 const DEFAULTS: Record<string, any> = {
     frt_threshold_sec: 30,
     rate30_threshold_sec: 30,
     intent_prompt: DEFAULT_INTENT_PROMPT,
     summary_prompt: DEFAULT_SUMMARY_PROMPT,
+    remark_detect_prompt: DEFAULT_REMARK_DETECT_PROMPT,
     business_start_hour: 8,
     business_end_hour: 18,
     business_days: [1, 2, 3, 4, 5], // Mon–Fri (JS getDay(): 0=Sun…6=Sat)
@@ -95,6 +103,7 @@ const ALLOWED_KEYS = new Set([
     "rate30_threshold_sec",
     "intent_prompt",
     "summary_prompt",
+    "remark_detect_prompt",
     "business_start_hour",
     "business_end_hour",
     "business_days",

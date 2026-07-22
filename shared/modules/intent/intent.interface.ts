@@ -1,4 +1,16 @@
-import { AiDraft } from "../order/order.entity";
+/**
+ * 意图提取结果（纯数据，不再依赖订单模块）。
+ * 由 intent 服务从对话中提取，供订单标准插件填充草稿使用。
+ */
+export interface IntentDraftData {
+    visa_country?: string | null;
+    visa_type?: string | null;
+    trip_start_date?: string | null;
+    applicant_count?: number | null;
+    customer_phone?: string | null;
+    customer_name?: string | null;
+    missing_fields?: string[];
+}
 
 export class IntentDraftRequest {
     public chat_id: string;
@@ -25,8 +37,7 @@ export class IntentDraftResponse {
         chat_id: string;
         msg_id: string;
         has_intent: boolean;
-        draft: AiDraft | null;
-        order_id: string | null;
+        draft: IntentDraftData | null;
         raw: string;
     };
     public message?: string;

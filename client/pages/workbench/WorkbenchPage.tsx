@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { Check, Pencil, Sparkles, RefreshCw, Send, MoreHorizontal, ChevronUp } from "lucide-react"
+import { Check, Sparkles, RefreshCw, Send, MoreHorizontal, ChevronUp } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -13,17 +13,13 @@ import {
 import { Badge } from "@/client/components/ui/badge"
 import { Button } from "@/client/components/ui/button"
 import { Input } from "@/client/components/ui/input"
-import { Textarea } from "@/client/components/ui/textarea"
-import { Label } from "@/client/components/ui/label"
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogFooter,
-} from "@/client/components/ui/dialog"
 import { intentApi, orderApi, workbenchApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
+import {
+    STANDARD_PLUGIN_ID,
+    type StandardPluginData,
+} from "../../../shared/modules/order/plugins/standard.manifest"
+import { ORDER_STATUS_LABEL, type OrderStatus } from "../../../shared/modules/order/order.entity"
 
 type Chat = {
     id: string
@@ -62,21 +58,19 @@ type Order = {
     id: string
     chat_id: string
     customer_name: string
-    status: "draft" | "confirmed" | "processing" | "done"
-    ai_draft: Record<string, any> | null
-    confirmed: Record<string, any> | null
+    status: OrderStatus
+    status_label: string
+    agent_names: string[]
+    data: Record<string, any>
     version: number
     create_time: number
 }
 
-const DRAFT_FIELDS: Array<{ key: string; label: string }> = [
-    { key: "visa_country", label: "目的地" },
-    { key: "visa_type", label: "签证类型" },
-    { key: "trip_start_date", label: "出行日期" },
-    { key: "applicant_count", label: "申请人数" },
-    { key: "customer_phone", label: "联系电话" },
-    { key: "customer_name", label: "客户姓名" },
-]
+const STANDARD_FIELD_LABEL: Record<string, string> = {
+    type: "订单类型",
+    price: "订单价格",
+    content: "订单内容",
+}
 
 function timeAgo(ts: number): string {
     if (!ts) return ""
@@ -108,10 +102,26 @@ export function WorkbenchPage() {
     const [loadingChat, setLoadingChat] = useState(false)
     const [busyDraft, setBusyDraft] = useState(false)
     const [busySummary, setBusySummary] = useState(false)
-    const [editingDraft, setEditingDraft] = useState<Order | null>(null)
-    const [editForm, setEditForm] = useState<Record<string, any>>({})
     const [expandedMsgIds, setExpandedMsgIds] = useState<Set<string>>(new Set())
     const scrollRef = useRef<HTMLDivElement>(null)
+    // 记录用户是否停留在底部附近：只有“已在底部”时才自动跟随新消息，避免阅读历史时被强制拉到底部
+    const nearBottomRef = useRef(true)
+    const [showJumpBottom, setShowJumpBottom] = useState(false)
+
+    const handleScroll = () => {
+        const el = scrollRef.current
+        if (!el) return
+        const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+        nearBottomRef.current = near
+        setShowJumpBottom(!near)
+    }
+
+    const jumpToBottom = () => {
+        const el = scrollRef.current
+        if (el) el.scrollTop = el.scrollHeight
+        nearBottomRef.current = true
+        setShowJumpBottom(false)
+    }
 
     // Load chat list
     const loadChats = useCallback(async () => {
@@ -206,25 +216,8 @@ export function WorkbenchPage() {
     const visibleChats = useMemo(() => filteredChats.slice(0, visibleCount), [filteredChats, visibleCount])
     const hasMore = visibleCount < filteredChats.length
 
-    const activeDraft = useMemo(() => drafts.find((d) => d.status === "draft") || null, [drafts])
-
-    const handleGenerateDraft = async () => {
-        if (!selectedId) return
-        setBusyDraft(true)
-        try {
-            const res: any = await intentApi.draft({ chat_id: selectedId, force: true, auth })
-            if (res?.data?.has_intent) {
-                toast.success("已识别办签意图，生成订单草稿")
-                await loadChat(selectedId)
-            } else {
-                toast.info("未检测到办签意图")
-            }
-        } catch (e: any) {
-            toast.error(`生成草稿失败: ${e?.message || ""}`)
-        } finally {
-            setBusyDraft(false)
-        }
-    }
+    // 群聊即订单：每个群聊至多一个订单
+    const activeOrder = useMemo(() => drafts[0] || null, [drafts])
 
     const handleSummary = async () => {
         if (!selectedId) return
@@ -241,33 +234,23 @@ export function WorkbenchPage() {
         }
     }
 
-    const openEdit = (order: Order) => {
-        setEditingDraft(order)
-        const src = order.confirmed || order.ai_draft || {}
-        setEditForm({ ...src })
-    }
-
-    const submitEdit = async (alsoConfirm: boolean) => {
-        if (!editingDraft) return
+    // 客服确认订单内容：将标准插件草稿固化为正式值
+    const confirmOrder = async (order: Order) => {
+        setBusyDraft(true)
         try {
-            const patch: Record<string, any> = { confirmed: { ...editForm } }
-            if (alsoConfirm) patch.status = "confirmed"
-            await orderApi.update({ id: editingDraft.id, patch, note: alsoConfirm ? "客服确认" : "客服修改", auth })
-            toast.success(alsoConfirm ? "已转正式订单" : "已保存修改")
-            setEditingDraft(null)
-            await loadChat(selectedId!)
-        } catch (e: any) {
-            toast.error(`保存失败: ${e?.message || ""}`)
-        }
-    }
-
-    const confirmDraft = async (order: Order) => {
-        try {
-            await orderApi.transition({ id: order.id, status: "confirmed", note: "客服一键确认", auth })
-            toast.success("已转正式订单")
+            await orderApi.pluginAction({
+                id: order.id,
+                plugin_id: STANDARD_PLUGIN_ID,
+                action: "confirm",
+                payload: {},
+                auth,
+            })
+            toast.success("已确认订单内容")
             await loadChat(selectedId!)
         } catch (e: any) {
             toast.error(`确认失败: ${e?.message || ""}`)
+        } finally {
+            setBusyDraft(false)
         }
     }
 
@@ -431,54 +414,34 @@ export function WorkbenchPage() {
                     </div>
                 </Card>
 
-                {/* Right: AI panel */}
+                {/* Right: order + AI panel */}
                 <Card className="min-h-0 overflow-hidden py-0">
                     <div className="flex h-full flex-col">
                         <div className="flex items-center justify-between border-b px-3 py-2">
                             <div className="flex items-center gap-2 text-sm font-medium">
-                                <Sparkles className="text-primary size-4" /> AI 助手
+                                <Sparkles className="text-primary size-4" /> 订单与助手
                             </div>
-                            <Button variant="ghost" size="sm" onClick={handleGenerateDraft} disabled={!selectedId || busyDraft}>
-                                {busyDraft ? <RefreshCw className="mr-1 size-3 animate-spin" /> : <Sparkles className="mr-1 size-3" />}
-                                重试识别
-                            </Button>
+                            {activeOrder && (
+                                <Badge variant="outline">{activeOrder.status_label}</Badge>
+                            )}
                         </div>
 
                         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-                            {/* Order draft card */}
+                            {/* Order card */}
                             <div className="space-y-2">
-                                <div className="text-muted-foreground text-xs font-semibold uppercase">订单草稿</div>
-                                {!activeDraft && (
+                                <div className="text-muted-foreground text-xs font-semibold uppercase">订单</div>
+                                {!activeOrder && (
                                     <div className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
-                                        暂无草稿。当客户发送含办签意图的消息时将自动生成，或点击右上角"重试识别"。
+                                        暂无订单。群聊收到客户含办签意图的消息后将自动建单并提取草稿。
                                     </div>
                                 )}
-                                {activeDraft && (
-                                    <div className="space-y-2 rounded-md border p-3">
-                                        <div className="flex items-center justify-between">
-                                            <Badge variant="secondary">草稿 · v{activeDraft.version}</Badge>
-                                            <span className="text-muted-foreground text-xs">{activeDraft.customer_name}</span>
-                                        </div>
-                                        <DraftFieldList draft={activeDraft.confirmed || activeDraft.ai_draft || {}} />
-                                        <div className="flex gap-2 pt-1">
-                                            <Button size="sm" className="flex-1" onClick={() => confirmDraft(activeDraft)}>
-                                                <Check className="mr-1 size-3" /> 一键确认
-                                            </Button>
-                                            <Button size="sm" variant="outline" onClick={() => openEdit(activeDraft)}>
-                                                <Pencil className="mr-1 size-3" /> 修改
-                                            </Button>
-                                        </div>
-                                    </div>
+                                {activeOrder && (
+                                    <OrderStandardCard
+                                        order={activeOrder}
+                                        busy={busyDraft}
+                                        onConfirm={() => confirmOrder(activeOrder)}
+                                    />
                                 )}
-                                {drafts.filter((d) => d.status !== "draft").map((d) => (
-                                    <div key={d.id} className="rounded-md border border-dashed p-2 opacity-60">
-                                        <div className="mb-1 flex items-center justify-between">
-                                            <Badge variant="outline">{d.status}</Badge>
-                                            <span className="text-muted-foreground text-xs">v{d.version}</span>
-                                        </div>
-                                        <DraftFieldList draft={d.confirmed || d.ai_draft || {}} />
-                                    </div>
-                                ))}
                             </div>
 
                             {/* Summary card */}
@@ -502,75 +465,55 @@ export function WorkbenchPage() {
                     </div>
                 </Card>
             </div>
-
-            <Dialog open={!!editingDraft} onOpenChange={(o) => !o && setEditingDraft(null)}>
-                <DialogContent className="max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>修改订单草稿</DialogTitle>
-                    </DialogHeader>
-                    <div className="max-h-[60vh] space-y-3 overflow-y-auto py-2">
-                        {DRAFT_FIELDS.map((f) => (
-                            <div key={f.key} className="space-y-1">
-                                <Label>{f.label}</Label>
-                                <Input
-                                    value={editForm[f.key] ?? ""}
-                                    onChange={(e) =>
-                                        setEditForm((p) => ({
-                                            ...p,
-                                            [f.key]: f.key === "applicant_count" ? Number(e.target.value || 0) : e.target.value,
-                                        }))
-                                    }
-                                />
-                            </div>
-                        ))}
-                        <div className="space-y-1">
-                            <Label>缺失字段 / 备注</Label>
-                            <Textarea
-                                value={(editForm.missing_fields || []).join(", ")}
-                                onChange={(e) =>
-                                    setEditForm((p) => ({
-                                        ...p,
-                                        missing_fields: e.target.value.split(/[,,]/).map((s) => s.trim()).filter(Boolean),
-                                    }))
-                                }
-                            />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setEditingDraft(null)}>
-                            取消
-                        </Button>
-                        <Button variant="secondary" onClick={() => submitEdit(false)}>
-                            仅保存
-                        </Button>
-                        <Button onClick={() => submitEdit(true)}>
-                            <Check className="mr-1 size-3" /> 保存并确认
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
     )
 }
 
-function DraftFieldList({ draft }: { draft: Record<string, any> }) {
-    const rows = DRAFT_FIELDS.filter((f) => draft[f.key] !== undefined && draft[f.key] !== null && draft[f.key] !== "")
-    if (rows.length === 0) {
-        return <p className="text-muted-foreground text-xs">(无字段)</p>
+/** 工作台右侧标准订单卡片：草稿 vs 正式值 + 客服确认入口。 */
+function OrderStandardCard({ order, busy, onConfirm }: { order: Order; busy: boolean; onConfirm: () => void }) {
+    const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
+    const draft = std.draft || null
+    const confirmed = std.confirmed || null
+    const keys = ["type", "price", "content"]
+    const fmt = (k: string, v: any) => {
+        if (v === undefined || v === null || v === "") return "—"
+        return k === "price" ? `¥${v}` : String(v)
     }
+    const hasContent = !!(draft || confirmed)
+
     return (
-        <div className="space-y-1">
-            {rows.map((f) => (
-                <div key={f.key} className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">{f.label}</span>
-                    <span className="font-medium">{String(draft[f.key])}</span>
-                </div>
-            ))}
-            {Array.isArray(draft.missing_fields) && draft.missing_fields.length > 0 && (
-                <div className="text-muted-foreground pt-1 text-[11px]">
-                    缺失: {draft.missing_fields.join(", ")}
+        <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between">
+                <Badge variant="secondary">v{order.version}</Badge>
+                <span className="text-muted-foreground text-xs">{order.customer_name}</span>
+            </div>
+            {!hasContent && (
+                <p className="text-muted-foreground text-xs">暂无订单内容，等待 AI 提取草稿。</p>
+            )}
+            {hasContent && (
+                <div className="space-y-1">
+                    {keys.map((k) => {
+                        const dv = (draft as any)?.[k]
+                        const cv = (confirmed as any)?.[k]
+                        return (
+                            <div key={k} className="flex justify-between gap-2 text-xs">
+                                <span className="text-muted-foreground shrink-0">{STANDARD_FIELD_LABEL[k]}</span>
+                                <span className="text-right break-all">
+                                    {cv != null && cv !== "" ? (
+                                        <span className="font-medium">{fmt(k, cv)}</span>
+                                    ) : (
+                                        <span className="text-muted-foreground">{fmt(k, dv)}（草稿）</span>
+                                    )}
+                                </span>
+                            </div>
+                        )
+                    })}
                 </div>
             )}
+            <Button size="sm" className="w-full" onClick={onConfirm} disabled={busy || !hasContent}>
+                {busy ? <RefreshCw className="mr-1 size-3 animate-spin" /> : <Check className="mr-1 size-3" />}
+                确认订单内容
+            </Button>
         </div>
     )
 }
