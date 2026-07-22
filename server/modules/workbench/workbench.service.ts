@@ -168,11 +168,19 @@ export async function getChatBundle(chatId: string) {
         }
     } catch { /* wx not available */ }
 
+    // 当前会话是否已被统计豁免（工作台展示“此会话非客户”与豁免开关）
+    let exempt = false;
+    try {
+        const { getExemption, isExemptChat } = await import("../exemption/exemption.service");
+        exempt = isExemptChat(await getExemption(), chatId);
+    } catch { /* exemption not available */ }
+
     return {
         chat,
         members,
         messages,
         drafts,
+        exempt,
         summary: "", // filled lazily by caller if requested
     };
 }

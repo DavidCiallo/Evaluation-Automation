@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { Check, Sparkles, RefreshCw, Send, MoreHorizontal, ChevronUp } from "lucide-react"
+import { Check, Sparkles, RefreshCw, Send, MoreHorizontal, ChevronUp, ShieldOff, ShieldCheck } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/client/components/ui/badge"
 import { Button } from "@/client/components/ui/button"
 import { Input } from "@/client/components/ui/input"
-import { intentApi, orderApi, workbenchApi } from "@/client/api/instance"
+import { intentApi, orderApi, workbenchApi, exemptionApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import {
     STANDARD_PLUGIN_ID,
@@ -102,6 +102,8 @@ export function WorkbenchPage() {
     const [loadingChat, setLoadingChat] = useState(false)
     const [busyDraft, setBusyDraft] = useState(false)
     const [busySummary, setBusySummary] = useState(false)
+    const [exempt, setExempt] = useState(false)
+    const [busyExempt, setBusyExempt] = useState(false)
     const [expandedMsgIds, setExpandedMsgIds] = useState<Set<string>>(new Set())
     const scrollRef = useRef<HTMLDivElement>(null)
     // 记录用户是否停留在底部附近：只有“已在底部”时才自动跟随新消息，避免阅读历史时被强制拉到底部
@@ -159,6 +161,7 @@ export function WorkbenchPage() {
             setMessages(d.messages || [])
             setDrafts(d.drafts || [])
             setSummary(d.summary || "")
+            setExempt(!!d.exempt)
         }
         setLoadingChat(false)
     }, [auth])
@@ -179,6 +182,7 @@ export function WorkbenchPage() {
                 if (d) {
                     setMembers(d.members || [])
                     setMessages(d.messages || [])
+                    setExempt(!!d.exempt)
                     if (first) {
                         setDrafts(d.drafts || [])
                         setSummary(d.summary || "")
@@ -231,6 +235,23 @@ export function WorkbenchPage() {
             toast.error(`小结失败: ${e?.message || ""}`)
         } finally {
             setBusySummary(false)
+        }
+    }
+
+    // 豁免/取消豁免此会话：不计入任何统计与待回复
+    const toggleExempt = async () => {
+        if (!selectedId) return
+        const next = !exempt
+        setBusyExempt(true)
+        try {
+            await exemptionApi.toggleChat({ chat_id: selectedId, exempt: next, auth })
+            setExempt(next)
+            toast.success(next ? "已豁免此会话，不再纳入统计" : "已取消豁免")
+            loadChats() // 刷新列表待回复状态
+        } catch (e: any) {
+            toast.error(`操作失败: ${e?.message || ""}`)
+        } finally {
+            setBusyExempt(false)
         }
     }
 
@@ -459,6 +480,31 @@ export function WorkbenchPage() {
                                     </div>
                                 ) : (
                                     <div className="bg-muted/50 rounded-md p-3 text-xs whitespace-pre-wrap">{summary}</div>
+                                )}
+                            </div>
+
+                            {/* 统计豁免：订单与助手下方，标记此会话是否为真实客户 */}
+                            <div className="space-y-2">
+                                <span className="text-muted-foreground text-xs font-semibold uppercase">统计豁免</span>
+                                {exempt ? (
+                                    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+                                        <div className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                                            <ShieldOff className="size-3.5" /> 此会话非客户（已豁免）
+                                        </div>
+                                        <p className="text-muted-foreground text-xs">该会话的所有消息不纳入任何指标统计，也不计入待回复。</p>
+                                        <Button size="sm" variant="outline" className="w-full" onClick={toggleExempt} disabled={busyExempt || !selectedId}>
+                                            {busyExempt ? <RefreshCw className="mr-1 size-3 animate-spin" /> : <ShieldCheck className="mr-1 size-3" />}
+                                            取消豁免
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2 rounded-md border border-dashed p-3">
+                                        <p className="text-muted-foreground text-xs">若此会话并非真实客户（如内部群 / 测试群），可豁免后不纳入统计。</p>
+                                        <Button size="sm" variant="outline" className="w-full" onClick={toggleExempt} disabled={busyExempt || !selectedId}>
+                                            {busyExempt ? <RefreshCw className="mr-1 size-3 animate-spin" /> : <ShieldOff className="mr-1 size-3" />}
+                                            豁免此会话
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
                         </div>

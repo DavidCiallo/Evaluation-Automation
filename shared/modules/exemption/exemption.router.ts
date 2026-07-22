@@ -29,4 +29,9 @@ export const exemptionRoutes = {
         request: {} as { keyword?: string; auth?: string },
         response: {} as ExemptionSearchCustomersResponse,
     },
+    toggleChat: {
+        path: "/toggle-chat",
+        request: {} as { chat_id: string; exempt: boolean; auth?: string },
+        response: {} as ExemptionUpdateResponse,
+    },
 } as const;

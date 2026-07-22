@@ -94,6 +94,23 @@ export class ExemptionSearchRequest {
     }
 }
 
+export class ExemptionToggleChatRequest {
+    public chat_id: string;
+    public exempt: boolean;
+    public auth?: string;
+
+    constructor(data: any) {
+        if (!data.chat_id) throw new Error("chat_id is required");
+        this.chat_id = String(data.chat_id);
+        this.exempt = data.exempt !== false;
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new ExemptionToggleChatRequest(data);
+    }
+}
+
 export interface ChatOption {
     id: string;
     name: string;

@@ -46,6 +46,7 @@ export class WorkbenchChatResponse {
         members: ChatMemberDTO[];
         messages: ConversationDTO[];
         drafts: OrderDTO[];
+        exempt: boolean;
         summary: string;
     };
     public message?: string;

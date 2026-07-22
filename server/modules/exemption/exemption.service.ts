@@ -132,6 +132,18 @@ export async function updateExemption(input: ExemptionConfig): Promise<Exemption
     return config;
 }
 
+/**
+ * 切换单个会话的豁免状态（工作台“豁免此会话”入口）。
+ * 复用 updateExemption 以触发缓存失效、指标刷新与快照 unread 重算。
+ */
+export async function setChatExemption(chatId: string, exempt: boolean): Promise<ExemptionConfig> {
+    const ex = await getExemption();
+    const set = new Set(ex.config.chats);
+    if (exempt) set.add(chatId);
+    else set.delete(chatId);
+    return updateExemption({ ...ex.config, chats: [...set] });
+}
+
 // ----- matching helpers (synchronous, operate on a compiled snapshot) -----
 
 function ruleHasConditions(r: CompiledRule): boolean {
@@ -230,7 +242,7 @@ export async function searchChats(keyword: string): Promise<ChatOption[]> {
     await chatRepo.findEach({}, (c) => {
         const name = c.name || "";
         if (kw && !name.toLowerCase().includes(kw)) return;
-        matches.push({ id: c.id, name, type: c.type, last: c.last_send_time || 0 });
+        matches.push({ id: c.id, name, type: c.type === "group" ? "group" : "single", last: c.last_send_time || 0 });
     });
     matches.sort((a, b) => b.last - a.last);
     return matches.slice(0, 20).map(({ last, ...rest }) => rest);

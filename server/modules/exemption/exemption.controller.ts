@@ -3,10 +3,12 @@ import {
     ExemptionGetRequest,
     ExemptionUpdateRequest,
     ExemptionSearchRequest,
+    ExemptionToggleChatRequest,
 } from "../../../shared/modules/exemption/exemption.interface";
 import {
     getExemption,
     updateExemption,
+    setChatExemption,
     resolveNames,
     searchChats,
     searchCustomers,
@@ -38,6 +40,13 @@ async function searchCustomersHandler(request: ExemptionSearchRequest) {
     return { customers };
 }
 
+async function toggleChat(request: ExemptionToggleChatRequest) {
+    const req = ExemptionToggleChatRequest.self(request);
+    const config = await setChatExemption(req.chat_id, req.exempt);
+    const names = await resolveNames(config);
+    return { ...config, ...names };
+}
+
 export const exemptionMount = {
     routes: exemptionRoutes,
     handlers: {
@@ -45,5 +54,6 @@ export const exemptionMount = {
         update,
         searchChats: searchChatsHandler,
         searchCustomers: searchCustomersHandler,
+        toggleChat,
     },
 };
