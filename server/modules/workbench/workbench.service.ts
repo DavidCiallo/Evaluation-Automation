@@ -121,7 +121,10 @@ export async function getChatBundle(chatId: string) {
     let members = await memberRepo.find({ chat_id: chatId });
     const messages = await conversationRepo.find({ chat_id: chatId }, { limit: 200 });
     messages.sort((a, b) => a.send_time - b.send_time);
-    const drafts = await orderRepo.find({ chat_id: chatId });
+    // 查找关联订单：chat_id 或 private_chat_id
+    const ordersByChat = await orderRepo.find({ chat_id: chatId });
+    const ordersByPrivate = await orderRepo.find({ private_chat_id: chatId });
+    const drafts = [...ordersByChat, ...ordersByPrivate.filter((o) => !ordersByChat.some((x) => x.id === o.id))];
 
     // Fetch missing names from WeCom API on-demand
     try {

@@ -5,6 +5,8 @@
 export interface IntentDraftData {
     visa_country?: string | null;
     visa_type?: string | null;
+    departure?: string | null;
+    destination?: string | null;
     trip_start_date?: string | null;
     applicant_count?: number | null;
     customer_phone?: string | null;

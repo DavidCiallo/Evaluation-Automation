@@ -3,7 +3,10 @@ import {
     OrderDetailResponse,
     OrderTransitionResponse,
     OrderPluginActionResponse,
+    OrderUpdateCustomerRemarkResponse,
     OrderRemarkResponse,
+    OrderCreateFromChatResponse,
+    OrderRelatedChatsResponse,
 } from "./order.interface";
 
 export const orderRoutes = {
@@ -38,10 +41,28 @@ export const orderRoutes = {
         request: {} as { id: string; plugin_id: string; action: string; payload?: Record<string, any>; auth?: string },
         response: {} as OrderPluginActionResponse,
     },
+    /** 更新客户备注（订单标题） */
+    updateCustomerRemark: {
+        path: "/update-customer-remark",
+        request: {} as { id: string; customer_remark: string; auth?: string },
+        response: {} as OrderUpdateCustomerRemarkResponse,
+    },
     /** 客服手动追加备注 */
     remark: {
         path: "/remark",
         request: {} as { id: string; content: string; auth?: string },
         response: {} as OrderRemarkResponse,
+    },
+    /** 手动从会话创建订单（支持私聊/群聊） */
+    createFromChat: {
+        path: "/create-from-chat",
+        request: {} as { chat_id: string; order_name?: string; auth?: string },
+        response: {} as OrderCreateFromChatResponse,
+    },
+    /** 获取订单关联会话列表 */
+    relatedChats: {
+        path: "/related-chats",
+        request: {} as { id: string; auth?: string },
+        response: {} as OrderRelatedChatsResponse,
     },
 } as const;

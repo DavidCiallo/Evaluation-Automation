@@ -14,7 +14,8 @@ export const DEFAULT_INTENT_PROMPT = `你是一名签证客服助理。根据客
 - 如果对话无办签意图，输出 {"intent": false}
 
 字段说明：
-- visa_country: 目的地国家
+- departure: 出发地（客户所在城市，如“北京”“上海”）
+- destination: 目的地国家（如“日本”“美国”“泰国”）
 - visa_type: 签证类型（旅游/商务/留学/探亲/工作）
 - trip_start_date: 出行日期
 - applicant_count: 申请人数
@@ -26,13 +27,14 @@ export const DEFAULT_INTENT_PROMPT = `你是一名签证客服助理。根据客
 输出 schema:
 {
   "intent": true,
-  "visa_country": "日本",
+  "departure": "北京",
+  "destination": "日本",
   "visa_type": "旅游",
   "trip_start_date": "2026-10-01",
   "applicant_count": 2,
   "customer_phone": null,
   "customer_name": null,
-  "missing_fields": ["customer_phone", "护照有效期"]
+  "missing_fields": ["customer_phone"]
 }`;
 
 export const DEFAULT_SUMMARY_PROMPT = `你是签证客服助理。请将以下对话浓缩为 3 条以内的中文要点：

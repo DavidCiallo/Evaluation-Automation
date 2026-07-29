@@ -38,11 +38,11 @@ if (process.env.WECOM_DB_PATH && !isWecomSeeded()) {
 const seeded = isWecomSeeded();
 const sdkHost = process.env.SDK_HOST || "http://121.196.237.175:8899";
 const hasLiveSdk = sdkHost !== "http://127.0.0.1:8899";
-if (isWxConfigured() || hasLiveSdk || !seeded) {
-    startPoller().catch((e) => console.error("[boot] poller failed", e));
-} else {
-    console.log("[boot] data seeded from WeCom DB — poller disabled");
-}
+// if (isWxConfigured() || hasLiveSdk || !seeded) {
+//     startPoller().catch((e) => console.error("[boot] poller failed", e));
+// } else {
+//     console.log("[boot] data seeded from WeCom DB — poller disabled");
+// }
 
 startMetricsJob();
 
@@ -54,14 +54,14 @@ Bun.serve({
         const url = new URL(req.url);
         const pathName = url.pathname;
 
-        // Serve cached media files (images from WeCom SDK)
+        // Serve cached media files (images from WeCom SDK or uploaded materials)
         if (pathName.startsWith("/api/media/") && req.method === "GET") {
             const { serveCachedMedia } = await import("../lib/media");
             const filename = pathName.replace("/api/media/", "");
             if (filename && !filename.includes("..")) {
                 const file = serveCachedMedia(filename);
                 if (file) {
-                    return new Response(file.buffer, {
+                    return new Response(new Uint8Array(file.buffer), {
                         headers: {
                             "Content-Type": file.contentType,
                             "Cache-Control": "public, max-age=86400",
@@ -70,6 +70,32 @@ Bun.serve({
                 }
             }
             return new Response("Not Found", { status: 404 });
+        }
+
+        // Upload material files (multipart/form-data)
+        if (pathName === "/api/order/upload-material-file" && req.method === "POST") {
+            try {
+                const formData = await req.formData();
+                const file = formData.get("file") as File | null;
+                if (!file) return Response.json({ success: false, message: "no file" });
+
+                const fs = await import("fs");
+                const pathMod = await import("path");
+                const MEDIA_DIR = pathMod.resolve(process.cwd(), "data/media");
+                if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+                const ext = (file.name.match(/\.[^.]+$/) || [""])[0] || "";
+                const filename = `mat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+                const buf = Buffer.from(await file.arrayBuffer());
+                fs.writeFileSync(pathMod.join(MEDIA_DIR, filename), buf);
+
+                return Response.json({
+                    success: true,
+                    data: { filename: file.name, url: `/api/media/${filename}` },
+                });
+            } catch (e: any) {
+                return Response.json({ success: false, message: e?.message || "upload failed" });
+            }
         }
 
         const apiResponse = await mounthttp(req, [

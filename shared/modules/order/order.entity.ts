@@ -43,8 +43,12 @@ export interface OrderEntity {
     create_time: number;
     update_time: number | null;
     delete_time: number | null;
-    /** 群聊内部 id（订单与群聊一一对应，群聊即订单） */
+    /** 订单名称/标题（默认取群聊名称） */
+    order_name: string;
+    /** 群聊内部 id */
     chat_id: string;
+    /** 私聊会话 id（客户与客服的私聊） */
+    private_chat_id: string;
     customer_id: string;
     customer_name: string;
     /** 客户备注名（取自群聊中 role=customer 成员的 remark，便于辨认客户身份） */
@@ -61,7 +65,9 @@ export interface OrderEntity {
 
 export class OrderDTO {
     public id: string;
+    public order_name: string;
     public chat_id: string;
+    public private_chat_id: string;
     public customer_id: string;
     public customer_name: string;
     public customer_remark: string;
@@ -77,7 +83,9 @@ export class OrderDTO {
 
     constructor(origin: OrderEntity, extra?: { agent_names?: string[] }) {
         this.id = origin.id;
+        this.order_name = origin.order_name || "";
         this.chat_id = origin.chat_id;
+        this.private_chat_id = origin.private_chat_id || "";
         this.customer_id = origin.customer_id;
         this.customer_name = origin.customer_name;
         this.customer_remark = origin.customer_remark || "";

@@ -15,6 +15,7 @@ import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import { getOrderPlugin, getEnabledOrderPlugins, type PluginContext } from "./plugin-registry";
+import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest";
 
 const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
@@ -43,7 +44,11 @@ export async function findOrders(opts: {
     if (opts.agent_id) all = all.filter((o) => (o.agent_ids || []).includes(opts.agent_id!));
     if (opts.customer) {
         const q = opts.customer.toLowerCase();
-        all = all.filter((o) => (o.customer_name || "").toLowerCase().includes(q));
+        all = all.filter((o) =>
+            (o.customer_name || "").toLowerCase().includes(q) ||
+            (o.customer_remark || "").toLowerCase().includes(q) ||
+            (o.order_name || "").toLowerCase().includes(q)
+        );
     }
     if (opts.start) all = all.filter((o) => o.create_time >= opts.start!);
     if (opts.end) all = all.filter((o) => o.create_time <= opts.end!);
@@ -62,16 +67,187 @@ export async function findByChat(chatId: string): Promise<OrderEntity | null> {
     return orderRepo.findOne({ chat_id: chatId });
 }
 
-// ---------- 群聊建单（内核唯一建单入口） ----------
+/**
+ * 获取订单关联的所有会话（仅客户维度）。
+ * 关联逻辑：
+ * 1. 客户私聊
+ * 2. 客户所在群聊（主群聊）
+ * 3. 同群聊中其它客户的私聊
+ * 4. 同群聊中其它客户所在的群聊
+ */
+export async function getRelatedChats(orderId: string): Promise<{
+    chats: Array<{
+        id: string;
+        chat_id: string;
+        name: string;
+        type: string;
+        last_send_time: number;
+        is_main: boolean;
+    }>;
+}> {
+    const order = await orderRepo.findOne({ id: orderId });
+    if (!order) throw "order not found";
+
+    const seen = new Set<string>();
+    const result: Array<{
+        id: string;
+        chat_id: string;
+        name: string;
+        type: string;
+        last_send_time: number;
+        is_main: boolean;
+    }> = [];
+
+    // 收集主群聊和私聊
+    const mainChatIds: string[] = [];
+    if (order.chat_id) mainChatIds.push(order.chat_id);
+    if (order.private_chat_id) mainChatIds.push(order.private_chat_id);
+
+    // 并行查询主会话 + 主群聊成员
+    const [mainChats, mainGroupMembers] = await Promise.all([
+        mainChatIds.length > 0 ? chatRepo.findByIds(mainChatIds) : Promise.resolve([]),
+        order.chat_id ? memberRepo.find({ chat_id: order.chat_id }) : Promise.resolve([]),
+    ]);
+
+    const chatMap = new Map<string, any>();
+    for (const c of mainChats) chatMap.set(c.id, c);
+
+    // 1. 主群聊
+    if (order.chat_id) {
+        const chat = chatMap.get(order.chat_id);
+        if (chat) {
+            result.push({
+                id: chat.id,
+                chat_id: chat.chat_id,
+                name: chat.name || "群聊",
+                type: chat.type,
+                last_send_time: chat.last_send_time || 0,
+                is_main: true,
+            });
+            seen.add(chat.id);
+        }
+    }
+
+    // 2. 客户私聊
+    if (order.private_chat_id) {
+        const chat = chatMap.get(order.private_chat_id);
+        if (chat) {
+            result.push({
+                id: chat.id,
+                chat_id: chat.chat_id,
+                name: chat.name || "私聊",
+                type: chat.type,
+                last_send_time: chat.last_send_time || 0,
+                is_main: false,
+            });
+            seen.add(chat.id);
+        }
+    }
+
+    // 3. 找同群聊中其它客户（排除当前客户）
+    const otherCustomerIds = mainGroupMembers
+        .filter((m) => m.role === "customer" && m.wechat_id !== order.customer_id)
+        .map((m) => m.wechat_id);
+    const uniqueOtherCustomers = [...new Set(otherCustomerIds)];
+
+    if (uniqueOtherCustomers.length > 0) {
+        // 并行查询其它客户的所有会话成员记录
+        const otherMembersArrays = await Promise.all(
+            uniqueOtherCustomers.map((cid) => memberRepo.find({ wechat_id: cid }))
+        );
+
+        // 收集需要批量查询的 chat id
+        const extraChatIds: string[] = [];
+        for (const members of otherMembersArrays) {
+            for (const m of members) {
+                if (!seen.has(m.chat_id)) extraChatIds.push(m.chat_id);
+            }
+        }
+        const uniqueExtraIds = [...new Set(extraChatIds)];
+
+        // 批量查询会话
+        if (uniqueExtraIds.length > 0) {
+            const extraChats = await chatRepo.findByIds(uniqueExtraIds);
+            for (const c of extraChats) chatMap.set(c.id, c);
+        }
+
+        // 4. 其它客户的私聊和群聊
+        for (const members of otherMembersArrays) {
+            for (const m of members) {
+                if (seen.has(m.chat_id)) continue;
+                const chat = chatMap.get(m.chat_id);
+                if (chat) {
+                    result.push({
+                        id: chat.id,
+                        chat_id: chat.chat_id,
+                        name: chat.name || (chat.type === "group" ? "群聊" : "私聊"),
+                        type: chat.type,
+                        last_send_time: chat.last_send_time || 0,
+                        is_main: false,
+                    });
+                    seen.add(chat.id);
+                }
+            }
+        }
+    }
+
+    result.sort((a, b) => b.last_send_time - a.last_send_time);
+
+    return { chats: result };
+}
+
+// ---------- 建单（内核唯一建单入口） ----------
 
 /**
- * 确保群聊对应订单存在（群聊即订单）。单聊不建单。
+ * 尝试通过客户 wechat_id 查找其与客服的私聊。
+ * 匹配条件：私聊中该客户与订单的某个客服同时在成员列表中。
+ */
+async function findPrivateChatForCustomer(customerWechatId: string, agentIds: string[]): Promise<string> {
+    if (!customerWechatId || agentIds.length === 0) return "";
+    // 查找所有单聊/私聊
+    const privateChats = await chatRepo.find({ type: "single" });
+    for (const pc of privateChats) {
+        const pcMembers = await memberRepo.find({ chat_id: pc.id });
+        const hasCustomer = pcMembers.some((m) => m.role === "customer" && m.wechat_id === customerWechatId);
+        const hasAgent = pcMembers.some((m) => m.role === "agent" && agentIds.includes(m.wechat_id));
+        if (hasCustomer && hasAgent) return pc.id;
+    }
+    return "";
+}
+
+/**
+ * 确保会话对应订单存在。群聊建单，单聊/私聊尝试关联到已有订单。
  * 已存在时刷新参与客服与客户名（成员可能后续加入）。
  */
 export async function ensureOrderForChat(chatId: string): Promise<OrderEntity | null> {
     const chat = await chatRepo.findOne({ id: chatId });
-    if (!chat || chat.type !== "group") return null;
+    if (!chat) return null;
 
+    // 单聊/私聊：尝试关联到已有群聊订单
+    if (chat.type !== "group") {
+        const members = await memberRepo.find({ chat_id: chatId });
+        const customer = members.find((m) => m.role === "customer");
+        const agentIds = [...new Set(members.filter((m) => m.role === "agent").map((m) => m.wechat_id))];
+        if (customer?.wechat_id) {
+            // 查找该客户参与的群聊订单
+            const groupChats = await chatRepo.find({ type: "group" });
+            for (const gc of groupChats) {
+                const gcMembers = await memberRepo.find({ chat_id: gc.id });
+                const gcHasCustomer = gcMembers.some((m) => m.role === "customer" && m.wechat_id === customer.wechat_id);
+                if (gcHasCustomer) {
+                    const order = await orderRepo.findOne({ chat_id: gc.id });
+                    if (order && !order.private_chat_id) {
+                        await orderRepo.update({ id: order.id }, { private_chat_id: chatId });
+                        return (await orderRepo.findOne({ id: order.id })) || order;
+                    }
+                    return order;
+                }
+            }
+        }
+        return null;
+    }
+
+    // 群聊建单
     const members = await memberRepo.find({ chat_id: chatId });
     const agentIds = [...new Set(members.filter((m) => m.role === "agent").map((m) => m.wechat_id))];
     const customer = members.find((m) => m.role === "customer");
@@ -85,19 +261,115 @@ export async function ensureOrderForChat(chatId: string): Promise<OrderEntity | 
         if (JSON.stringify(existing.agent_ids || []) !== JSON.stringify(agentIds)) patch.agent_ids = agentIds;
         if (customerName && existing.customer_name !== customerName) patch.customer_name = customerName;
         if (customerRemark && existing.customer_remark !== customerRemark) patch.customer_remark = customerRemark;
+        if (!existing.order_name && chat?.name) patch.order_name = chat.name;
+        // 尝试补全 private_chat_id
+        if (!existing.private_chat_id && customer?.wechat_id) {
+            const pcId = await findPrivateChatForCustomer(customer.wechat_id, agentIds);
+            if (pcId) patch.private_chat_id = pcId;
+        }
         if (Object.keys(patch).length > 0) await orderRepo.update({ id: existing.id }, patch);
         return (await orderRepo.findOne({ id: existing.id })) || existing;
     }
 
+    // 新建群聊订单时尝试匹配私聊
+    let privateChatId = "";
+    if (customer?.wechat_id) {
+        privateChatId = await findPrivateChatForCustomer(customer.wechat_id, agentIds);
+    }
+
     return orderRepo.insert({
+        order_name: chat?.name || customerRemark || customerName || "",
         chat_id: chatId,
-        customer_id: "",
+        private_chat_id: privateChatId,
+        customer_id: customer?.wechat_id || "",
         customer_name: customerName,
         customer_remark: customerRemark,
         agent_ids: agentIds,
         status: "draft",
         remarks: [],
         data: {},
+        version: 1,
+    });
+}
+
+// ---------- 手动建单（支持私聊/群聊） ----------
+
+/**
+ * 手动从会话创建订单。
+ * 私聊：private_chat_id = chatId, chat_id 为空
+ * 群聊：chat_id = chatId, 尝试匹配 private_chat_id
+ */
+export async function createOrderFromChat(chatId: string, orderName?: string): Promise<OrderEntity | null> {
+    const chat = await chatRepo.findOne({ id: chatId });
+    if (!chat) throw "chat not found";
+
+    // 检查是否已有订单关联此会话
+    const existingByChat = await orderRepo.findOne({ chat_id: chatId });
+    const existingByPrivate = await orderRepo.findOne({ private_chat_id: chatId });
+    if (existingByChat || existingByPrivate) {
+        return existingByChat || existingByPrivate;
+    }
+
+    const members = await memberRepo.find({ chat_id: chatId });
+    const agentIds = [...new Set(members.filter((m) => m.role === "agent").map((m) => m.wechat_id))];
+    const customer = members.find((m) => m.role === "customer");
+    const snap = await snapshotRepo.findOne({ chat_id: chatId });
+    const customerName = snap?.customer_name || customer?.name || "";
+    const customerRemark = customer?.remark || "";
+
+    // 预填草稿：客户姓名
+    const draftData = {
+        [STANDARD_PLUGIN_ID]: {
+            draft: {
+                order_name: orderName || customerRemark || customerName || "",
+                price: null,
+                currency: null,
+                customers: customer ? [{
+                    id: nanoid(8),
+                    name: customerName,
+                    visa_type: null,
+                    departure: null,
+                    destination: null,
+                }] : [],
+                raw: null,
+            },
+        },
+    };
+
+    // 私聊：private_chat_id = chatId, chat_id 为空
+    if (chat.type !== "group") {
+        return orderRepo.insert({
+            order_name: orderName || customerRemark || customerName || "",
+            chat_id: "",
+            private_chat_id: chatId,
+            customer_id: customer?.wechat_id || "",
+            customer_name: customerName,
+            customer_remark: customerRemark,
+            agent_ids: agentIds,
+            status: "draft",
+            remarks: [],
+            data: draftData,
+            version: 1,
+        });
+    }
+
+    // 群聊：chat_id = chatId, 尝试匹配 private_chat_id
+    let privateChatId = "";
+    if (customer?.wechat_id) {
+        privateChatId = await findPrivateChatForCustomer(customer.wechat_id, agentIds);
+    }
+
+    return orderRepo.insert({
+        order_name: orderName || chat?.name || customerRemark || customerName || "",
+        chat_id: chatId,
+        private_chat_id: privateChatId,
+        customer_id: customer?.wechat_id || "",
+        customer_name: customerName,
+        customer_remark: customerRemark,
+        agent_ids: agentIds,
+        status: "draft",
+        remarks: [],
+        data: draftData,
         version: 1,
     });
 }
@@ -139,6 +411,12 @@ export async function setPluginData(orderId: string, pluginId: string, patch: Re
         data[pluginId] = { ...(data[pluginId] || {}), ...patch };
         return { data };
     });
+}
+
+/** 更新客户备注（订单标题）。 */
+export async function updateCustomerRemark(orderId: string, customerRemark: string): Promise<OrderEntity | null> {
+    await orderRepo.update({ id: orderId }, { customer_remark: customerRemark });
+    return orderRepo.findOne({ id: orderId });
 }
 
 // ---------- 备注时间线 ----------

@@ -59,6 +59,22 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentD
         }
     }
 
+    // 出发地：匹配"从XX出发""XX飞XX""XX去XX"等常见模式
+    const DEPARTURE_CITIES: RegExp[] = [
+        /(从|自)\s*(北京|上海|广州|深圳|成都|杭州|南京|武汉|西安|重庆|天津|苏州|厦门|青岛|大连|昆明|长沙|沈阳|郑州|哈尔滨|济南|福州|合肥|南昌|贵阳|南宁|太原|石家庄|乌鲁木齐|兰州|呼和浩特|拉萨|西宁|银川|海口|三亚)[出到去飞]/,
+        /(北京|上海|广州|深圳|成都|杭州|南京|武汉|西安|重庆|天津|苏州|厦门|青岛|大连|昆明|长沙|沈阳|郑州|哈尔滨|济南|福州|合肥|南昌|贵阳|南宁|太原|石家庄|乌鲁木齐|兰州|呼和浩特|拉萨|西宁|银川|海口|三亚)\s*(出发|出港|起飞)/,
+        /(从|自)\s*(北京|上海|广州|深圳|成都|杭州|南京|武汉|西安|重庆|天津|苏州|厦门|青岛|大连|昆明|长沙|沈阳|郑州|哈尔滨|济南|福州|合肥|南昌|贵阳|南宁|太原|石家庄|乌鲁木齐|兰州|呼和浩特|拉萨|西宁|银川|海口|三亚)/,
+    ];
+    let departure: string | null = null;
+    for (const re of DEPARTURE_CITIES) {
+        const m = text.match(re);
+        if (m) {
+            // 捕获组2为城市名
+            departure = m[2] || m[1] || null;
+            break;
+        }
+    }
+
     let count: number | null = null;
     const cnNumMap: Record<string, number> = { 一: 1, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
     const m1 = text.match(/([\d]+)\s*(人|位|个人)/);
@@ -88,20 +104,23 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentD
     const ph = text.match(/1[3-9]\d{9}/);
     if (ph) phone = ph[0];
 
-    if (!country && !visaType && count === null && !date) return { hasIntent: false, draft: null };
+    if (!country && !visaType && count === null && !date && !departure) return { hasIntent: false, draft: null };
 
     const missing: string[] = [];
-    if (!country) missing.push("visa_country");
+    if (!country) missing.push("destination");
     if (!visaType) missing.push("visa_type");
     if (!date) missing.push("trip_start_date");
     if (count === null) missing.push("applicant_count");
     if (!phone) missing.push("customer_phone");
+    if (!departure) missing.push("departure");
 
     return {
         hasIntent: true,
         draft: {
             visa_country: country || null,
             visa_type: visaType || null,
+            departure: departure || null,
+            destination: country || null,
             trip_start_date: date || null,
             applicant_count: count ?? null,
             customer_phone: phone || null,
@@ -132,6 +151,8 @@ async function extractDraftByLLM(messages: ConversationEntity[]): Promise<{ raw:
     const draft: IntentDraftData = {
         visa_country: parsed.visa_country ?? null,
         visa_type: parsed.visa_type ?? null,
+        departure: parsed.departure ?? null,
+        destination: parsed.destination ?? parsed.visa_country ?? null,
         trip_start_date: parsed.trip_start_date ?? null,
         applicant_count: parsed.applicant_count ?? null,
         customer_phone: parsed.customer_phone ?? null,

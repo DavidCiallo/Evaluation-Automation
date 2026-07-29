@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, Check, MessageSquare, Users } from "lucide-react"
+import { ArrowLeft, MessageSquare, Users, MessageCircle } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -24,12 +24,24 @@ import { getEnabledClientOrderPlugins } from "./plugin-registry"
 
 ensureClientPluginsRegistered()
 
+type RelatedChat = {
+    id: string
+    chat_id: string
+    name: string
+    type: string
+    last_send_time: number
+    is_main: boolean
+}
+
 export function OrderDetailPage() {
     const params = useParams()
     const auth = getAuth()
     const [order, setOrder] = useState<OrderDTO | null>(null)
+    const [relatedChats, setRelatedChats] = useState<RelatedChat[]>([])
+    const [activeChatId, setActiveChatId] = useState<string | null>(null)
     const [messages, setMessages] = useState<ConversationDTO[]>([])
     const [loading, setLoading] = useState(true)
+    const [loadingMessages, setLoadingMessages] = useState(false)
     const [remark, setRemark] = useState("")
     const [busy, setBusy] = useState(false)
 
@@ -41,9 +53,14 @@ export function OrderDetailPage() {
             const d = res?.data
             if (d?.order) {
                 setOrder(d.order)
-                if (d.order.chat_id) {
-                    const cres: any = await conversationApi.list({ chat_id: d.order.chat_id, limit: 30, auth })
-                    setMessages((cres?.data?.list as ConversationDTO[]) || [])
+                // 加载关联会话列表
+                const chatsRes: any = await orderApi.relatedChats({ id: d.order.id, auth })
+                const chats = (chatsRes?.data?.chats as RelatedChat[]) || []
+                setRelatedChats(chats)
+                // 默认选中主群聊或第一个会话
+                if (chats.length > 0) {
+                    setActiveChatId(chats[0].id)
+                    loadMessages(chats[0].id)
                 }
             }
         } catch (e: any) {
@@ -51,6 +68,23 @@ export function OrderDetailPage() {
         } finally {
             setLoading(false)
         }
+    }
+
+    const loadMessages = async (chatId: string) => {
+        setLoadingMessages(true)
+        try {
+            const cres: any = await conversationApi.list({ chat_id: chatId, limit: 30, auth })
+            setMessages((cres?.data?.list as ConversationDTO[]) || [])
+        } catch (e: any) {
+            toast.error(`加载消息失败: ${e?.message || ""}`)
+        } finally {
+            setLoadingMessages(false)
+        }
+    }
+
+    const switchChat = (chatId: string) => {
+        setActiveChatId(chatId)
+        loadMessages(chatId)
     }
 
     useEffect(() => {
@@ -94,6 +128,8 @@ export function OrderDetailPage() {
     const clientPlugins = getEnabledClientOrderPlugins()
     const remarks = [...(order.remarks || [])].sort((a, b) => b.time - a.time)
 
+    const activeChat = relatedChats.find((c) => c.id === activeChatId)
+
     return (
         <div className="space-y-6">
             {/* 头部 */}
@@ -105,10 +141,7 @@ export function OrderDetailPage() {
                 </Button>
                 <div className="flex-1">
                     <h2 className="text-xl font-semibold">
-                        {order.customer_name || "未命名客户"}
-                        {order.customer_remark && order.customer_remark !== order.customer_name && (
-                            <span className="text-muted-foreground ml-2 text-sm font-normal">（{order.customer_remark}）</span>
-                        )}
+                        {order.order_name || order.customer_remark || order.customer_name || "未命名订单"}
                     </h2>
                     <p className="text-muted-foreground text-xs">
                         #{order.id.slice(0, 8)} · v{order.version}
@@ -117,40 +150,28 @@ export function OrderDetailPage() {
                 <Badge>{order.status_label}</Badge>
             </div>
 
-            {/* 订单进度步进器 */}
+            {/* 状态流转 */}
             <Card>
                 <CardHeader>
-                    <CardTitle>订单进度</CardTitle>
-                    <CardDescription>点击后续阶段以推进订单（仅可前向流转）</CardDescription>
+                    <CardTitle>订单状态</CardTitle>
+                    <CardDescription>点击推进到下一阶段</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="flex flex-wrap items-center gap-1">
-                        {ORDER_STATUS_FLOW.map((s, i) => {
-                            const isCur = i === curIdx
-                            const isDone = i < curIdx
-                            const clickable = i > curIdx
+                    <div className="flex flex-wrap gap-2">
+                        {ORDER_STATUS_FLOW.map((s, idx) => {
+                            const isCurrent = s === order.status
+                            const isPast = idx < curIdx
+                            const isNext = idx === curIdx + 1
                             return (
-                                <div key={s} className="flex items-center gap-1">
-                                    <button
-                                        disabled={!clickable || busy}
-                                        onClick={() => onTransition(s)}
-                                        className={`flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition ${
-                                            isCur
-                                                ? "border-primary bg-primary text-primary-foreground"
-                                                : isDone
-                                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
-                                                  : clickable
-                                                    ? "hover:border-primary/50 cursor-pointer border-dashed"
-                                                    : "text-muted-foreground opacity-60"
-                                        }`}
-                                    >
-                                        {isDone && <Check className="size-3" />}
-                                        {ORDER_STATUS_LABEL[s]}
-                                    </button>
-                                    {i < ORDER_STATUS_FLOW.length - 1 && (
-                                        <span className="text-muted-foreground text-xs">→</span>
-                                    )}
-                                </div>
+                                <Button
+                                    key={s}
+                                    size="sm"
+                                    variant={isCurrent ? "default" : isPast ? "secondary" : isNext ? "outline" : "ghost"}
+                                    disabled={!isNext || busy}
+                                    onClick={() => onTransition(s)}
+                                >
+                                    {ORDER_STATUS_LABEL[s]}
+                                </Button>
                             )
                         })}
                     </div>
@@ -180,8 +201,8 @@ export function OrderDetailPage() {
                     </CardHeader>
                     <CardContent className="space-y-3 text-sm">
                         <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">客户姓名</span>
-                            <span className="font-medium">{order.customer_name || "—"}</span>
+                            <span className="text-muted-foreground">订单名称</span>
+                            <span className="font-medium">{order.order_name || "—"}</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <span className="text-muted-foreground">客户备注</span>
@@ -201,10 +222,17 @@ export function OrderDetailPage() {
                             <span className="text-muted-foreground">创建时间</span>
                             <span>{new Date(order.create_time).toLocaleString("zh-CN", { hour12: false })}</span>
                         </div>
+                        {order.private_chat_id && (
+                            <Button variant="outline" size="sm" className="w-full" asChild>
+                                <Link to={`/workbench/${order.private_chat_id}`}>
+                                    <MessageSquare className="mr-1 size-3" /> 查看私聊会话
+                                </Link>
+                            </Button>
+                        )}
                         {order.chat_id && (
                             <Button variant="outline" size="sm" className="w-full" asChild>
                                 <Link to={`/workbench/${order.chat_id}`}>
-                                    <MessageSquare className="mr-1 size-3" /> 查看关联会话
+                                    <Users className="mr-1 size-3" /> 查看群聊会话
                                 </Link>
                             </Button>
                         )}
@@ -252,22 +280,62 @@ export function OrderDetailPage() {
                 </CardContent>
             </Card>
 
-            {/* 关联聊天记录 */}
+            {/* 关联聊天记录 - 使用 tabs */}
             <Card>
                 <CardHeader>
                     <CardTitle>关联聊天记录</CardTitle>
-                    <CardDescription>该群聊最近 30 条消息</CardDescription>
+                    <CardDescription>
+                        {activeChat
+                            ? `${activeChat.name} · 最近 30 条消息`
+                            : "选择会话查看消息"}
+                    </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                    {messages.length === 0 && <p className="text-muted-foreground text-sm">无关联消息</p>}
-                    {messages.map((m) => (
-                        <div key={m.id} className="border-l-2 pl-2 text-sm">
-                            <span className="text-muted-foreground text-xs">
-                                [{m.from_role}] {new Date(m.send_time).toLocaleString("zh-CN", { hour12: false })}
-                            </span>
-                            <div className="whitespace-pre-wrap break-all">{m.content}</div>
+                <CardContent className="space-y-3">
+                    {/* Tabs */}
+                    <div className="flex flex-wrap gap-1 border-b pb-2">
+                        {relatedChats.map((chat) => (
+                            <button
+                                key={chat.id}
+                                onClick={() => switchChat(chat.id)}
+                                className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs transition ${
+                                    activeChatId === chat.id
+                                        ? "bg-primary text-primary-foreground"
+                                        : "text-muted-foreground hover:bg-muted"
+                                }`}
+                            >
+                                {chat.type === "group" ? (
+                                    <Users className="size-3" />
+                                ) : (
+                                    <MessageCircle className="size-3" />
+                                )}
+                                <span className="max-w-[80px] truncate">{chat.name}</span>
+                                {chat.is_main && (
+                                    <Badge variant="secondary" className="text-[9px]">主</Badge>
+                                )}
+                            </button>
+                        ))}
+                        {relatedChats.length === 0 && (
+                            <span className="text-muted-foreground text-xs">暂无关联会话</span>
+                        )}
+                    </div>
+
+                    {/* Messages */}
+                    {loadingMessages && <Skeleton className="h-32 w-full" />}
+                    {!loadingMessages && messages.length === 0 && (
+                        <p className="text-muted-foreground text-sm">无关联消息</p>
+                    )}
+                    {!loadingMessages && messages.length > 0 && (
+                        <div className="space-y-2">
+                            {messages.map((m) => (
+                                <div key={m.id} className="border-l-2 pl-2 text-sm">
+                                    <span className="text-muted-foreground text-xs">
+                                        [{m.from_role}] {new Date(m.send_time).toLocaleString("zh-CN", { hour12: false })}
+                                    </span>
+                                    <div className="whitespace-pre-wrap break-all">{m.content}</div>
+                                </div>
+                            ))}
                         </div>
-                    ))}
+                    )}
                 </CardContent>
             </Card>
         </div>

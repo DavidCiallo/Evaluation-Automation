@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { Check, Sparkles, RefreshCw, Send, MoreHorizontal, ChevronUp, ShieldOff, ShieldCheck } from "lucide-react"
+import { Check, Sparkles, RefreshCw, Send, MoreHorizontal, ChevronUp, ShieldOff, ShieldCheck, ExternalLink } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -58,6 +58,7 @@ type Order = {
     id: string
     chat_id: string
     customer_name: string
+    customer_remark: string
     status: OrderStatus
     status_label: string
     agent_names: string[]
@@ -66,11 +67,7 @@ type Order = {
     create_time: number
 }
 
-const STANDARD_FIELD_LABEL: Record<string, string> = {
-    type: "订单类型",
-    price: "订单价格",
-    content: "订单内容",
-}
+// 三栏重构后工作台只展示摘要，详情在订单页
 
 function timeAgo(ts: number): string {
     if (!ts) return ""
@@ -102,6 +99,7 @@ export function WorkbenchPage() {
     const [loadingChat, setLoadingChat] = useState(false)
     const [busyDraft, setBusyDraft] = useState(false)
     const [busySummary, setBusySummary] = useState(false)
+    const [busyCreate, setBusyCreate] = useState(false)
     const [exempt, setExempt] = useState(false)
     const [busyExempt, setBusyExempt] = useState(false)
     const [expandedMsgIds, setExpandedMsgIds] = useState<Set<string>>(new Set())
@@ -272,6 +270,25 @@ export function WorkbenchPage() {
             toast.error(`确认失败: ${e?.message || ""}`)
         } finally {
             setBusyDraft(false)
+        }
+    }
+
+    // 手动从当前会话创建订单
+    const createOrderFromChat = async () => {
+        if (!selectedId) return
+        setBusyCreate(true)
+        try {
+            const res: any = await orderApi.createFromChat({ chat_id: selectedId, auth })
+            if (res?.success) {
+                toast.success("已手动开单")
+                await loadChat(selectedId)
+            } else {
+                toast.error(res?.message || "开单失败")
+            }
+        } catch (e: any) {
+            toast.error(`开单失败: ${e?.message || ""}`)
+        } finally {
+            setBusyCreate(false)
         }
     }
 
@@ -452,8 +469,18 @@ export function WorkbenchPage() {
                             <div className="space-y-2">
                                 <div className="text-muted-foreground text-xs font-semibold uppercase">订单</div>
                                 {!activeOrder && (
-                                    <div className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
-                                        暂无订单。群聊收到客户含办签意图的消息后将自动建单并提取草稿。
+                                    <div className="space-y-2">
+                                        <div className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
+                                            暂无订单。
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            className="w-full"
+                                            onClick={createOrderFromChat}
+                                            disabled={busyCreate}
+                                        >
+                                            {busyCreate ? "创建中..." : "手动开单"}
+                                        </Button>
                                     </div>
                                 )}
                                 {activeOrder && (
@@ -515,51 +542,55 @@ export function WorkbenchPage() {
     )
 }
 
-/** 工作台右侧标准订单卡片：草稿 vs 正式值 + 客服确认入口。 */
+/** 工作台右侧标准订单卡片：展示摘要 + 跳转详情。 */
 function OrderStandardCard({ order, busy, onConfirm }: { order: Order; busy: boolean; onConfirm: () => void }) {
+    const navigate = useNavigate()
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
-    const draft = std.draft || null
-    const confirmed = std.confirmed || null
-    const keys = ["type", "price", "content"]
-    const fmt = (k: string, v: any) => {
-        if (v === undefined || v === null || v === "") return "—"
-        return k === "price" ? `¥${v}` : String(v)
-    }
-    const hasContent = !!(draft || confirmed)
+    const src = std.confirmed || std.draft
+    const orderName = src?.order_name || order.customer_remark || order.customer_name || "未命名订单"
+    const price = src?.price
+    const customers = src?.customers || []
+    const hasContent = !!src
 
     return (
         <div className="space-y-2 rounded-md border p-3">
             <div className="flex items-center justify-between">
                 <Badge variant="secondary">v{order.version}</Badge>
-                <span className="text-muted-foreground text-xs">{order.customer_name}</span>
+                <span className="text-muted-foreground text-xs">{orderName}</span>
             </div>
             {!hasContent && (
                 <p className="text-muted-foreground text-xs">暂无订单内容，等待 AI 提取草稿。</p>
             )}
             {hasContent && (
                 <div className="space-y-1">
-                    {keys.map((k) => {
-                        const dv = (draft as any)?.[k]
-                        const cv = (confirmed as any)?.[k]
-                        return (
-                            <div key={k} className="flex justify-between gap-2 text-xs">
-                                <span className="text-muted-foreground shrink-0">{STANDARD_FIELD_LABEL[k]}</span>
-                                <span className="text-right break-all">
-                                    {cv != null && cv !== "" ? (
-                                        <span className="font-medium">{fmt(k, cv)}</span>
-                                    ) : (
-                                        <span className="text-muted-foreground">{fmt(k, dv)}（草稿）</span>
-                                    )}
-                                </span>
-                            </div>
-                        )
-                    })}
+                    {price != null && (
+                        <div className="flex justify-between gap-2 text-xs">
+                            <span className="text-muted-foreground shrink-0">价格</span>
+                            <span className="font-medium">¥{price}</span>
+                        </div>
+                    )}
+                    {customers.length > 0 && (
+                        <div className="space-y-0.5">
+                            {customers.map((c, i) => (
+                                <div key={c.id || i} className="flex items-center gap-1 text-xs">
+                                    <span className="font-medium">{c.name || `客户${i + 1}`}</span>
+                                    {c.visa_type && <span className="text-muted-foreground">· {c.visa_type}</span>}
+                                    {c.destination && <span className="text-muted-foreground">→ {c.destination}</span>}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
-            <Button size="sm" className="w-full" onClick={onConfirm} disabled={busy || !hasContent}>
-                {busy ? <RefreshCw className="mr-1 size-3 animate-spin" /> : <Check className="mr-1 size-3" />}
-                确认订单内容
-            </Button>
+            <div className="flex gap-2">
+                <Button size="sm" className="flex-1" onClick={onConfirm} disabled={busy || !hasContent}>
+                    {busy ? <RefreshCw className="mr-1 size-3 animate-spin" /> : <Check className="mr-1 size-3" />}
+                    确认订单内容
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => navigate(`/orders/${order.id}`)}>
+                    <ExternalLink className="mr-1 size-3" /> 查看详情
+                </Button>
+            </div>
         </div>
     )
 }

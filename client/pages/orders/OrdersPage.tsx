@@ -85,7 +85,7 @@ export function OrdersPage() {
                             </Badge>
                         ))}
                         <Input
-                            placeholder="按客户姓名筛选"
+                            placeholder="按订单名称/客户筛选"
                             className="ml-auto w-56"
                             value={customer}
                             onChange={(e) => setCustomer(e.target.value)}
@@ -125,13 +125,8 @@ export function OrdersPage() {
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0">
                                                     <div className="truncate font-semibold">
-                                                        {o.customer_name || "未命名客户"}
+                                                        {o.order_name || o.customer_remark || o.customer_name || "未命名订单"}
                                                     </div>
-                                                    {o.customer_remark && o.customer_remark !== o.customer_name && (
-                                                        <div className="text-muted-foreground truncate text-xs">
-                                                            备注：{o.customer_remark}
-                                                        </div>
-                                                    )}
                                                     <div className="text-muted-foreground text-xs">
                                                         #{o.id.slice(0, 8)}
                                                     </div>

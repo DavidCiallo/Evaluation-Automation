@@ -1,9 +1,11 @@
 /**
  * 标准订单插件（服务端）。
- * - onMessage：客户消息命中意图信号时，AI 提取草稿写入 data.standard.draft；检测额外需求/特殊情况追加备注。
- * - actions.confirm：客服确认订单内容（price/type/content）写入 data.standard.confirmed。
- * - actions.generate-contract：按模板生成可下载的合同文档。
+ * 三栏结构：
+ *   第一栏 — onMessage 提取草稿；confirm 确认订单信息（多客户）
+ *   第二栏 — assign-form / update-form-status 表单分配（mock）
+ *   第三栏 — upload-material / delete-material 材料存档
  */
+import { nanoid } from "nanoid";
 import Repository from "../../../../lib/repository";
 import type { OrderEntity } from "../../../../../shared/modules/order/order.entity";
 import type { ConversationEntity } from "../../../../../shared/modules/conversation/conversation.entity";
@@ -12,27 +14,93 @@ import type { ServerOrderPlugin, PluginMessageResult, PluginContext } from "../.
 import {
     standardManifest,
     STANDARD_PLUGIN_ID,
-    type StandardDraft,
-    type StandardConfirmed,
+    type OrderCustomerInfo,
+    type OrderInfoDraft,
+    type OrderInfoConfirmed,
+    type FormAssignment,
+    type MaterialEntry,
     type StandardPluginData,
 } from "../../../../../shared/modules/order/plugins/standard.manifest";
 import { extractDraft, detectRemarkUpdates, loadRecentMessages, hasIntentSignal } from "../../../intent/intent.service";
 
 const accountRepo: Repository<any> = Repository.instance("Account");
 
-/** 将意图提取结果映射为标准插件草稿。 */
-function extractionToDraft(ex: IntentDraftData): StandardDraft {
-    const parts: string[] = [];
-    if (ex.visa_country) parts.push(`目的地：${ex.visa_country}`);
-    if (ex.visa_type) parts.push(`签证类型：${ex.visa_type}`);
-    if (ex.trip_start_date) parts.push(`出行日期：${ex.trip_start_date}`);
-    if (ex.applicant_count) parts.push(`申请人数：${ex.applicant_count}`);
-    if (ex.customer_phone) parts.push(`联系电话：${ex.customer_phone}`);
+/** 将意图提取结果映射为标准插件草稿（多客户）。 */
+function extractionToDraft(ex: IntentDraftData, orderName: string): OrderInfoDraft {
+    const customer: OrderCustomerInfo = {
+        id: nanoid(8),
+        name: "",
+        visa_type: ex.visa_type || null,
+        departure: ex.departure || null,
+        destination: ex.destination || ex.visa_country || null,
+    };
     return {
+        order_name: orderName || null,
         price: null,
-        type: ex.visa_type || null,
-        content: parts.length > 0 ? parts.join("\n") : null,
+        currency: null,
+        customers: [customer],
         raw: ex,
+    };
+}
+
+/** 兼容旧版 draft（单客户字段 price/type/departure/destination 或 content）。 */
+function migrateLegacyDraft(std: StandardPluginData, orderName: string): OrderInfoDraft | null {
+    const legacy = std.draft as any;
+    if (!legacy) return null;
+    // 新结构已有 customers
+    if (Array.isArray(legacy.customers)) return legacy as OrderInfoDraft;
+    // 旧结构单字段
+    const legacyContent = legacy.content as string | undefined;
+    let destination = legacy.destination || null;
+    let visaType = legacy.type || null;
+    if (legacyContent) {
+        const destMatch = legacyContent.match(/目的地[：:]\s*(.+)/);
+        if (destMatch) destination = destMatch[1].trim();
+        const typeMatch = legacyContent.match(/签证类型[：:]\s*(.+)/);
+        if (typeMatch) visaType = typeMatch[1].trim();
+    }
+    const customer: OrderCustomerInfo = {
+        id: nanoid(8),
+        name: "",
+        visa_type: visaType,
+        departure: legacy.departure || null,
+        destination,
+    };
+    return {
+        order_name: orderName || null,
+        price: legacy.price ?? null,
+        currency: legacy.currency ?? null,
+        customers: [customer],
+        raw: legacy.raw || null,
+    };
+}
+
+/** 兼容旧版 confirmed（单客户字段）。 */
+function migrateLegacyConfirmed(std: StandardPluginData): OrderInfoConfirmed | null {
+    const legacy = std.confirmed as any;
+    if (!legacy) return null;
+    if (Array.isArray(legacy.customers)) return legacy as OrderInfoConfirmed;
+    const legacyContent = (legacy as any).content as string | undefined;
+    let destination = legacy.destination || null;
+    let visaType = legacy.type || null;
+    if (legacyContent) {
+        const destMatch = legacyContent.match(/目的地[：:]\s*(.+)/);
+        if (destMatch) destination = destMatch[1].trim();
+        const typeMatch = legacyContent.match(/签证类型[：:]\s*(.+)/);
+        if (typeMatch) visaType = typeMatch[1].trim();
+    }
+    const customer: OrderCustomerInfo = {
+        id: nanoid(8),
+        name: "",
+        visa_type: visaType,
+        departure: legacy.departure || null,
+        destination,
+    };
+    return {
+        order_name: "",
+        price: legacy.price ?? null,
+        currency: legacy.currency ?? null,
+        customers: [customer],
     };
 }
 
@@ -50,32 +118,36 @@ function fmtDate(ts: number | null | undefined): string {
     return new Date(ts).toLocaleDateString("zh-CN");
 }
 
-/** 生成合同文档（Markdown，前端可打印为 PDF）。 */
+/** 生成合同文档（Markdown，适配多客户）。 */
 async function buildContract(order: OrderEntity): Promise<{ content: string; filename: string }> {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-    const confirmed: StandardConfirmed = std.confirmed || {
-        price: std.draft?.price ?? null,
-        type: std.draft?.type ?? null,
-        content: std.draft?.content ?? null,
-    };
+    const draft = migrateLegacyDraft(std, order.order_name);
+    const confirmed = migrateLegacyConfirmed(std) || undefined;
+    const source = confirmed || (draft ? {
+        order_name: draft.order_name || order.order_name || "",
+        price: draft.price,
+        customers: draft.customers,
+    } : undefined);
+
     const agentNames = await resolveAgentNames(order.agent_ids || []);
     const remarks = (order.remarks || []).map((r) => `- ${r.content}`).join("\n") || "（无）";
+
+    const customerLines = (source?.customers || []).map((c, i) =>
+        `- **客户${source!.customers.length > 1 ? (i + 1) : ""}**：${c.name || "—"} | 签证类型：${c.visa_type || "—"} | 出发地：${c.departure || "—"} | 目的地：${c.destination || "—"}`
+    ).join("\n") || "—";
 
     const content = `# 签证服务合同
 
 **订单编号**：${order.id}
-**客户姓名**：${order.customer_name || "—"}
+**订单名称**：${source?.order_name || order.order_name || "—"}
 **经办客服**：${agentNames.join("、") || "—"}
 **生成日期**：${fmtDate(Date.now())}
 
 ## 一、服务内容
 
-- **订单类型**：${confirmed.type || "—"}
-- **订单价格**：${confirmed.price != null ? `¥${confirmed.price}` : "—"}
+${customerLines}
 
-### 内容明细
-
-${confirmed.content || "—"}
+**订单价格**：${source?.price != null ? `¥${source.price}` : "—"}
 
 ## 二、备注
 
@@ -98,14 +170,18 @@ export const standardOrderPlugin: ServerOrderPlugin = {
     manifest: standardManifest,
 
     actions: {
-        /** 确认订单内容：payload = { price?, type?, content? }，缺省回退到草稿值。 */
+        /** 确认订单信息：payload = { order_name, price, currency, customers } */
         confirm: async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const draft = std.draft || null;
-            const confirmed: StandardConfirmed = {
+            const draft = migrateLegacyDraft(std, order.order_name);
+            const customers: OrderCustomerInfo[] = (payload?.customers && payload.customers.length > 0)
+                ? payload.customers
+                : (draft?.customers || []);
+            const confirmed: OrderInfoConfirmed = {
+                order_name: payload?.order_name ?? draft?.order_name ?? order.order_name ?? "",
                 price: payload?.price ?? draft?.price ?? null,
-                type: payload?.type ?? draft?.type ?? null,
-                content: payload?.content ?? draft?.content ?? null,
+                currency: payload?.currency ?? draft?.currency ?? null,
+                customers,
             };
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { confirmed });
             return { confirmed };
@@ -115,24 +191,85 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "generate-contract": async (order: OrderEntity) => {
             return buildContract(order);
         },
+
+        /** 分配表单（mock 生成链接）。payload = { form_name, customer_id } */
+        "assign-form": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            if (!payload?.form_name || !payload?.customer_id) throw "form_name and customer_id are required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const forms = std.forms || [];
+            const assignment: FormAssignment = {
+                id: nanoid(8),
+                form_name: payload.form_name,
+                form_url: `https://forms.example.com/f/${nanoid(12)}?c=${payload.customer_id}`,
+                customer_id: payload.customer_id,
+                status: "sent",
+            };
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: [...forms, assignment] });
+            return { assignment };
+        },
+
+        /** 更新表单状态。payload = { form_id, status } */
+        "update-form-status": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            if (!payload?.form_id || !payload?.status) throw "form_id and status are required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const forms = (std.forms || []).map((f) =>
+                f.id === payload.form_id ? { ...f, status: payload.status } : f
+            );
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms });
+            return { forms };
+        },
+
+        /** 上传材料。payload = { filename, url, category, uploaded_by } */
+        "upload-material": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            if (!payload?.filename || !payload?.url) throw "filename and url are required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const materials = std.materials || [];
+            const entry: MaterialEntry = {
+                id: nanoid(8),
+                filename: payload.filename,
+                url: payload.url,
+                category: payload.category || "其他",
+                upload_time: Date.now(),
+                uploaded_by: payload.uploaded_by || "",
+            };
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { materials: [...materials, entry] });
+            return { material: entry };
+        },
+
+        /** 删除材料。payload = { material_id } */
+        "delete-material": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            if (!payload?.material_id) throw "material_id is required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const materials = (std.materials || []).filter((m) => m.id !== payload.material_id);
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { materials });
+            return { materials };
+        },
+
+        /** 主动生成草稿：从最近消息提取，写入 draft（如提取到）。 */
+        "generate-draft": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            const messages = await loadRecentMessages(order.chat_id, 20);
+            const { draft } = await extractDraft(messages);
+            if (!draft) return { draft: null };
+            const mapped = extractionToDraft(draft, order.order_name || "");
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { draft: mapped });
+            return { draft: mapped };
+        },
     },
 
     onMessage: async (order: OrderEntity, msg: ConversationEntity): Promise<PluginMessageResult | void> => {
-        // 草稿与备注检测聚焦客户输入
         if (msg.from_role !== "customer") return;
         const text = msg.content || "";
         if (!text) return;
 
         const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
         const hasDraft = !!std.draft;
-        // 廉价预过滤：已有草稿且无新意图信号时跳过，避免对每条"谢谢/好的"都调用 LLM
         if (hasDraft && !hasIntentSignal(text)) return;
 
         const messages = await loadRecentMessages(order.chat_id, 20);
         const result: PluginMessageResult = {};
 
         const { draft } = await extractDraft(messages);
-        if (draft) result.dataPatch = { draft: extractionToDraft(draft) };
+        if (draft) result.dataPatch = { draft: extractionToDraft(draft, order.order_name || "") };
 
         const remark = await detectRemarkUpdates(messages);
         if (remark) result.remark = remark;

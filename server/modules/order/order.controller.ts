@@ -4,7 +4,10 @@ import {
     OrderDetailRequest,
     OrderTransitionRequest,
     OrderPluginActionRequest,
+    OrderUpdateCustomerRemarkRequest,
     OrderRemarkRequest,
+    OrderCreateFromChatRequest,
+    OrderRelatedChatsRequest,
 } from "../../../shared/modules/order/order.interface";
 import * as svc from "./order.service";
 
@@ -41,6 +44,13 @@ async function pluginAction(request: OrderPluginActionRequest) {
     return { result, order: await svc.toDTO(order) };
 }
 
+async function updateCustomerRemark(request: OrderUpdateCustomerRemarkRequest) {
+    const req = OrderUpdateCustomerRemarkRequest.self(request);
+    const order = await svc.updateCustomerRemark(req.id, req.customer_remark);
+    if (!order) throw "order not found";
+    return { order: await svc.toDTO(order) };
+}
+
 async function remark(request: OrderRemarkRequest) {
     const req = OrderRemarkRequest.self(request);
     const order = await svc.appendRemark(req.id, req.content, "manual");
@@ -48,7 +58,19 @@ async function remark(request: OrderRemarkRequest) {
     return { order: await svc.toDTO(order) };
 }
 
+async function createFromChat(request: OrderCreateFromChatRequest) {
+    const req = OrderCreateFromChatRequest.self(request);
+    const order = await svc.createOrderFromChat(req.chat_id, req.order_name);
+    if (!order) throw "create order failed";
+    return { order: await svc.toDTO(order) };
+}
+
+async function relatedChats(request: OrderRelatedChatsRequest) {
+    const req = OrderRelatedChatsRequest.self(request);
+    return await svc.getRelatedChats(req.id);
+}
+
 export const orderMount = {
     routes: orderRoutes,
-    handlers: { list, detail, transition, pluginAction, remark },
+    handlers: { list, detail, transition, pluginAction, updateCustomerRemark, remark, createFromChat, relatedChats },
 };
