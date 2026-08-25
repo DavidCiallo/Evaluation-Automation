@@ -4,6 +4,7 @@ import {
   Headset,
   ClipboardList,
   Users,
+  IdCard,
   Settings,
   BarChart3,
   Bot,
@@ -25,6 +26,7 @@ const mainNav: NavItem[] = [
   { title: "总览仪表盘", href: "/dashboard", icon: LayoutDashboard },
   { title: "客服工作台", href: "/workbench", icon: Headset, badge: "AI" },
   { title: "订单管理", href: "/orders", icon: ClipboardList },
+  { title: "客户档案", href: "/customers", icon: IdCard },
   { title: "客服账号", href: "/account", icon: Users },
 ]
 

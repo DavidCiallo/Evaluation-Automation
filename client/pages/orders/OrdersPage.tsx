@@ -33,6 +33,15 @@ const STATUS_COLOR: Record<string, any> = {
     material_preparation: "default",
     process_handling: "default",
     completed: "outline",
+    cancelled: "outline",
+}
+
+/** 申请单个人状态 → 小徽章可见样式（绿=出签、红=拒签/取消、黄=取回、灰=进行中）。 */
+const APP_BADGE_CLASS: Record<string, string> = {
+    approved: "border-emerald-500/60 bg-emerald-500/10 text-emerald-600",
+    refused: "border-destructive/60 bg-destructive/10 text-destructive",
+    cancelled: "border-destructive/60 bg-destructive/10 text-destructive",
+    withdrawn: "border-amber-500/60 bg-amber-500/10 text-amber-600",
 }
 
 export function OrdersPage() {
@@ -137,6 +146,19 @@ export function OrdersPage() {
                                             </div>
                                         </CardHeader>
                                         <CardContent className="space-y-2">
+                                            {/* 申请单摘要：每人一个状态小徽章 */}
+                                            {o.applicants_summary && o.applicants_summary.length > 0 && (
+                                                <div className="flex flex-wrap gap-1">
+                                                    {o.applicants_summary.map((a) => (
+                                                        <span
+                                                            key={a.id}
+                                                            className={`rounded-md border px-1.5 py-0.5 text-[11px] ${APP_BADGE_CLASS[a.status] || "border-border text-muted-foreground"}`}
+                                                        >
+                                                            {a.name || "未命名"}·{a.status_label}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                             {/* 插件摘要角标 */}
                                             <div className="flex flex-wrap gap-1">
                                                 {clientPlugins.map((p) =>
