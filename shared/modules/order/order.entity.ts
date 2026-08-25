@@ -9,9 +9,10 @@ export type OrderStatus =
     | "info_collection"
     | "material_preparation"
     | "process_handling"
-    | "completed";
+    | "completed"
+    | "cancelled";
 
-/** 生命周期的合法前向顺序：草稿 → 订单确认 → 信息收集 → 材料制作 → 流程办理 → 完结 */
+/** 生命周期的合法前向顺序：草稿 → 订单确认 → 信息收集 → 材料制作 → 流程办理 → 完结（或取消） */
 export const ORDER_STATUS_FLOW: OrderStatus[] = [
     "draft",
     "confirmed",
@@ -19,6 +20,7 @@ export const ORDER_STATUS_FLOW: OrderStatus[] = [
     "material_preparation",
     "process_handling",
     "completed",
+    "cancelled",
 ];
 
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
@@ -28,6 +30,7 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
     material_preparation: "材料制作",
     process_handling: "流程办理",
     completed: "完结",
+    cancelled: "已取消",
 };
 
 /** 备注时间线条目。source=auto 表示由插件/AI 自动追加，manual 表示客服手动填写。 */
@@ -36,6 +39,31 @@ export interface RemarkEntry {
     time: number;
     content: string;
     source: "auto" | "manual";
+}
+
+/** 列表页透出的申请单摘要（每人一行：名字 + 个人状态）。 */
+export interface ApplicantSummary {
+    id: string;
+    name: string;
+    status: string;
+    status_label: string;
+}
+
+/** 订单信息卡透出的申请人聚合视图（以申请单为唯一真相，实时聚合）。 */
+export interface ApplicantDetail {
+    id: string;
+    seq: number;
+    is_lead: boolean;
+    name: string;
+    gender: string | null;
+    dob: string | null;
+    passport_no: string | null;
+    passport_expiry: string | null;
+    visa_country: string | null;
+    visa_type: string | null;
+    departure: string | null;
+    status: string;
+    status_label: string;
 }
 
 export interface OrderEntity {
@@ -55,6 +83,8 @@ export interface OrderEntity {
     customer_remark: string;
     /** 参与客服的 wechat_id 列表（取自该群聊 role=agent 的成员） */
     agent_ids: string[];
+    /** 关联申请单 id 列表（主申请人在前；由申请单模块维护） */
+    applicant_ids: string[];
     status: OrderStatus;
     /** 备注时间线，可由插件自动追加 */
     remarks: RemarkEntry[];
@@ -73,6 +103,11 @@ export class OrderDTO {
     public customer_remark: string;
     public agent_ids: string[];
     public agent_names: string[];
+    public applicant_ids: string[];
+    /** 列表页透出的申请单摘要（姓名 + 个人状态） */
+    public applicants_summary: ApplicantSummary[];
+    /** 订单信息卡透出的申请单聚合（以申请单为唯一真相，实时聚合） */
+    public applicants_detail: ApplicantDetail[];
     public status: OrderStatus;
     public status_label: string;
     public remarks: RemarkEntry[];
@@ -81,7 +116,7 @@ export class OrderDTO {
     public create_time: number;
     public update_time: number | null;
 
-    constructor(origin: OrderEntity, extra?: { agent_names?: string[] }) {
+    constructor(origin: OrderEntity, extra?: { agent_names?: string[]; applicants_summary?: ApplicantSummary[]; applicants_detail?: ApplicantDetail[] }) {
         this.id = origin.id;
         this.order_name = origin.order_name || "";
         this.chat_id = origin.chat_id;
@@ -91,6 +126,9 @@ export class OrderDTO {
         this.customer_remark = origin.customer_remark || "";
         this.agent_ids = origin.agent_ids || [];
         this.agent_names = extra?.agent_names || [];
+        this.applicant_ids = origin.applicant_ids || [];
+        this.applicants_summary = (extra?.applicants_summary || []).map((a) => ({ ...a }));
+        this.applicants_detail = (extra?.applicants_detail || []).map((a) => ({ ...a }));
         this.status = origin.status;
         this.status_label = ORDER_STATUS_LABEL[origin.status] || origin.status;
         this.remarks = origin.remarks || [];

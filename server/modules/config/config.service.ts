@@ -50,12 +50,108 @@ export const DEFAULT_REMARK_DETECT_PROMPT = `你是一名签证客服助理。�
 - 如果有，输出 {"has_update": true, "remark": "用一句中文简要概括需要记录的信息"}
 - 不要重复记录对话中已明确的基础办签信息（国家/类型/日期/人数），只关注额外需求与特殊情况`;
 
+export const DEFAULT_ITINERARY_PROMPT = `你是资深签证行程规划师，擅长为签证申请设计合规、逻辑严密、符合签证官审核习惯的真实感行程单。
+客户将于 {date_start} 至 {date_end} 前往 {countries} 旅游，从 {departure} 出发，共 {day_count} 天。
+
+请为每一天设计行程，严格遵循以下规则：
+
+【签证合规与审查规则】：
+1. 申根签主签国逻辑：若涉及多个国家，主申请国（通常为 {countries} 中的第一个国家）的过夜晚数必须严格多于其他国家，不得出现主次倒置或中转国过夜数反超的情况。
+2. 节奏与可行性：拒绝“蜻蜓点水”式频繁跨国打卡。若行程天数 ≤ 7天，必须优先安排单国深度游或极简双国路线（跨国交通不得超过 1 次），确保每天仅安排 1-2 个核心地标，并预留合理的交通/等候时间，仅限公共交通（包括公交、地铁、船）和出租车，禁止自驾，尽量不要需要额外付费（如昂贵的景点）的项目。
+3. 真实要素闭环：每日必须有明确具体的城市、真实知名地标/活动、具体酒店名称及交通工具。出发日必须包含国际航班抵达与入住，返程日必须衔接离境国际航班。
+
+【输出要求】：
+- 只输出 JSON，不要解释文字，但需要有必要的动词衔接，不应该就只是列出景点，每天行程至少15个单词，至多30个；禁止用括号，禁止表述景点特色，禁止输出体验感、感受、情绪等主观描述
+
+输出 schema:
+{
+  "title": "行程标题，如：挪威7日深度游行程，挪威&冰岛联程游，但需要是英文",
+  "rows": [
+    {
+      "date": "24-Sep",
+      "day": 1,
+      "city_route": "Guangzhou → Oslo",
+      "activities": "Evening arrival in Oslo, check in at hotel",
+      "accommodation": "Scandic Oslo City",
+      "transportation": "International Flight"
+    }
+  ]
+}
+
+严格约束：
+- rows 必须有恰好 {day_count} 条，每天一行
+- 每条 row 的 date 必须是对应日期的 DD-MMM 短格式（如 24-Sep）
+- 所有字段必须为字符串，不得省略`;
+
+/** 材料清单模板：国家 × 签证类型 → 必备材料。支持给国家设置别名（如 法国→申根）。 */
+export interface MaterialTemplateEntry {
+    country: string;
+    aliases?: string[];
+    visaTypes: Record<string, string[]>;
+}
+
+export const DEFAULT_MATERIAL_TEMPLATES: MaterialTemplateEntry[] = [
+    {
+        country: "申根",
+        aliases: ["法国", "德国", "意大利", "西班牙", "荷兰", "瑞士", "葡萄牙", "希腊", "奥地利", "比利时", "瑞典", "丹麦", "挪威", "芬兰", "冰岛", "捷克", "匈牙利", "波兰", "卢森堡", "马耳他"],
+        visaTypes: {
+            旅游: ["护照", "照片", "申请表", "在职证明", "营业执照", "资产证明", "行程单", "酒店预订", "机票预订", "保险"],
+            商务: ["护照", "照片", "申请表", "在职证明", "邀请函", "营业执照", "资产证明", "保险"],
+            探亲: ["护照", "照片", "申请表", "邀请函", "亲属关系证明", "在职证明", "资产证明", "保险"],
+        },
+    },
+    {
+        country: "美国",
+        visaTypes: {
+            旅游: ["护照", "照片", "DS-160确认页", "在职证明", "营业执照", "资产证明", "行程单"],
+            商务: ["护照", "照片", "DS-160确认页", "邀请函", "在职证明", "资产证明"],
+            留学: ["护照", "照片", "DS-160确认页", "I-20表", "在读证明", "资产证明", "成绩单"],
+        },
+    },
+    {
+        country: "日本",
+        visaTypes: {
+            旅游: ["护照", "照片", "申请表", "在职证明", "营业执照", "资产证明", "行程单"],
+            商务: ["护照", "照片", "申请表", "邀请函", "在职证明", "资产证明"],
+        },
+    },
+    {
+        country: "韩国",
+        visaTypes: {
+            旅游: ["护照", "照片", "申请表", "在职证明", "营业执照", "资产证明", "行程单"],
+        },
+    },
+    {
+        country: "英国",
+        visaTypes: {
+            旅游: ["护照", "照片", "申请表", "在职证明", "资产证明", "行程单", "酒店预订", "机票预订"],
+            商务: ["护照", "照片", "申请表", "邀请函", "在职证明", "资产证明"],
+            留学: ["护照", "照片", "申请表", "CAS确认函", "在读证明", "资产证明", "肺结核检测报告"],
+        },
+    },
+    {
+        country: "澳洲",
+        aliases: ["澳大利亚", "澳大利亚"],
+        visaTypes: {
+            旅游: ["护照", "照片", "在职证明", "营业执照", "资产证明", "行程单", "户口本"],
+        },
+    },
+    {
+        country: "加拿大",
+        visaTypes: {
+            旅游: ["护照", "照片", "在职证明", "营业执照", "资产证明", "行程单", "户口本"],
+            探亲: ["护照", "照片", "邀请函", "亲属关系证明", "在职证明", "资产证明", "户口本"],
+        },
+    },
+];
+
 const DEFAULTS: Record<string, any> = {
     frt_threshold_sec: 30,
     rate30_threshold_sec: 30,
     intent_prompt: DEFAULT_INTENT_PROMPT,
     summary_prompt: DEFAULT_SUMMARY_PROMPT,
     remark_detect_prompt: DEFAULT_REMARK_DETECT_PROMPT,
+    itinerary_prompt: DEFAULT_ITINERARY_PROMPT,
     business_start_hour: 8,
     business_end_hour: 18,
     business_days: [1, 2, 3, 4, 5], // Mon–Fri (JS getDay(): 0=Sun…6=Sat)
@@ -63,6 +159,8 @@ const DEFAULTS: Record<string, any> = {
     // partial { start_hour?, end_hour?, days? } merged on top of the defaults
     // above; agents absent here simply use the default calendar.
     agent_business_hours: {},
+    // 材料清单模板字典：国家 × 签证类型 → 必备材料（申请单按模板自动生成材料行）
+    material_templates: DEFAULT_MATERIAL_TEMPLATES,
 };
 
 export async function getConfigValue<T = any>(key: string): Promise<T> {
@@ -106,9 +204,11 @@ const ALLOWED_KEYS = new Set([
     "intent_prompt",
     "summary_prompt",
     "remark_detect_prompt",
+    "itinerary_prompt",
     "business_start_hour",
     "business_end_hour",
     "business_days",
+    "material_templates",
 ]);
 
 export function isEditableKey(key: string): boolean {
