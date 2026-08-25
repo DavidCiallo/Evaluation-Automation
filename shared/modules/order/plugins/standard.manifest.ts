@@ -43,7 +43,11 @@ export function getDepartureCities(group: string | null): string[] {
 
 /** 每个客户的签证信息。 */
 export interface OrderCustomerInfo {
+    /** 客户引用 id（system 客户库 Customer.id）或旧快照随机 id */
     id: string;
+    /** 关联客户档案 id（主关联：展示时以它实时取档案名；默认后端按姓名建档回填） */
+    customer_id?: string | null;
+    /** 客户姓名快照（兜底：档案被删时显示；新建客户由后端建档回填 customer_id） */
     name: string;
     visa_type: string | null;
     departure: string | null;
@@ -77,29 +81,39 @@ export interface FormAssignment {
     form_url: string | null;
     customer_id: string;
     status: "pending" | "sent" | "completed";
+    /** 简表系统中的记录 ID */
+    item_id?: string;
+    /** 简表鉴权 code */
+    code?: string;
+    /** 用于构造 URL 的 field_id */
+    field_id?: string;
+    /** 完成时间戳 */
+    completed_time?: number;
 }
 
-/** 占位表单选项（后续接入 Typeform 后替换为 API 获取）。 */
-export const MOCK_FORMS = [
-    "日本旅游签证申请表",
-    "美国B1/B2签证申请表",
-    "英国标准访客签证表",
-    "申根签证申请表",
-    "韩国签证申请表",
-    "澳大利亚访客签证表",
-    "通用信息收集表",
-];
+/** 占位表单选项（已废弃，改为从简表 API 动态获取）。 */
+export const MOCK_FORMS: string[] = [];
 
 // ============ 第三栏：材料存档 ============
 
-/** 材料条目。 */
+/**
+ * 材料条目（v2：文件体独立到 File 实体，此处只引用 file_id）。
+ * 展示时通过 FileDTO 取 filename/url；不再内嵌存储。
+ */
 export interface MaterialEntry {
     id: string;
-    filename: string;
-    url: string;
+    /** 关联的文件实体 id（data/File.jsonl） */
+    file_id: string;
     category: string;
     upload_time: number;
     uploaded_by: string;
+    /** 兼容展示：服务端/前端可回填文件详情（filename/url），不入库 */
+    file?: {
+        filename: string;
+        url: string;
+        content_type?: string;
+        size?: number;
+    } | null;
 }
 
 /** 材料分类常量。 */
@@ -119,6 +133,45 @@ export const MATERIAL_CATEGORIES = [
     "其他",
 ];
 
+// ============ 行程单 ============
+
+/** 行程单的每一天一行。date 为展示用短格式（如 24-Sep）。 */
+export interface ItineraryRow {
+    date: string;
+    day: number;
+    city_route: string;
+    activities: string;
+    accommodation: string;
+    transportation: string;
+}
+
+/** 一份行程单（对应一位客户的整段行程）。存于 data["standard"].itineraries。 */
+export interface ItineraryEntry {
+    id: string;
+    /** 关联的客户（data["standard"].confirmed/draft.customers 中的某位） */
+    customer_id: string;
+    title: string;
+    /** 起止日期，YYYY-MM-DD */
+    date_start: string;
+    date_end: string;
+    countries: string[];
+    departure: string | null;
+    rows: ItineraryRow[];
+    create_time: number;
+    update_time: number | null;
+}
+
+/** AI 生成行程单所需的入参（客户、日期范围、国家、出发地）。 */
+export interface ItineraryGenerateInput {
+    customer_id: string;
+    date_start: string;
+    date_end: string;
+    countries: string[];
+    departure: string | null;
+    /** 客服补充的行程要求（自然语言，可选），生成时注入 prompt */
+    requirements?: string | null;
+}
+
 // ============ 插件数据袋 ============
 
 /** data["standard"] 的分片形状。 */
@@ -127,6 +180,7 @@ export interface StandardPluginData {
     confirmed?: OrderInfoConfirmed | null;
     forms?: FormAssignment[];
     materials?: MaterialEntry[];
+    itineraries?: ItineraryEntry[];
 }
 
 export const standardManifest: OrderPluginManifest = {

@@ -11,6 +11,9 @@ import type {
     RemarkEntry,
 } from "../../../shared/modules/order/order.entity";
 import { OrderDTO, ORDER_STATUS_FLOW, ORDER_STATUS_LABEL } from "../../../shared/modules/order/order.entity";
+import type { ApplicantSummary, ApplicantDetail } from "../../../shared/modules/order/order.entity";
+import { APPLICATION_STATUS_LABEL } from "../../../shared/modules/application/application.entity";
+import type { ApplicationEntity } from "../../../shared/modules/application/application.entity";
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
@@ -24,6 +27,59 @@ const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSn
 const accountRepo: Repository<any> = Repository.instance("Account");
 
 const PAGE_SIZE = 20;
+
+const appRepo: Repository<ApplicationEntity> = Repository.instance("Application");
+
+// ---------- 订单状态聚合推导 ----------
+
+/** 申请单状态 → 订单粗粒度阶段（取「最慢/最靠前的进行中阶段」作为订单阶段）。 */
+const APP_TO_ORDER_STAGE: Record<string, OrderStatus> = {
+    pending_receipt: "info_collection",
+    material_review: "material_preparation",
+    appointment: "process_handling",
+    submitted: "process_handling",
+    embassy_review: "process_handling",
+    approved: "completed",
+    refused: "process_handling",
+    withdrawn: "completed",
+    cancelled: "cancelled",
+};
+
+/**
+ * 由下属申请单推导订单状态。
+ * 规则：
+ *  - 无申请单 → draft
+ *  - 有拒签 → process_handling（警示，即使有人已出签）
+ *  - 全部取消 → cancelled
+ *  - 全部出签/取回 → completed
+ *  - 否则取最靠前的进行中阶段（最慢的那个申请单决定订单进度）
+ */
+export function deriveOrderStatus(applications: ApplicationEntity[]): OrderStatus {
+    if (!applications || applications.length === 0) return "draft";
+    if (applications.every((a) => a.status === "cancelled")) return "cancelled";
+    if (applications.some((a) => a.status === "refused")) return "process_handling";
+    let worst: OrderStatus = "completed";
+    for (const a of applications) {
+        const stage = APP_TO_ORDER_STAGE[a.status] || "draft";
+        if (ORDER_STATUS_FLOW.indexOf(stage) < ORDER_STATUS_FLOW.indexOf(worst)) worst = stage;
+    }
+    return worst;
+}
+
+/** 读订单当前申请单并刷新（写回）订单状态；返回刷新后的订单。 */
+export async function refreshOrderStatus(orderId: string): Promise<OrderEntity | null> {
+    const order = await orderRepo.findOne({ id: orderId });
+    if (!order) return null;
+    const apps = await appRepo.find({ order_id: orderId });
+    const derived = deriveOrderStatus(apps);
+    if (order.status !== derived) {
+        await orderRepo.atomicPatch({ id: orderId }, (row) => {
+            if (!row) return null;
+            return { status: derived, version: row.version + 1 };
+        });
+    }
+    return (await orderRepo.findOne({ id: orderId })) || order;
+}
 
 // ---------- 查询 ----------
 
@@ -60,7 +116,16 @@ export async function findOrders(opts: {
 }
 
 export async function findOne(id: string): Promise<OrderEntity | null> {
-    return orderRepo.findOne({ id });
+    const order = await orderRepo.findOne({ id });
+    if (!order) return null;
+    // 兜底：读到时若状态偏离申请单实况，顺手纠正（正常路径由 application 模块写回）
+    const apps = await appRepo.find({ order_id: id });
+    const derived = deriveOrderStatus(apps);
+    if (order.status !== derived) {
+        await orderRepo.update({ id }, { status: derived });
+        return orderRepo.findOne({ id });
+    }
+    return order;
 }
 
 export async function findByChat(chatId: string): Promise<OrderEntity | null> {
@@ -479,7 +544,7 @@ export async function runMessageHooks(order: OrderEntity, msg: ConversationEntit
     }
 }
 
-// ---------- DTO 组装（解析参与客服姓名） ----------
+// ---------- DTO 组装（解析参与客服姓名 + 申请单摘要） ----------
 
 async function resolveAgentNames(agentIds: string[]): Promise<Map<string, string>> {
     const unique = [...new Set(agentIds.filter(Boolean))];
@@ -492,14 +557,87 @@ async function resolveAgentNames(agentIds: string[]): Promise<Map<string, string
     return map;
 }
 
+/** 批量查申请单摘要：输入订单列表，返回 orderId → 摘要数组（按 seq 排序）。 */
+export async function resolveApplicantsSummaries(
+    orders: OrderEntity[],
+): Promise<Map<string, ApplicantSummary[]>> {
+    const map = new Map<string, ApplicantSummary[]>();
+    const ids = orders.flatMap((o) => o.applicant_ids || []);
+    if (ids.length === 0) return map;
+    const apps = await appRepo.find({ id: { $in: ids } });
+    const byOrder = new Map<string, ApplicationEntity[]>();
+    for (const a of apps) {
+        const arr = byOrder.get(a.order_id);
+        if (arr) arr.push(a);
+        else byOrder.set(a.order_id, [a]);
+    }
+    for (const [orderId, list] of byOrder) {
+        list.sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
+        map.set(orderId, list.map((a) => ({
+            id: a.id,
+            name: a.name || "",
+            status: a.status,
+            status_label: APPLICATION_STATUS_LABEL[a.status] || a.status,
+        })));
+    }
+    return map;
+}
+
+/** 批量查申请单聚合详情（订单信息卡用）：orderId → 完整申请人列表（按 seq 排序）。 */
+export async function resolveApplicantsDetail(
+    orders: OrderEntity[],
+): Promise<Map<string, ApplicantDetail[]>> {
+    const map = new Map<string, ApplicantDetail[]>();
+    const ids = orders.flatMap((o) => o.applicant_ids || []);
+    if (ids.length === 0) return map;
+    const apps = await appRepo.find({ id: { $in: ids } });
+    const byOrder = new Map<string, ApplicationEntity[]>();
+    for (const a of apps) {
+        const arr = byOrder.get(a.order_id);
+        if (arr) arr.push(a);
+        else byOrder.set(a.order_id, [a]);
+    }
+    for (const [orderId, list] of byOrder) {
+        list.sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
+        map.set(orderId, list.map((a) => ({
+            id: a.id,
+            seq: a.seq ?? 0,
+            is_lead: !!a.is_lead,
+            name: a.name || "",
+            gender: a.gender ?? null,
+            dob: a.dob ?? null,
+            passport_no: a.passport_no ?? null,
+            passport_expiry: a.passport_expiry ?? null,
+            visa_country: a.visa_country ?? null,
+            visa_type: a.visa_type ?? null,
+            departure: a.departure ?? null,
+            status: a.status,
+            status_label: APPLICATION_STATUS_LABEL[a.status] || a.status,
+        })));
+    }
+    return map;
+}
+
 export async function toDTO(order: OrderEntity): Promise<OrderDTO> {
     const nameMap = await resolveAgentNames(order.agent_ids || []);
-    return new OrderDTO(order, { agent_names: (order.agent_ids || []).map((id) => nameMap.get(id) || id) });
+    const sumMap = await resolveApplicantsSummaries([order]);
+    const detailMap = await resolveApplicantsDetail([order]);
+    return new OrderDTO(order, {
+        agent_names: (order.agent_ids || []).map((id) => nameMap.get(id) || id),
+        applicants_summary: sumMap.get(order.id) || [],
+        applicants_detail: detailMap.get(order.id) || [],
+    });
 }
 
 export async function toDTOs(orders: OrderEntity[]): Promise<OrderDTO[]> {
     const nameMap = await resolveAgentNames(orders.flatMap((o) => o.agent_ids || []));
+    const sumMap = await resolveApplicantsSummaries(orders);
+    const detailMap = await resolveApplicantsDetail(orders);
     return orders.map(
-        (o) => new OrderDTO(o, { agent_names: (o.agent_ids || []).map((id) => nameMap.get(id) || id) }),
+        (o) => new OrderDTO(o, {
+            agent_names: (o.agent_ids || []).map((id) => nameMap.get(id) || id),
+            applicants_summary: sumMap.get(o.id) || [],
+            applicants_detail: detailMap.get(o.id) || [],
+        }),
     );
 }

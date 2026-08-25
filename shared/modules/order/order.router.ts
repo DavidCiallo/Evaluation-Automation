@@ -65,4 +65,10 @@ export const orderRoutes = {
         request: {} as { id: string; auth?: string },
         response: {} as OrderRelatedChatsResponse,
     },
+    /** 获取简表系统表单列表（代理） */
+    typeformForms: {
+        path: "/typeform-forms",
+        request: {} as { auth?: string },
+        response: {} as { success: boolean; data?: { list: Array<{ form_name: string; records_num: number; last_submit: number }> } },
+    },
 } as const;

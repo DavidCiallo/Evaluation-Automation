@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ArrowLeft, MessageSquare, Users, MessageCircle } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
@@ -17,10 +17,15 @@ import { ConversationDTO } from "../../../shared/modules/conversation/conversati
 import { conversationApi, orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
-import { ORDER_STATUS_FLOW, ORDER_STATUS_LABEL } from "../../../shared/modules/order/order.entity"
-import type { OrderStatus } from "../../../shared/modules/order/order.entity"
+import type { ApplicationDTO } from "../../../shared/modules/application/application.entity"
+import type { FormAssignment } from "../../../shared/modules/order/plugins/standard.manifest"
 import { ensureClientPluginsRegistered } from "./plugins/index"
 import { getEnabledClientOrderPlugins } from "./plugin-registry"
+import { ApplicationSection } from "./ApplicationSection"
+import { ApplicationDetailCard } from "./ApplicationDetailCard"
+import { FormDetailCard } from "./FormDetailCard"
+import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest"
+import { OrderInfoCard, FormCollectionCard, ItineraryCard, MaterialCard } from "./plugins/standard/DetailSection"
 
 ensureClientPluginsRegistered()
 
@@ -44,6 +49,12 @@ export function OrderDetailPage() {
     const [loadingMessages, setLoadingMessages] = useState(false)
     const [remark, setRemark] = useState("")
     const [busy, setBusy] = useState(false)
+    // 主从联动：左侧选中 → 右侧详情查看
+    const [selApp, setSelApp] = useState<ApplicationDTO | null>(null)
+    const [selForm, setSelForm] = useState<FormAssignment | null>(null)
+    // 右侧详情卡操作后刷新左侧申请单列表（重新拉取并联动更新选中）
+    const appSectionRef = useRef<{ reload: () => Promise<void> } | null>(null)
+    const handleAppChanged = () => { appSectionRef.current?.reload() }
 
     const load = async () => {
         if (!params.id) return
@@ -92,20 +103,6 @@ export function OrderDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [params.id])
 
-    const onTransition = async (target: OrderStatus) => {
-        if (!order) return
-        setBusy(true)
-        try {
-            await orderApi.transition({ id: order.id, status: target, note: "", auth })
-            toast.success(`已推进到「${ORDER_STATUS_LABEL[target]}」`)
-            await load()
-        } catch (e: any) {
-            toast.error(`状态变更失败: ${e?.message || ""}`)
-        } finally {
-            setBusy(false)
-        }
-    }
-
     const onAddRemark = async () => {
         if (!order || !remark.trim()) return
         setBusy(true)
@@ -124,7 +121,6 @@ export function OrderDetailPage() {
     if (loading) return <Skeleton className="h-96 w-full" />
     if (!order) return <p className="text-muted-foreground">订单未找到</p>
 
-    const curIdx = ORDER_STATUS_FLOW.indexOf(order.status)
     const clientPlugins = getEnabledClientOrderPlugins()
     const remarks = [...(order.remarks || [])].sort((a, b) => b.time - a.time)
 
@@ -150,94 +146,110 @@ export function OrderDetailPage() {
                 <Badge>{order.status_label}</Badge>
             </div>
 
-            {/* 状态流转 */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>订单状态</CardTitle>
-                    <CardDescription>点击推进到下一阶段</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex flex-wrap gap-2">
-                        {ORDER_STATUS_FLOW.map((s, idx) => {
-                            const isCurrent = s === order.status
-                            const isPast = idx < curIdx
-                            const isNext = idx === curIdx + 1
-                            return (
-                                <Button
-                                    key={s}
-                                    size="sm"
-                                    variant={isCurrent ? "default" : isPast ? "secondary" : isNext ? "outline" : "ghost"}
-                                    disabled={!isNext || busy}
-                                    onClick={() => onTransition(s)}
-                                >
-                                    {ORDER_STATUS_LABEL[s]}
-                                </Button>
-                            )
-                        })}
-                    </div>
-                </CardContent>
-            </Card>
+            {/* 订单信息 + 订单状态（最上方） */}
+            <OrderInfoCard order={order} auth={auth} reload={load} />
 
-            <div className="grid gap-4 lg:grid-cols-3">
-                {/* 插件区块 */}
-                <div className="space-y-4 lg:col-span-2">
-                    {clientPlugins.map((p) => (
-                        <Card key={p.manifest.id}>
-                            <CardHeader>
-                                <CardTitle>{p.manifest.name}</CardTitle>
-                                <CardDescription>插件 · v{p.manifest.version}</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <p.DetailSection order={order} auth={auth} reload={load} />
-                            </CardContent>
-                        </Card>
-                    ))}
+            {/* 按行配对：左侧（span 2）操作 / 右侧（span 1）查看，items-stretch 保证同一行两边等高 */}
+            <div className="space-y-4">
+                {/* 行1：申请单列表（只读，窄）↔ 申请单详情（每列一条，宽） */}
+                <div className="grid items-stretch gap-4 lg:grid-cols-3">
+                    <Card className="lg:col-span-1">
+                        <CardHeader>
+                            <CardTitle>申请单</CardTitle>
+                            <CardDescription>点击某位申请人，右侧查看详情与材料</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <ApplicationSection
+                                ref={appSectionRef}
+                                orderId={order.id}
+                                auth={auth}
+                                selectedId={selApp?.id || null}
+                                onSelect={setSelApp}
+                            />
+                        </CardContent>
+                    </Card>
+                    <Card className="lg:col-span-2">
+                        <CardContent className="flex h-full flex-col pt-6">
+                            <ApplicationDetailCard app={selApp} auth={auth} onChanged={handleAppChanged} />
+                        </CardContent>
+                    </Card>
                 </div>
 
-                {/* 核心信息 + 参与客服 */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle>核心信息</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm">
-                        <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">订单名称</span>
-                            <span className="font-medium">{order.order_name || "—"}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">客户备注</span>
-                            <span className="font-medium">{order.customer_remark || "—"}</span>
-                        </div>
-                        <div className="flex items-start justify-between gap-2">
-                            <span className="text-muted-foreground flex items-center gap-1">
-                                <Users className="size-3" /> 参与客服
-                            </span>
-                            <span className="text-right font-medium">
-                                {order.agent_names && order.agent_names.length > 0
-                                    ? order.agent_names.join("、")
-                                    : "—"}
-                            </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">创建时间</span>
-                            <span>{new Date(order.create_time).toLocaleString("zh-CN", { hour12: false })}</span>
-                        </div>
-                        {order.private_chat_id && (
-                            <Button variant="outline" size="sm" className="w-full" asChild>
-                                <Link to={`/workbench/${order.private_chat_id}`}>
-                                    <MessageSquare className="mr-1 size-3" /> 查看私聊会话
-                                </Link>
-                            </Button>
-                        )}
-                        {order.chat_id && (
-                            <Button variant="outline" size="sm" className="w-full" asChild>
-                                <Link to={`/workbench/${order.chat_id}`}>
-                                    <Users className="mr-1 size-3" /> 查看群聊会话
-                                </Link>
-                            </Button>
-                        )}
-                    </CardContent>
-                </Card>
+                {/* 行2：表单收集（点选）↔ 表单详情（左右各半） */}
+                <div className="grid items-stretch gap-4 lg:grid-cols-2">
+                    <FormCollectionCard
+                        order={order}
+                        auth={auth}
+                        reload={load}
+                        selectedId={selForm?.id || null}
+                        onSelectForm={setSelForm}
+                    />
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>表单详情</CardTitle>
+                            <CardDescription>已分配表单的填写内容 · 查看</CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex h-full flex-col">
+                            <FormDetailCard order={order} form={selForm} auth={auth} />
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* 行3：行程单 + 材料存档 ↔ 核心信息 */}
+                <div className="grid items-stretch gap-4 lg:grid-cols-3">
+                    <div className="space-y-4 lg:col-span-2">
+                        <ItineraryCard order={order} auth={auth} reload={load} />
+                        <MaterialCard order={order} auth={auth} reload={load} />
+                    </div>
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>核心信息</CardTitle>
+                        </CardHeader>
+                        <CardContent className="flex h-full flex-col space-y-3 text-sm">
+                            <div className="flex items-start justify-between gap-2">
+                                <span className="text-muted-foreground flex items-center gap-1">
+                                    <Users className="size-3" /> 参与客服
+                                </span>
+                                <span className="text-right font-medium">
+                                    {order.agent_names && order.agent_names.length > 0
+                                        ? order.agent_names.join("、")
+                                        : "—"}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground">创建时间</span>
+                                <span>{new Date(order.create_time).toLocaleString("zh-CN", { hour12: false })}</span>
+                            </div>
+                            {order.private_chat_id && (
+                                <Button variant="outline" size="sm" className="w-full" asChild>
+                                    <Link to={`/workbench/${order.private_chat_id}`}>
+                                        <MessageSquare className="mr-1 size-3" /> 查看私聊会话
+                                    </Link>
+                                </Button>
+                            )}
+                            {order.chat_id && (
+                                <Button variant="outline" size="sm" className="w-full" asChild>
+                                    <Link to={`/workbench/${order.chat_id}`}>
+                                        <Users className="mr-1 size-3" /> 查看群聊会话
+                                    </Link>
+                                </Button>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* 非标准插件：保持原有整体卡片渲染 */}
+                {clientPlugins.filter((p) => p.manifest.id !== STANDARD_PLUGIN_ID).map((p) => (
+                    <Card key={p.manifest.id}>
+                        <CardHeader>
+                            <CardTitle>{p.manifest.name}</CardTitle>
+                            <CardDescription>插件 · v{p.manifest.version}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <p.DetailSection order={order} auth={auth} reload={load} />
+                        </CardContent>
+                    </Card>
+                ))}
             </div>
 
             {/* 备注时间线 */}

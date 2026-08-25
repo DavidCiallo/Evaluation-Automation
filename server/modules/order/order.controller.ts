@@ -10,6 +10,7 @@ import {
     OrderRelatedChatsRequest,
 } from "../../../shared/modules/order/order.interface";
 import * as svc from "./order.service";
+import { typeformClient } from "../../lib/typeform-client";
 
 async function list(request: OrderListRequest) {
     const req = OrderListRequest.self(request);
@@ -70,7 +71,12 @@ async function relatedChats(request: OrderRelatedChatsRequest) {
     return await svc.getRelatedChats(req.id);
 }
 
+async function typeformForms() {
+    const list = await typeformClient.getForms();
+    return { list };
+}
+
 export const orderMount = {
     routes: orderRoutes,
-    handlers: { list, detail, transition, pluginAction, updateCustomerRemark, remark, createFromChat, relatedChats },
+    handlers: { list, detail, transition, pluginAction, updateCustomerRemark, remark, createFromChat, relatedChats, typeformForms },
 };
