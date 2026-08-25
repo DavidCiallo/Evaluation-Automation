@@ -15,6 +15,10 @@ import { blogMount } from "../modules/blog/blog.controller";
 import { chatMount } from "../modules/chat/chat.controller";
 import { conversationMount } from "../modules/conversation/conversation.controller";
 import { orderMount } from "../modules/order/order.controller";
+import { applicationMount } from "../modules/application/application.controller";
+import { customerMount } from "../modules/customer/customer.controller";
+import { fileMount } from "../modules/file/file.controller";
+import { materialMount } from "../modules/material/material.controller";
 import { metricMount } from "../modules/metric/metric.controller";
 import { intentMount } from "../modules/intent/intent.controller";
 import { workbenchMount } from "../modules/workbench/workbench.controller";
@@ -72,30 +76,14 @@ Bun.serve({
             return new Response("Not Found", { status: 404 });
         }
 
-        // Upload material files (multipart/form-data)
+        // Upload material files (multipart/form-data) — 模块化：文件上传统一走 /api/file/upload
+        if (pathName === "/api/file/upload" && req.method === "POST") {
+            return fileMount.uploadMultipart(req);
+        }
+
+        // 兼容旧接口：订单材料上传也转交文件模块（迁移期保留）
         if (pathName === "/api/order/upload-material-file" && req.method === "POST") {
-            try {
-                const formData = await req.formData();
-                const file = formData.get("file") as File | null;
-                if (!file) return Response.json({ success: false, message: "no file" });
-
-                const fs = await import("fs");
-                const pathMod = await import("path");
-                const MEDIA_DIR = pathMod.resolve(process.cwd(), "data/media");
-                if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
-
-                const ext = (file.name.match(/\.[^.]+$/) || [""])[0] || "";
-                const filename = `mat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
-                const buf = Buffer.from(await file.arrayBuffer());
-                fs.writeFileSync(pathMod.join(MEDIA_DIR, filename), buf);
-
-                return Response.json({
-                    success: true,
-                    data: { filename: file.name, url: `/api/media/${filename}` },
-                });
-            } catch (e: any) {
-                return Response.json({ success: false, message: e?.message || "upload failed" });
-            }
+            return fileMount.uploadMultipart(req);
         }
 
         const apiResponse = await mounthttp(req, [
@@ -104,6 +92,10 @@ Bun.serve({
             chatMount,
             conversationMount,
             orderMount,
+            applicationMount,
+            customerMount,
+            fileMount,
+            materialMount,
             metricMount,
             intentMount,
             workbenchMount,
