@@ -1,13 +1,26 @@
 // @ts-nocheck
 import type { RepositoryDriver } from "./repository/driver";
 import { JsonlDriver } from "./repository/jsonl";
+import { SqliteDriver } from "./repository/sqlite";
+import { autoMigrateOnBoot } from "./repository/migrate";
+
+/**
+ * 存储驱动选择：STORE_DRIVER=sqlite（默认，单文件 data/app.db）| jsonl（旧文件存储，回退用）。
+ * 老数据在启动时自动迁移（sqlite 侧为空且存在 data/*.jsonl 时），也可手动跑 scripts/migrate-jsonl-to-sqlite.ts。
+ */
+function defaultDriver(): RepositoryDriver {
+    return (process.env.STORE_DRIVER || "sqlite") === "jsonl" ? JsonlDriver : SqliteDriver;
+}
+
+// 首次加载即确保迁移完成（幂等，仅在 sqlite 侧为空时写入）
+autoMigrateOnBoot();
 
 class Repository<
     T extends { id?: string; create_time?: number | null; update_time?: number | null; delete_time?: number | null },
 > {
     private collection: string;
     private static instances = new Map<string, any>();
-    private static driver: RepositoryDriver = JsonlDriver;
+    private static driver: RepositoryDriver = defaultDriver();
 
     private constructor(collection: string) {
         this.collection = collection;
