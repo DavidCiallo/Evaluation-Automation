@@ -93,6 +93,14 @@ export function toDTO(entity: FileEntity): FileDTO {
     return new FileDTO(entity);
 }
 
+/** 读取已落盘的文件内容（发邮件附件等场景）。文件不存在返回 null。 */
+export function readMaterialBuffer(storageName: string): Buffer | null {
+    const safe = path.basename(storageName);
+    const full = path.join(MEDIA_DIR, safe);
+    if (!fs.existsSync(full)) return null;
+    return fs.readFileSync(full);
+}
+
 export function toDTOs(list: FileEntity[]): FileDTO[] {
     return list.map((f) => new FileDTO(f));
 }
