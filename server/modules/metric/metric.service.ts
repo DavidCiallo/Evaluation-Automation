@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import Repository from "../../lib/repository";
+import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { getConfigValue, setConfigValue } from "../config/config.service";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import type { ChatEntity } from "../../../shared/modules/chat/chat.entity";
@@ -18,7 +19,7 @@ import { loadBusinessConfig, loadAgentBusinessConfigs, toBusinessTime, crossesNo
 const conversationRepo: Repository<ConversationEntity> = Repository.instance("Conversation");
 const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
 const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
-const orderRepo: Repository<any> = Repository.instance("Order");
+const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 
 const DAY = 24 * 60 * 60 * 1000;
 
