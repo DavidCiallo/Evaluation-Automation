@@ -12,8 +12,10 @@ import { metricRoutes } from "../../shared/modules/metric/metric.router";
 import { intentRoutes } from "../../shared/modules/intent/intent.router";
 import { workbenchRoutes } from "../../shared/modules/workbench/workbench.router";
 import { configRoutes } from "../../shared/modules/config/config.router";
+import { integrationRoutes } from "../../shared/modules/config/integration.router";
 import { syncRoutes } from "../../shared/modules/sync/sync.router";
 import { exemptionRoutes } from "../../shared/modules/exemption/exemption.router";
+import { emailRoutes } from "../../shared/modules/email/email.router";
 
 export const authApi = createClient(authRoutes);
 export const accountApi = createClient(accountRoutes);
@@ -28,5 +30,7 @@ export const metricApi = createClient(metricRoutes);
 export const intentApi = createClient(intentRoutes);
 export const workbenchApi = createClient(workbenchRoutes);
 export const configApi = createClient(configRoutes);
+export const integrationApi = createClient(integrationRoutes);
 export const syncApi = createClient(syncRoutes);
 export const exemptionApi = createClient(exemptionRoutes);
+export const emailApi = createClient(emailRoutes);
