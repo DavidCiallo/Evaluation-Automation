@@ -2,7 +2,17 @@
 .env
 dist
 node_modules
+
+# 运行时数据：SQLite 库、媒体/附件、旧 JSONL 存储、指标缓存
 data/*
 !data/.gitkeep
+
+# 本地日志与临时产物
+*.log
+.local-server.log
+
+# 本地 agent/会话产物（计划、缓存等），不随代码走
+.zcode/
+.scratch/
 
 bun.lock
