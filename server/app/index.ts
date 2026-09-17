@@ -10,8 +10,6 @@ const staticPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 import { mounthttp, mountstatic } from "../lib/mount";
 import { authMount } from "../modules/auth/auth.controller";
 import { accountMount } from "../modules/account/account.controller";
-import { demoMount } from "../modules/demo/demo.controller";
-import { blogMount } from "../modules/blog/blog.controller";
 import { chatMount } from "../modules/chat/chat.controller";
 import { conversationMount } from "../modules/conversation/conversation.controller";
 import { orderMount } from "../modules/order/order.controller";
@@ -102,8 +100,6 @@ Bun.serve({
             configMount,
             syncMount,
             exemptionMount,
-            demoMount,
-            blogMount,
         ]);
         if (apiResponse) return apiResponse;
 
