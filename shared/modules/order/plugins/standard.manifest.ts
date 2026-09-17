@@ -7,6 +7,7 @@
  */
 import type { OrderPluginManifest } from "../plugin";
 import type { IntentDraftData } from "../../intent/intent.interface";
+import type { ItineraryConsent, OrderStageId, StageWaiver } from "../stage";
 
 export const STANDARD_PLUGIN_ID = "standard";
 
@@ -261,6 +262,10 @@ export interface StandardPluginData {
     materials?: MaterialEntry[];
     itineraries?: ItineraryEntry[];
     tripTasks?: TripTask[];
+    /** 客户同意行程方案（方案 C：模型从对话识别为提示，客服确认为权威依据） */
+    itineraryConsent?: ItineraryConsent | null;
+    /** 阶段豁免：某可选阶段不适用于本单时由客服显式跳过，留痕可审计 */
+    stageWaivers?: Partial<Record<OrderStageId, StageWaiver>>;
 }
 
 export const standardManifest: OrderPluginManifest = {

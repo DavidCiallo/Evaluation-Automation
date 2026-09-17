@@ -335,7 +335,15 @@ export async function computeOverview(): Promise<OverviewResult> {
             && !shouldSkipCustomerMessage(ex, row.chat_id, row.from_id, row.content)) todayVolume++;
     });
 
-    const pendingOrders = await orderRepo.count({ status: "draft" });
+    // 待处理 = 尚未完结/取消的订单。按存储列 count({status:"draft"}) 会漏掉所有
+    // 已有申请单的进行中订单（其存储值已被推导为 info_collection 等），实际只统计到空单。
+    const allOrders = await orderRepo.find();
+    const { deriveStatusMap } = await import("../order/order.service");
+    const statusMap = await deriveStatusMap(allOrders);
+    const pendingOrders = allOrders.filter((o) => {
+        const s = statusMap.get(o.id);
+        return s !== "completed" && s !== "cancelled";
+    }).length;
 
     return {
         today_volume: todayVolume,

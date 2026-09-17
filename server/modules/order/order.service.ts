@@ -68,7 +68,11 @@ export function deriveOrderStatus(applications: ApplicationEntity[]): OrderStatu
     return worst;
 }
 
-/** 读订单当前申请单并刷新（写回）订单状态；返回刷新后的订单。 */
+/**
+ * 写路径刷新：由申请单实况重算订单粗粒度状态并落库。
+ * **只应在申请单发生变更时调用**（application.service 的 create/update/transition/remove）。
+ * 读路径不再调用它 —— 读时投影见 deriveStatusMap，读写分离后人工流转不会被抹掉。
+ */
 export async function refreshOrderStatus(orderId: string): Promise<OrderEntity | null> {
     const order = await orderRepo.findOne({ id: orderId });
     if (!order) return null;
@@ -83,6 +87,29 @@ export async function refreshOrderStatus(orderId: string): Promise<OrderEntity |
     return (await orderRepo.findOne({ id: orderId })) || order;
 }
 
+/**
+ * 批量计算订单的**实时**状态投影：orderId → 由申请单实况推导的状态。
+ * 列表、详情、指标统一用它，避免「列表说已完成、详情说草稿」这类三处答案不一致。
+ * 无申请单时返回 draft，与 deriveOrderStatus 的规则一致。
+ */
+export async function deriveStatusMap(orders: OrderEntity[]): Promise<Map<string, OrderStatus>> {
+    const map = new Map<string, OrderStatus>();
+    if (orders.length === 0) return map;
+    const ids = orders.map((o) => o.id);
+    const apps = await appRepo.find({ order_id: { $in: ids } });
+    const byOrder = new Map<string, ApplicationEntity[]>();
+    for (const a of apps) {
+        const arr = byOrder.get(a.order_id);
+        if (arr) arr.push(a);
+        else byOrder.set(a.order_id, [a]);
+    }
+    for (const o of orders) {
+        // 显式取消优先：取消是人工覆盖，不参与申请单推导
+        map.set(o.id, o.cancelled_at ? "cancelled" : deriveOrderStatus(byOrder.get(o.id) || []));
+    }
+    return map;
+}
+
 // ---------- 查询 ----------
 
 export async function findOrders(opts: {
@@ -93,11 +120,10 @@ export async function findOrders(opts: {
     start?: number | null;
     end?: number | null;
 }): Promise<{ list: OrderEntity[]; total: number }> {
-    const where: Record<string, any> = {};
-    if (opts.status && opts.status !== "all") where.status = opts.status;
-
-    // JSONL 仅支持精确匹配，复杂过滤（参与客服/客户名/时间）在内存中完成。
-    let all = await orderRepo.find(where); // 默认按创建时间倒序
+    // 状态不再走存储列过滤：存储列是写路径缓存，可能与申请单实况暂时不一致，
+    // 直接按它筛选会出现「列表搜不到、详情却显示该状态」。改为取全量后按投影过滤。
+    // 数据量级为单机构订单数（万以内），内存过滤可接受；后续可改为物化列 + 写路径同步。
+    let all = await orderRepo.find(); // 默认按创建时间倒序
 
     if (opts.agent_id) all = all.filter((o) => (o.agent_ids || []).includes(opts.agent_id!));
     if (opts.customer) {
@@ -111,23 +137,26 @@ export async function findOrders(opts: {
     if (opts.start) all = all.filter((o) => o.create_time >= opts.start!);
     if (opts.end) all = all.filter((o) => o.create_time <= opts.end!);
 
+    if (opts.status && opts.status !== "all") {
+        const statusMap = await deriveStatusMap(all);
+        all = all.filter((o) => statusMap.get(o.id) === opts.status);
+    }
+
     const total = all.length;
     const offset = (opts.page - 1) * PAGE_SIZE;
     const list = all.slice(offset, offset + PAGE_SIZE);
     return { list, total };
 }
 
+/**
+ * 读取订单。**只读，不回写状态**。
+ *
+ * 历史上此处会在读到时用申请单推导值覆盖 order.status，导致人工流转被静默抹掉
+ * （接口报成功、库也写了，下次读取即失效）。现在状态完全由读时投影给出
+ * （见 toDTO），存储字段仅作写路径刷新的缓存，读路径绝不修改数据。
+ */
 export async function findOne(id: string): Promise<OrderEntity | null> {
-    const order = await orderRepo.findOne({ id });
-    if (!order) return null;
-    // 兜底：读到时若状态偏离申请单实况，顺手纠正（正常路径由 application 模块写回）
-    const apps = await appRepo.find({ order_id: id });
-    const derived = deriveOrderStatus(apps);
-    if (order.status !== derived) {
-        await orderRepo.update({ id }, { status: derived });
-        return orderRepo.findOne({ id });
-    }
-    return order;
+    return orderRepo.findOne({ id });
 }
 
 export async function findByChat(chatId: string): Promise<OrderEntity | null> {
@@ -507,29 +536,71 @@ export async function createManualOrder(input: {
 
 // ---------- 生命周期流转 ----------
 
-export async function transition(id: string, target: OrderStatus, note: string): Promise<OrderEntity | null> {
+/**
+ * 订单级取消 / 恢复。
+ *
+ * 状态已改为「由申请单实况实时推导」，因此不再存在「手工把订单推到某个阶段」这回事：
+ * 阶段进度由证据（订单信息、表单、同意、行程、材料、申请单）决定。
+ * 唯一需要人工直接干预的是**整单取消** —— 它无法从申请单推导（申请单可能仍在进行），
+ * 故以 cancelled_at 作为显式覆盖，投影时优先于推导结果。
+ */
+export async function cancelOrder(id: string, reason: string, by: string): Promise<OrderEntity | null> {
     const cur = await orderRepo.findOne({ id });
     if (!cur) throw "order not found";
-    const curIdx = ORDER_STATUS_FLOW.indexOf(cur.status);
-    const tgtIdx = ORDER_STATUS_FLOW.indexOf(target);
-    if (tgtIdx < 0) throw `invalid status: ${target}`;
-    if (tgtIdx < curIdx) throw `cannot regress ${cur.status} → ${target}`;
-    if (tgtIdx === curIdx) return cur; // 原地不动视为无操作
+    if (cur.cancelled_at) return cur;
+    const trimmed = (reason || "").trim();
+    if (!trimmed) throw "取消订单必须填写原因";
 
     await orderRepo.atomicPatch({ id }, (row) => {
         if (!row) return null;
         const remarks = [...(row.remarks || [])];
-        if (note) {
-            remarks.push({
-                id: nanoid(6),
-                time: Date.now(),
-                content: `【${ORDER_STATUS_LABEL[target]}】${note}`,
-                source: "manual",
-            });
-        }
-        return { status: target, version: row.version + 1, remarks };
+        remarks.push({
+            id: nanoid(6),
+            time: Date.now(),
+            content: `【取消订单】${trimmed}${by ? `（${by}）` : ""}`,
+            source: "manual",
+        });
+        // status 列是写路径缓存，这里同步为 cancelled，使直接读库者看到的也是终态；
+        // 权威判据仍是 cancelled_at（投影优先于申请单推导）。
+        return { status: "cancelled" as OrderStatus, cancelled_at: Date.now(), cancel_reason: trimmed, cancelled_by: by || "", remarks, version: row.version + 1 };
     });
     return orderRepo.findOne({ id });
+}
+
+/** 恢复被取消的订单（误操作或客户回心转意）。 */
+export async function reopenOrder(id: string, reason: string, by: string): Promise<OrderEntity | null> {
+    const cur = await orderRepo.findOne({ id });
+    if (!cur) throw "order not found";
+    if (!cur.cancelled_at) return cur;
+
+    // 恢复后状态回到申请单实况（无申请单则为 draft）
+    const apps = await appRepo.find({ order_id: id });
+    const restored = deriveOrderStatus(apps);
+
+    await orderRepo.atomicPatch({ id }, (row) => {
+        if (!row) return null;
+        const remarks = [...(row.remarks || [])];
+        remarks.push({
+            id: nanoid(6),
+            time: Date.now(),
+            content: `【恢复订单】${(reason || "").trim() || "未填原因"}${by ? `（${by}）` : ""}`,
+            source: "manual",
+        });
+        return { status: restored, cancelled_at: null, cancel_reason: null, cancelled_by: null, remarks, version: row.version + 1 };
+    });
+    return orderRepo.findOne({ id });
+}
+
+/**
+ * 兼容旧接口的状态流转入口。
+ * @deprecated 订单状态已改为实时推导，不再支持手工推进阶段。
+ * 仅保留 cancelled（取消）与 reopen（恢复）两种操作的语义映射，
+ * 其余目标一律拒绝并说明原因，避免再次出现「报成功但状态被推导覆盖」。
+ */
+export async function transition(id: string, target: OrderStatus, note: string, by = ""): Promise<OrderEntity | null> {
+    if (target === "cancelled") return cancelOrder(id, note, by);
+    if (target === "draft") return reopenOrder(id, note, by);
+    throw `订单进度已改为按实际业务推进（确认订单信息 → 表单收集 → 客户同意 → 行程 → 机票 → 材料 → 完结），不再支持手工改状态。请执行对应业务动作，或取消订单。`;
 }
 
 // ---------- 插件数据袋 ----------
@@ -581,11 +652,21 @@ export async function dispatchPluginAction(
     const fn = plugin.actions?.[action];
     if (!fn) throw `action not found: ${pluginId}.${action}`;
 
+    // 阶段准入：动作自报所属阶段，内核统一拦截并在拒绝时回报具体缺口。
+    // 放在插件内部各写一遍的好处是不会漏、且规则集中可见。
+    const gate = plugin.actionGates?.[action];
+    if (gate?.at) {
+        const { checkActionGate } = await import("./stage.service");
+        const blocked = await checkActionGate(order, { at: gate.at, require: gate.require });
+        if (blocked) throw blocked;
+    }
+
     const ctx: PluginContext = {
         setPluginData: (pid, patch) => setPluginData(orderId, pid, patch),
         appendRemark: (content, source = "manual") => appendRemark(orderId, content, source).then(() => undefined),
     };
     const result = await fn(order, payload, ctx);
+    // 动作会写插件数据袋，阶段视图随之变化；读回最新订单保证返回与实况一致
     const updated = (await orderRepo.findOne({ id: orderId })) || order;
     return { result, order: updated };
 }
@@ -689,10 +770,16 @@ export async function toDTO(order: OrderEntity): Promise<OrderDTO> {
     const nameMap = await resolveAgentNames(order.agent_ids || []);
     const sumMap = await resolveApplicantsSummaries([order]);
     const detailMap = await resolveApplicantsDetail([order]);
+    const statusMap = await deriveStatusMap([order]);
+    const evaluation = await computeStages(order);
     return new OrderDTO(order, {
         agent_names: (order.agent_ids || []).map((id) => nameMap.get(id) || id),
         applicants_summary: sumMap.get(order.id) || [],
         applicants_detail: detailMap.get(order.id) || [],
+        status: statusMap.get(order.id),
+        stages: evaluation.stages,
+        current_stage: evaluation.current,
+        stages_done: evaluation.all_done,
     });
 }
 
@@ -700,11 +787,20 @@ export async function toDTOs(orders: OrderEntity[]): Promise<OrderDTO[]> {
     const nameMap = await resolveAgentNames(orders.flatMap((o) => o.agent_ids || []));
     const sumMap = await resolveApplicantsSummaries(orders);
     const detailMap = await resolveApplicantsDetail(orders);
+    const statusMap = await deriveStatusMap(orders);
+    // 阶段视图只对详情页有意义（列表渲染不展示）；列表保持轻量，避免 N 次材料查询
     return orders.map(
         (o) => new OrderDTO(o, {
             agent_names: (o.agent_ids || []).map((id) => nameMap.get(id) || id),
             applicants_summary: sumMap.get(o.id) || [],
             applicants_detail: detailMap.get(o.id) || [],
+            status: statusMap.get(o.id),
         }),
     );
+}
+
+/** 阶段计算入口（动态 import 避免 order.service ↔ stage.service 的静态循环）。 */
+async function computeStages(order: OrderEntity) {
+    const { evaluateOrderStages } = await import("./stage.service");
+    return evaluateOrderStages(order);
 }

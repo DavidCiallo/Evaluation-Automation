@@ -6,6 +6,7 @@
  */
 import type { OrderPluginManifest } from "../../../shared/modules/order/plugin";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
+import type { OrderActionGate } from "../../../shared/modules/order/stage";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 
 /** 内核注入给插件动作的上下文，避免插件直接依赖内核服务（防止循环引用）。 */
@@ -31,6 +32,11 @@ export interface ServerOrderPlugin {
     manifest: OrderPluginManifest;
     /** 后端动作表，键为动作名 */
     actions?: Record<string, PluginAction>;
+    /**
+     * 动作准入声明：键为动作名。内核在 dispatchPluginAction 时统一校验，
+     * 不满足即拒绝执行并回报缺口。未声明的动作不做阶段准入（只读/清理类动作）。
+     */
+    actionGates?: Record<string, OrderActionGate>;
     /** 新消息钩子 */
     onMessage?: OnMessageHook;
 }

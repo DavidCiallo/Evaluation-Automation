@@ -26,6 +26,7 @@ import { ApplicationDetailCard } from "./ApplicationDetailCard"
 import { FormDetailCard } from "./FormDetailCard"
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest"
 import { OrderInfoCard, FormCollectionCard, ItineraryCard } from "./plugins/standard/DetailSection"
+import { OrderStageBar } from "./StageBar"
 import { SendMaterialsDialog } from "./SendMaterialsDialog"
 
 ensureClientPluginsRegistered()
@@ -146,10 +147,69 @@ export function OrderDetailPage() {
                         #{order.id.slice(0, 8)} · v{order.version}
                     </p>
                 </div>
-                <Badge>{order.status_label}</Badge>
+                <Badge variant={order.status === "cancelled" ? "destructive" : "default"}>{order.status_label}</Badge>
+                {order.status === "cancelled" ? (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={async () => {
+                            const reason = window.prompt("恢复该订单的原因（可留空）") 
+                            if (reason === null) return
+                            setBusy(true)
+                            try {
+                                await orderApi.reopen({ id: order.id, status: "draft", note: reason, auth })
+                                toast.success("订单已恢复")
+                                load()
+                            } catch (e: any) {
+                                toast.error(`恢复失败: ${e?.message || ""}`)
+                            } finally {
+                                setBusy(false)
+                            }
+                        }}
+                    >
+                        恢复订单
+                    </Button>
+                ) : (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        disabled={busy}
+                        onClick={async () => {
+                            const reason = window.prompt("取消该订单的原因（必填）")
+                            if (reason === null) return
+                            if (!reason.trim()) {
+                                toast.error("必须填写取消原因")
+                                return
+                            }
+                            setBusy(true)
+                            try {
+                                await orderApi.cancel({ id: order.id, status: "cancelled", note: reason.trim(), auth })
+                                toast.success("订单已取消")
+                                load()
+                            } catch (e: any) {
+                                toast.error(`取消失败: ${e?.message || ""}`)
+                            } finally {
+                                setBusy(false)
+                            }
+                        }}
+                    >
+                        取消订单
+                    </Button>
+                )}
             </div>
 
-            {/* 订单信息 + 订单状态（最上方） */}
+            {/* 阶段条：实时显示各阶段就绪状态与缺口（推进靠业务动作，不可手工改状态） */}
+            {(order.stages || []).length > 0 && (
+                <Card>
+                    <CardContent className="pt-6">
+                        <OrderStageBar stages={order.stages} current={order.current_stage ?? null} />
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* 订单信息 + 订单阶段（最上方） */}
             <OrderInfoCard order={order} auth={auth} reload={load} />
 
             {/* 按行配对：左侧（span 2）操作 / 右侧（span 1）查看，items-stretch 保证同一行两边等高 */}

@@ -36,6 +36,18 @@ export const orderRoutes = {
         request: {} as { id: string; status: string; note?: string; auth?: string },
         response: {} as OrderTransitionResponse,
     },
+    /** 取消整单（需填原因，可通过 reopen 恢复） */
+    cancel: {
+        path: "/cancel",
+        request: {} as { id: string; status: "cancelled"; note: string; auth?: string },
+        response: {} as OrderTransitionResponse,
+    },
+    /** 恢复被取消的订单 */
+    reopen: {
+        path: "/reopen",
+        request: {} as { id: string; status: "draft"; note?: string; auth?: string },
+        response: {} as OrderTransitionResponse,
+    },
     /** 触发插件动作：{ id, plugin_id, action, payload } */
     pluginAction: {
         path: "/plugin-action",

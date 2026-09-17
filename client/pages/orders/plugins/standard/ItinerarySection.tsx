@@ -27,6 +27,8 @@ import {
     type TripTask,
     type TripPax,
 } from "../../../../../shared/modules/order/plugins/standard.manifest"
+import { ItineraryConsentCard } from "./ItineraryConsentCard"
+import { stageBlockReason } from "../../StageBar"
 
 type CityInfo = { city: string; country: string; iata: string; name: string; zh: string }
 
@@ -232,6 +234,8 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     const trips: TripTask[] = std.tripTasks || []
     const applicants: ApplicantDetail[] = order.applicants_detail || []
+    /** 机票阶段未就绪的原因（如已有行程但客户未同意）；null 表示可执行 */
+    const tripBlocked = stageBlockReason(order.stages, "flight")
 
     const [open, setOpen] = useState(false)
     const [busyId, setBusyId] = useState("")
@@ -296,8 +300,18 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
                             同步状态
                         </Button>
                     )}
-                    <Button size="sm" onClick={() => setOpen(true)} disabled={applicants.length === 0}
-                        title={applicants.length === 0 ? "该订单暂无申请单" : undefined}>
+                    <Button
+                        size="sm"
+                        onClick={() => setOpen(true)}
+                        disabled={applicants.length === 0 || !!tripBlocked}
+                        title={
+                            tripBlocked
+                                ? tripBlocked
+                                : applicants.length === 0
+                                ? "该订单暂无申请单"
+                                : undefined
+                        }
+                    >
                         <Plus className="mr-1 size-3" /> 新建任务
                     </Button>
                 </div>
@@ -643,6 +657,8 @@ function ManualItinerarySection({ order, auth, reload }: PluginSectionProps) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     const itineraries = std.itineraries || []
     const customers = std.confirmed?.customers || std.draft?.customers || []
+    /** 行程阶段未就绪的原因（通常是客户尚未同意）；null 表示可执行 */
+    const itineraryBlocked = stageBlockReason(order.stages, "itinerary")
 
     const [editing, setEditing] = useState<ItineraryEntry | null>(null)
     const [open, setOpen] = useState(false)
@@ -677,8 +693,16 @@ function ManualItinerarySection({ order, auth, reload }: PluginSectionProps) {
             {expanded && (
                 <div className="space-y-2 border-t pt-2">
                     <div className="flex items-center justify-between">
-                        <p className="text-muted-foreground text-xs">为每位客户生成每日行程，可导出 markdown。</p>
-                        <Button size="sm" variant="outline" onClick={() => { setEditing(null); setOpen(true) }}>
+                        <p className="text-muted-foreground text-xs">
+                            {itineraryBlocked ? itineraryBlocked : "为每位客户生成每日行程，可导出 markdown。"}
+                        </p>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setEditing(null); setOpen(true) }}
+                            disabled={!!itineraryBlocked}
+                            title={itineraryBlocked || undefined}
+                        >
                             <Plus className="mr-1 size-3" /> 新建行程单
                         </Button>
                     </div>
@@ -733,6 +757,8 @@ function ManualItinerarySection({ order, auth, reload }: PluginSectionProps) {
 export function ItinerarySection({ order, auth, reload }: PluginSectionProps) {
     return (
         <div className="space-y-4">
+            {/* 客户同意是行程与机票的前置条件，置顶展示 */}
+            <ItineraryConsentCard order={order} auth={auth} reload={reload} />
             <TripTaskSection order={order} auth={auth} reload={reload} />
             <ManualItinerarySection order={order} auth={auth} reload={reload} />
         </div>

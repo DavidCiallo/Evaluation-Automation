@@ -11,6 +11,7 @@ import {
     OrderRelatedChatsRequest,
 } from "../../../shared/modules/order/order.interface";
 import * as svc from "./order.service";
+import { getIdentifyByVerify } from "../auth/auth.service";
 import { typeformClient } from "../../lib/typeform-client";
 
 async function list(request: OrderListRequest) {
@@ -35,8 +36,27 @@ async function detail(request: OrderDetailRequest) {
 
 async function transition(request: OrderTransitionRequest) {
     const req = OrderTransitionRequest.self(request);
-    const order = await svc.transition(req.id, req.status, req.note);
+    const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
+    const order = await svc.transition(req.id, req.status, req.note, by);
     if (!order) throw "transition failed";
+    return { order: await svc.toDTO(order) };
+}
+
+/** 取消整单（需填原因）。 */
+async function cancel(request: OrderTransitionRequest) {
+    const req = OrderTransitionRequest.self(request);
+    const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
+    const order = await svc.cancelOrder(req.id, req.note, by);
+    if (!order) throw "cancel failed";
+    return { order: await svc.toDTO(order) };
+}
+
+/** 恢复被取消的订单。 */
+async function reopen(request: OrderTransitionRequest) {
+    const req = OrderTransitionRequest.self(request);
+    const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
+    const order = await svc.reopenOrder(req.id, req.note, by);
+    if (!order) throw "reopen failed";
     return { order: await svc.toDTO(order) };
 }
 
@@ -91,5 +111,6 @@ async function typeformForms() {
 
 export const orderMount = {
     routes: orderRoutes,
-    handlers: { list, detail, transition, pluginAction, updateCustomerRemark, remark, createFromChat, create, relatedChats, typeformForms },
+        handlers: { list, detail, transition, cancel, reopen, pluginAction, updateCustomerRemark, remark, createFromChat, create, relatedChats, typeformForms },
+
 };

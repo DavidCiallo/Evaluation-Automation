@@ -3,8 +3,11 @@
  * 内核只负责订单身份、生命周期与备注；所有业务能力（价格/类型/内容/合同等）
  * 以插件形式存放在 data 数据袋中，按插件 id 分片。
  */
+import type { OrderStageId, OrderStageView } from "./stage";
+
 export type OrderStatus =
     | "draft"
+    /** @deprecated 无法由任何业务路径产生（已确认信息记录在插件数据袋，不投影到订单状态）。 */
     | "confirmed"
     | "info_collection"
     | "material_preparation"
@@ -21,10 +24,13 @@ export const ORDER_SOURCE_LABEL: Record<OrderSource, string> = {
     manual: "手动",
 };
 
-/** 生命周期的合法前向顺序：草稿 → 订单确认 → 信息收集 → 材料制作 → 流程办理 → 完结（或取消） */
+/**
+ * 订单状态的展示次序（列表页签用）。
+ * 注意这是**粗粒度投影的取值域**，不是人工流转阶梯 —— 阶段推进见 shared/modules/order/stage.ts。
+ * 不含 confirmed：该值无任何推导路径可达，仅保留在类型与标签中兼容历史数据。
+ */
 export const ORDER_STATUS_FLOW: OrderStatus[] = [
     "draft",
-    "confirmed",
     "info_collection",
     "material_preparation",
     "process_handling",
@@ -101,6 +107,13 @@ export interface OrderEntity {
     status: OrderStatus;
     /** 备注时间线，可由插件自动追加 */
     remarks: RemarkEntry[];
+    /**
+     * 整单取消时间戳（null=未取消）。取消无法从申请单推导，故作为显式覆盖：
+     * 非空时状态投影一律为 cancelled，优先于申请单推导结果。
+     */
+    cancelled_at?: number | null;
+    cancel_reason?: string | null;
+    cancelled_by?: string | null;
     /** 插件数据袋：data[pluginId] = 该插件自管的数据 */
     data: Record<string, any>;
     version: number;
@@ -130,8 +143,26 @@ export class OrderDTO {
     public version: number;
     public create_time: number;
     public update_time: number | null;
+    /** 阶段视图（服务端实时计算）：各阶段就绪状态与缺口说明 */
+    public stages: OrderStageView[];
+    /** 当前应聚焦的阶段 */
+    public current_stage: OrderStageId | null;
+    /** 所有阶段是否已完成或跳过 */
+    public stages_done: boolean;
 
-    constructor(origin: OrderEntity, extra?: { agent_names?: string[]; applicants_summary?: ApplicantSummary[]; applicants_detail?: ApplicantDetail[] }) {
+    constructor(
+        origin: OrderEntity,
+        extra?: {
+            agent_names?: string[];
+            applicants_summary?: ApplicantSummary[];
+            applicants_detail?: ApplicantDetail[];
+            /** 实时投影的状态；省略时回退到存储值（兼容旧调用） */
+            status?: OrderStatus;
+            stages?: OrderStageView[];
+            current_stage?: OrderStageId | null;
+            stages_done?: boolean;
+        },
+    ) {
         this.id = origin.id;
         this.order_name = origin.order_name || "";
         this.source = origin.source || "wecom";
@@ -146,12 +177,16 @@ export class OrderDTO {
         this.applicant_ids = origin.applicant_ids || [];
         this.applicants_summary = (extra?.applicants_summary || []).map((a) => ({ ...a }));
         this.applicants_detail = (extra?.applicants_detail || []).map((a) => ({ ...a }));
-        this.status = origin.status;
-        this.status_label = ORDER_STATUS_LABEL[origin.status] || origin.status;
+        const status = extra?.status || origin.status;
+        this.status = status;
+        this.status_label = ORDER_STATUS_LABEL[status] || status;
         this.remarks = origin.remarks || [];
         this.data = origin.data || {};
         this.version = origin.version;
         this.create_time = origin.create_time;
         this.update_time = origin.update_time;
+        this.stages = extra?.stages || [];
+        this.current_stage = extra?.current_stage ?? null;
+        this.stages_done = extra?.stages_done ?? false;
     }
 }

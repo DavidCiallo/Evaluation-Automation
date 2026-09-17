@@ -25,9 +25,8 @@ import {
 import { orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { PluginSectionProps } from "../../plugin-registry"
-import type { OrderStatus } from "../../../../../shared/modules/order/order.entity"
 import type { OrderDTO } from "../../../../../shared/modules/order/order.entity"
-import { ORDER_STATUS_FLOW, ORDER_STATUS_LABEL } from "../../../../../shared/modules/order/order.entity"
+import { OrderStageBar, stageBlockReason } from "../../StageBar"
 import {
     STANDARD_PLUGIN_ID,
     CURRENCY_OPTIONS,
@@ -37,63 +36,15 @@ import {
 } from "../../../../../shared/modules/order/plugins/standard.manifest"
 import { ItinerarySection } from "./ItinerarySection"
 
-// ---------- 订单状态流转（内嵌于订单信息卡片） ----------
+// ---------- 订单阶段条（内嵌于订单信息卡片） ----------
 
-/** 状态 stepper：横向圆点 + 连线 + 标签。过去步已完成色，当前步 primary 高亮，下一步可前进。 */
-function OrderStatusFlow({ order, reload }: PluginSectionProps) {
-    const [busy, setBusy] = useState(false)
-    const curIdx = ORDER_STATUS_FLOW.indexOf(order.status)
-
-    const onTransition = async (target: OrderStatus) => {
-        setBusy(true)
-        try {
-            await orderApi.transition({ id: order.id, status: target, note: "", auth: getAuth() })
-            toast.success(`已推进到「${ORDER_STATUS_LABEL[target]}」`)
-            reload()
-        } catch (e: any) {
-            toast.error(`状态变更失败: ${e?.message || ""}`)
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    return (
-        <div className="flex flex-wrap items-center">
-            {ORDER_STATUS_FLOW.map((s, idx) => {
-                const isCurrent = s === order.status
-                const isPast = idx < curIdx
-                const isNext = idx === curIdx + 1
-                const dotClass = isCurrent
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : isPast
-                    ? "border-transparent bg-emerald-500 text-white"
-                    : isNext
-                    ? "border-primary/60 bg-background text-primary"
-                    : "border-border bg-muted text-muted-foreground"
-                return (
-                    <div key={s} className="flex items-center">
-                        <button
-                            type="button"
-                            className="group flex items-center gap-1.5"
-                            disabled={!isNext || busy}
-                            title={isNext ? `推进到「${ORDER_STATUS_LABEL[s]}」` : undefined}
-                            onClick={() => onTransition(s)}
-                        >
-                            <span className={`flex size-5 items-center justify-center rounded-full border text-[10px] font-medium transition ${dotClass}`}>
-                                {isPast ? "✓" : idx + 1}
-                            </span>
-                            <span className={`text-xs transition ${isCurrent ? "text-foreground font-medium" : isPast ? "text-emerald-600" : "text-muted-foreground"}`}>
-                                {ORDER_STATUS_LABEL[s]}
-                            </span>
-                        </button>
-                        {idx < ORDER_STATUS_FLOW.length - 1 && (
-                            <span className={`mx-2 h-px w-4 ${idx < curIdx ? "bg-emerald-400" : "bg-border"}`} />
-                        )}
-                    </div>
-                )
-            })}
-        </div>
-    )
+/**
+ * 阶段条：只读展示服务端计算的阶段视图与缺口，不再提供手工推进按钮。
+ * 阶段靠完成对应业务动作推进（确认信息 / 分配表单 / 确认同意 / 生成行程…），
+ * 手工改状态已不再支持 —— 旧实现里点击「下一步」写库后会被推导覆盖。
+ */
+function OrderStatusFlow({ order }: PluginSectionProps) {
+    return <OrderStageBar stages={order.stages || []} current={order.current_stage ?? null} />
 }
 
 // ---------- 第一栏：订单信息 ----------
@@ -635,6 +586,8 @@ function FormCollectionSection({
     const forms = std.forms || []
     const confirmed = std.confirmed
     const customers = confirmed?.customers || std.draft?.customers || []
+    /** 表单阶段未就绪的原因（如尚未确认订单信息）；null 表示可执行 */
+    const assignBlocked = !confirmed ? "请先在订单信息卡中确认客户名单" : customers.length === 0 ? "订单信息中没有客户" : null
 
     const [busy, setBusy] = useState(false)
     const [selForm, setSelForm] = useState("")
@@ -793,9 +746,18 @@ function FormCollectionSection({
                         ))}
                     </select>
                 </div>
-                <Button size="sm" className="w-full" onClick={assignForm} disabled={busy || !selForm || !selCustomer}>
+                <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={assignForm}
+                    disabled={busy || !selForm || !selCustomer || !!assignBlocked}
+                    title={assignBlocked || undefined}
+                >
                     <LinkIcon className="mr-1 size-3" /> {PROVIDER_TABS.find((t) => t.id === provider)?.action}
                 </Button>
+                {assignBlocked && (
+                    <p className="text-muted-foreground text-[10px]">{assignBlocked}</p>
+                )}
                 {providerErr && (
                     <p className="text-destructive text-[10px]">{providerErr.message}</p>
                 )}

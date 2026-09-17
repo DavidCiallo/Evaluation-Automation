@@ -117,7 +117,7 @@ export function DashboardPage() {
                     title="待处理订单"
                     value={overview ? String(overview.pending_orders) : undefined}
                     icon={Inbox}
-                    hint="草稿中订单"
+                    hint="未完结或取消的订单"
                 />
             </div>
 
