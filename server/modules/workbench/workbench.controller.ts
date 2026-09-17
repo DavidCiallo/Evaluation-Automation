@@ -20,6 +20,7 @@ async function home(request: WorkbenchHomeRequest) {
 async function chat(request: WorkbenchChatRequest) {
     const req = WorkbenchChatRequest.self(request);
     const bundle = await getChatBundle(req.chat_id);
+    if (!bundle.chat) throw "chat not found";
     return {
         chat: new ChatDTO({
             ...bundle.chat,
