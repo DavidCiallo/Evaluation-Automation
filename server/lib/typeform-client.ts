@@ -2,7 +2,11 @@
  * 简表系统 (survey.noworrytourism.cn) API 客户端。
  * 封装登录、表单列表、创建填写项、查询提交记录等操作。
  * token 在内存中缓存，过期后自动重新登录。
+ *
+ * 入口地址与账号来自「系统配置 → 外围系统接入」（server/lib/integration-settings.ts），
+ * 环境变量仅作兜底；配置变更通过 revision 识别并自动重建 token。
  */
+import { getIntegration, getIntegrationRevision } from "./integration-settings";
 
 interface TypeformConfig {
     baseUrl: string;
@@ -48,19 +52,36 @@ interface HistoryResult {
 
 class TypeformClient {
     private config: TypeformConfig | null = null;
+    private configRevision = -1;
     private cachedToken: string | null = null;
     private tokenExpiry: number = 0;
 
     private ensureConfig(): TypeformConfig {
-        if (this.config) return this.config;
-        const baseUrl = process.env.TYPEFORM_BASE_URL || "https://survey.noworrytourism.cn";
-        const email = process.env.TYPEFORM_EMAIL || "";
-        const password = process.env.TYPEFORM_PASSWORD || "";
-        if (!email || !password) {
-            throw new Error("TYPEFORM_EMAIL / TYPEFORM_PASSWORD not configured");
+        const rev = getIntegrationRevision();
+        if (this.config && this.configRevision === rev) return this.config;
+        const p = getIntegration("survey");
+        if (!p.enabled) throw new Error("简表系统已在系统配置中停用");
+        if (!p.baseUrl || !p.account || !p.secret) {
+            throw new Error("简表系统未配置完整（服务地址/登录邮箱/登录密码），请在系统配置中补全");
         }
-        this.config = { baseUrl, email, password };
+        // 入口变更后旧 token 不再适用
+        if (this.config && this.config.baseUrl !== p.baseUrl) {
+            this.cachedToken = null;
+            this.tokenExpiry = 0;
+        }
+        this.config = { baseUrl: p.baseUrl, email: p.account, password: p.secret };
+        this.configRevision = rev;
         return this.config;
+    }
+
+    /** 是否已配置齐全（系统配置页未配、环境变量也未提供时为 false）。 */
+    isConfigured(): boolean {
+        try {
+            this.ensureConfig();
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     /** 登录获取 token（缓存至过期前 1 小时）。 */
