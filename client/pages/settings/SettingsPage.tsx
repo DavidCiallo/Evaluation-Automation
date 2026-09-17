@@ -14,6 +14,7 @@ import { useTheme } from "@/client/components/theme-provider"
 import { cn } from "@/client/lib/utils"
 import { configApi, syncApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
+import { IntegrationSettingsCard } from "./IntegrationSettingsCard"
 
 type Bundle = {
     wx_connected: boolean
@@ -25,20 +26,22 @@ export function SettingsPage() {
     const { theme, setTheme } = useTheme()
     const auth = getAuth()
     const [bundle, setBundle] = useState<Bundle | null>(null)
-    const [pollerSeq, setPollerSeq] = useState<number | null>(null)
+    const [sync, setSync] = useState<{ seq: number; running_source: string | null; source: string } | null>(null)
 
     const load = async () => {
         const res: any = await configApi.get({ auth })
         const b: Bundle = res?.data
         if (b) setBundle(b)
         const sres: any = await syncApi.status({ auth })
-        setPollerSeq(sres?.data?.seq ?? null)
+        setSync(sres?.data ?? null)
     }
 
     useEffect(() => {
         load()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    const sourceLabel = sync?.running_source === "qixioma" ? "企小码" : sync?.source === "wx" ? "企微 SDK" : "本机模拟"
 
     return (
         <div className="mx-auto max-w-4xl space-y-6">
@@ -65,12 +68,18 @@ export function SettingsPage() {
                             <StatusPill
                                 ok={bundle.poller_running}
                                 label="消息轮询"
-                                hint={bundle.poller_running ? `运行中 (seq=${pollerSeq ?? "-"})` : "未启动"}
+                                hint={
+                                    bundle.poller_running
+                                        ? `运行中 · ${sourceLabel} (seq=${sync?.seq ?? "-"})`
+                                        : "未启动（可在下方会话源开启）"
+                                }
                             />
                         </div>
                     )}
                 </CardContent>
             </Card>
+
+            <IntegrationSettingsCard />
 
             <Card>
                 <CardHeader>

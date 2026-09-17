@@ -16,6 +16,7 @@ import { WorkbenchPage } from "./pages/workbench/WorkbenchPage";
 import { OrdersPage } from "./pages/orders/OrdersPage";
 import { OrderDetailPage } from "./pages/orders/OrderDetailPage";
 import { CustomerPage } from "./pages/customers/CustomerPage";
+import { EmailsPage } from "./pages/emails/EmailsPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
 import { StatisticsPage } from "./pages/settings/StatisticsPage";
 import { AgentConfigPage } from "./pages/settings/AgentConfigPage";
@@ -44,6 +45,7 @@ export default function App() {
                             <Route path="/orders" element={<OrdersPage />} />
                             <Route path="/orders/:id" element={<OrderDetailPage />} />
                             <Route path="/customers" element={<CustomerPage />} />
+                            <Route path="/emails" element={<EmailsPage />} />
                             <Route path="/account" element={<AccountPage />} />
                             <Route path="/statistics" element={<StatisticsPage />} />
                             <Route path="/agent-config" element={<AgentConfigPage />} />

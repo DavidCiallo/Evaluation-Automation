@@ -8,6 +8,7 @@ import {
   Settings,
   BarChart3,
   Bot,
+  Mail,
   type LucideIcon,
 } from "lucide-react"
 
@@ -27,6 +28,7 @@ const mainNav: NavItem[] = [
   { title: "客服工作台", href: "/workbench", icon: Headset, badge: "AI" },
   { title: "订单管理", href: "/orders", icon: ClipboardList },
   { title: "客户档案", href: "/customers", icon: IdCard },
+  { title: "邮件中心", href: "/emails", icon: Mail, badge: "AI" },
   { title: "客服账号", href: "/account", icon: Users },
 ]
 

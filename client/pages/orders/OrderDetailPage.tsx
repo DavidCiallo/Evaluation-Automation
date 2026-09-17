@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, MessageSquare, Users, MessageCircle } from "lucide-react"
+import { ArrowLeft, MessageSquare, Users, MessageCircle, Send } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -25,7 +25,8 @@ import { ApplicationSection } from "./ApplicationSection"
 import { ApplicationDetailCard } from "./ApplicationDetailCard"
 import { FormDetailCard } from "./FormDetailCard"
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest"
-import { OrderInfoCard, FormCollectionCard, ItineraryCard, MaterialCard } from "./plugins/standard/DetailSection"
+import { OrderInfoCard, FormCollectionCard, ItineraryCard } from "./plugins/standard/DetailSection"
+import { SendMaterialsDialog } from "./SendMaterialsDialog"
 
 ensureClientPluginsRegistered()
 
@@ -52,6 +53,8 @@ export function OrderDetailPage() {
     // 主从联动：左侧选中 → 右侧详情查看
     const [selApp, setSelApp] = useState<ApplicationDTO | null>(null)
     const [selForm, setSelForm] = useState<FormAssignment | null>(null)
+    // 发材料邮件
+    const [sendMailOpen, setSendMailOpen] = useState(false)
     // 右侧详情卡操作后刷新左侧申请单列表（重新拉取并联动更新选中）
     const appSectionRef = useRef<{ reload: () => Promise<void> } | null>(null)
     const handleAppChanged = () => { appSectionRef.current?.reload() }
@@ -187,19 +190,18 @@ export function OrderDetailPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle>表单详情</CardTitle>
-                            <CardDescription>已分配表单的填写内容 · 查看</CardDescription>
+                            <CardDescription>已分配表单的填写内容 · AI 校验与转录</CardDescription>
                         </CardHeader>
                         <CardContent className="flex h-full flex-col">
-                            <FormDetailCard order={order} form={selForm} auth={auth} />
+                            <FormDetailCard order={order} form={selForm} auth={auth} onChanged={() => { handleAppChanged(); load() }} />
                         </CardContent>
                     </Card>
                 </div>
 
-                {/* 行3：行程单 + 材料存档 ↔ 核心信息 */}
+                {/* 行3：行程单（宽）↔ 核心信息 */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-3">
-                    <div className="space-y-4 lg:col-span-2">
+                    <div className="lg:col-span-2">
                         <ItineraryCard order={order} auth={auth} reload={load} />
-                        <MaterialCard order={order} auth={auth} reload={load} />
                     </div>
                     <Card>
                         <CardHeader>
@@ -234,6 +236,9 @@ export function OrderDetailPage() {
                                     </Link>
                                 </Button>
                             )}
+                            <Button variant="outline" size="sm" className="w-full" onClick={() => setSendMailOpen(true)}>
+                                <Send className="mr-1 size-3" /> 发材料邮件
+                            </Button>
                         </CardContent>
                     </Card>
                 </div>
@@ -251,6 +256,9 @@ export function OrderDetailPage() {
                     </Card>
                 ))}
             </div>
+
+            {/* 发材料邮件 */}
+            <SendMaterialsDialog open={sendMailOpen} onClose={() => setSendMailOpen(false)} order={order} auth={auth} />
 
             {/* 备注时间线 */}
             <Card>

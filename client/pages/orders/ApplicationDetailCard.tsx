@@ -316,6 +316,9 @@ export function ApplicationDetailCard({
                                 <span className="flex min-w-0 items-center gap-1 font-medium">
                                     <span className="shrink-0">{m.received ? <CheckCircle2 className="size-3.5" /> : <Circle className="text-muted-foreground/50 size-3.5" />}</span>
                                     <span className="truncate">{m.category}</span>
+                                    {(m.files || []).length > 0 && (
+                                        <span className="text-muted-foreground/70 shrink-0 text-[9px]">×{(m.files || []).length}</span>
+                                    )}
                                 </span>
                                 <div className="ml-auto flex shrink-0 items-center gap-0.5">
                                     {/* 查看（有文件才可点，弹窗预览全部文件） */}
