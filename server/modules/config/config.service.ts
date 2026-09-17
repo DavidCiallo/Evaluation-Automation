@@ -4,7 +4,17 @@ import { isWxConfigured } from "../../lib/wx";
 import { isLlmConfigured } from "../../lib/llm";
 import { isPollerRunning } from "../sync/sync.service";
 
-const cfgRepo: Repository<any> = Repository.instance("Config");
+/** config 集合行形状：{key, value}。 */
+interface ConfigEntity {
+    id: string;
+    create_time: number;
+    update_time: number | null;
+    delete_time: number | null;
+    key: string;
+    value: any;
+}
+
+const cfgRepo: Repository<ConfigEntity> = Repository.instance("Config");
 
 export const DEFAULT_INTENT_PROMPT = `你是一名签证客服助理。根据客户与企业微信客服的对话，提取办签意图信息。
 要求：
@@ -83,6 +93,56 @@ export const DEFAULT_ITINERARY_PROMPT = `你是资深签证行程规划师，擅
 - 每条 row 的 date 必须是对应日期的 DD-MMM 短格式（如 24-Sep）
 - 所有字段必须为字符串，不得省略`;
 
+/** 表客表单转录 prompt（mike/survey 回填数据 → 申请单结构化字段）。 */
+export const DEFAULT_FORM_TRANSCRIBE_PROMPT = `你是签证业务数据录入助手。下面是一份客户填写的表单数据（字段名→值）。
+请把表单内容映射为签证申请人的结构化字段，只输出 JSON，不要解释文字。
+
+目标字段（值格式要求）：
+- name: 申请人中文姓名
+- gender: 性别（男/女）
+- dob: 出生日期（YYYY-MM-DD）
+- passport_no: 护照号码（仅护照号本身，不含其他文字）
+- passport_expiry: 护照有效期截止日（YYYY-MM-DD，只有年月时补 01 日）
+- visa_country: 申请签证的国家（如"西班牙"，去掉"签证"等后缀）
+- visa_type: 签证类型（如"旅游"）
+- departure: 出发地/递签城市（取城市名，如"上海"）
+
+规则：
+- 表单中没有的字段填 null，宁缺勿猜
+- 日期统一转成 YYYY-MM-DD
+- 只输出 JSON：{"name":..., "gender":..., "dob":..., "passport_no":..., "passport_expiry":..., "visa_country":..., "visa_type":..., "departure":..., "confidence":"high|medium|low", "notes":"一句话备注"}
+
+表单数据：
+{fields_json}`;
+
+/** AI 表单校验 prompt（数据完整性 + 内容自洽）。 */
+export const DEFAULT_FORM_CHECK_PROMPT = `你是签证材料审核助手。给定一位申请人的表单回填数据（可能不完整），以及系统中已登记的申请人信息。
+请检查数据质量并输出问题清单，只输出 JSON，不要解释文字。
+
+检查维度：
+1. 内容自洽：字段之间是否矛盾（如姓名拼音与中文不符、性别称谓与姓名冲突、出生日期与年龄不合理、国家与签证类型不匹配等）
+2. 明显异常：护照号格式、日期不合理（未来出生、护照过期年月早于出行等）、必填项填了占位文字（"无"、"-"、"暂无"除外——这类归为缺失）
+
+输出 schema：
+{"summary":"一句话总评","issues":[{"level":"error|warning|info","field":"字段名","message":"问题描述"}]}
+- error：必须处理后才能递签（数据缺失/矛盾）
+- warning：建议核实
+- info：提示信息
+没有问题输出 {"summary":"数据完整自洽","issues":[]}`;
+
+/** AI 邮件摘要 prompt。 */
+export const DEFAULT_EMAIL_SUMMARIZE_PROMPT = `你是签证客服助理。请阅读一封客户邮件并输出 JSON（不要解释文字）：
+{"summary":"两句话以内的中文摘要","intent":"分类，取值：咨询|材料|进度|投诉|其他"}
+- summary 提炼客户诉求与关键信息（人名/国家/日期/金额等）
+- intent 判断邮件主要意图`;
+
+/** AI 邮件回复起草 prompt。 */
+export const DEFAULT_EMAIL_REPLY_PROMPT = `你是签证客服。请根据原邮件写一封专业、友好的中文回复。
+要求：
+- 直接输出邮件正文 HTML（<p> 段落），不要 Markdown、不要前后缀说明
+- 语气礼貌简洁；涉及材料清单时用 <ul><li> 列出
+- 结尾署名留空（系统会追加客服签名）`;
+
 /** 材料清单模板：国家 × 签证类型 → 必备材料。支持给国家设置别名（如 法国→申根）。 */
 export interface MaterialTemplateEntry {
     country: string;
@@ -152,6 +212,10 @@ const DEFAULTS: Record<string, any> = {
     summary_prompt: DEFAULT_SUMMARY_PROMPT,
     remark_detect_prompt: DEFAULT_REMARK_DETECT_PROMPT,
     itinerary_prompt: DEFAULT_ITINERARY_PROMPT,
+    form_transcribe_prompt: DEFAULT_FORM_TRANSCRIBE_PROMPT,
+    form_check_prompt: DEFAULT_FORM_CHECK_PROMPT,
+    email_summarize_prompt: DEFAULT_EMAIL_SUMMARIZE_PROMPT,
+    email_reply_prompt: DEFAULT_EMAIL_REPLY_PROMPT,
     business_start_hour: 8,
     business_end_hour: 18,
     business_days: [1, 2, 3, 4, 5], // Mon–Fri (JS getDay(): 0=Sun…6=Sat)
@@ -205,6 +269,10 @@ const ALLOWED_KEYS = new Set([
     "summary_prompt",
     "remark_detect_prompt",
     "itinerary_prompt",
+    "form_transcribe_prompt",
+    "form_check_prompt",
+    "email_summarize_prompt",
+    "email_reply_prompt",
     "business_start_hour",
     "business_end_hour",
     "business_days",

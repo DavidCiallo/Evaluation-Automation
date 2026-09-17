@@ -271,3 +271,36 @@ export class OrderRelatedChatsResponse {
         this.message = data.message;
     }
 }
+
+/** 无会话建单（手动/邮件渠道）。 */
+export class OrderCreateRequest {
+    public order_name?: string;
+    public customer_id?: string | null;
+    public customer_name?: string;
+    public source: "email" | "manual";
+    public auth?: string;
+
+    constructor(data: any) {
+        this.order_name = data.order_name || undefined;
+        this.customer_id = data.customer_id || null;
+        this.customer_name = data.customer_name || undefined;
+        this.source = data.source === "email" ? "email" : "manual";
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new OrderCreateRequest(data);
+    }
+}
+
+export class OrderCreateResponse {
+    public success: boolean;
+    public data?: { order: OrderDTO };
+    public message?: string;
+
+    constructor(data: { success: boolean; data?: { order: OrderDTO }; message?: string }) {
+        this.success = data.success;
+        this.data = data.data;
+        this.message = data.message;
+    }
+}

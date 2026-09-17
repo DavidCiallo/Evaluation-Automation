@@ -2,12 +2,14 @@
  * 标准订单插件（服务端）。
  * 三栏结构：
  *   第一栏 — onMessage 提取草稿；confirm 确认订单信息（多客户）
- *   第二栏 — assign-form / update-form-status 表单分配（mock）
- *   第三栏 — upload-material / delete-material 材料存档
+ *   第二栏 — assign-form / update-form-status 表单分配
+ *   第三栏 — generate-itinerary / save-itinerary 行程单
  */
 import { nanoid } from "nanoid";
 import Repository from "../../../../lib/repository";
 import type { OrderEntity } from "../../../../../shared/modules/order/order.entity";
+import type { AccountEntity } from "../../../../../shared/modules/account/account.entity";
+import type { CustomerEntity } from "../../../../../shared/modules/customer/customer.entity";
 import type { ConversationEntity } from "../../../../../shared/modules/conversation/conversation.entity";
 import type { IntentDraftData } from "../../../../../shared/modules/intent/intent.interface";
 import type { ServerOrderPlugin, PluginMessageResult, PluginContext } from "../../plugin-registry";
@@ -18,19 +20,25 @@ import {
     type OrderInfoDraft,
     type OrderInfoConfirmed,
     type FormAssignment,
-    type MaterialEntry,
     type StandardPluginData,
     type ItineraryRow,
     type ItineraryEntry,
     type ItineraryGenerateInput,
+    type TripTask,
+    type TripPax,
 } from "../../../../../shared/modules/order/plugins/standard.manifest";
 import { extractDraft, detectRemarkUpdates, loadRecentMessages, hasIntentSignal } from "../../../intent/intent.service";
-import { typeformClient } from "../../../../lib/typeform-client";
+import { getFormProvider, listAllForms, type FormDataItem } from "../../../../lib/form-providers";
+import { transcribeFormData, checkFormData } from "./form-ai";
+import { claimSubmission } from "../../../form/mike-ingest";
+import { ctripClient } from "../../../../lib/ctrip-client";
+import { saveToDisk, createFile as createFileRecord } from "../../../file/file.service";
+import * as materialService from "../../../material/material.service";
 import { isLlmConfigured, llmChat, extractJson } from "../../../../lib/llm";
 import { getConfigValue } from "../../../config/config.service";
 
-const accountRepo: Repository<any> = Repository.instance("Account");
-const customerRepo: Repository<any> = Repository.instance("Customer");
+const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
+const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
 
 /**
  * 按客户姓名解析/创建档案 id：先模糊匹配同名档案，命中复用；否则新建档案。
@@ -450,6 +458,157 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { itineraries };
         },
 
+        // ============ 机票任务（ctrip 系统） ============
+
+        /** 创建 ctrip 机票任务。payload = { from, to, from_name?, to_name?, date, return_date?, pax: TripPax[] }
+         *  首位乘客为联系人（电话/区号/邮箱必填，ctrip 规则）。 */
+        "create-trip-task": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            const { from, to, date } = payload || {};
+            if (!from || !to || !date) throw "from, to, date are required";
+            const pax: TripPax[] = Array.isArray(payload.pax) ? payload.pax : [];
+            if (pax.length === 0) throw "至少需要一位乘客";
+            for (const [i, p] of pax.entries()) {
+                const tag = `乘客${i + 1}`;
+                if (!p.application_id) throw `${tag}：缺少关联申请单`;
+                if (!String(p.surname || "").trim()) throw `${tag}：请填写拼音姓`;
+                if (!String(p.givenname || "").trim()) throw `${tag}：请填写拼音名`;
+                if (!String(p.passport_no || "").trim()) throw `${tag}：请补录护照号`;
+                if (!String(p.passport_expiry || "").trim()) throw `${tag}：请补录护照有效期`;
+                if (!String(p.birthday || "").trim()) throw `${tag}：请补录出生日期`;
+            }
+            const first = pax[0];
+            if (!String(first.phone || "").trim() || !String(first.phone_area || "").trim() || !String(first.email || "").trim()) {
+                throw "乘客1（联系人）：请填写手机号、区号与邮箱（ctrip 要求）";
+            }
+
+            const ctripPax = pax.map((p) => ({
+                surname: String(p.surname).trim().toUpperCase(),
+                givenname: String(p.givenname).trim().toUpperCase(),
+                gender: String(p.gender || "男"),
+                birthday: String(p.birthday),
+                nationality: String(p.nationality || "中国"),
+                passportNo: String(p.passport_no).trim().toUpperCase(),
+                passportExpiry: String(p.passport_expiry),
+                phone: String(first.phone || ""),
+                phoneArea: String(first.phone_area || "+86"),
+                email: String(first.email || ""),
+            }));
+
+            const taskId = await ctripClient.addTask({
+                from: String(from).trim().toUpperCase(),
+                to: String(to).trim().toUpperCase(),
+                date: String(date),
+                return_date: payload.return_date || null,
+                pax: ctripPax,
+            });
+            if (!taskId) throw "ctrip 创建任务失败（未返回任务 id）";
+
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const tripTasks = std.tripTasks || [];
+            const now = Date.now();
+            const trip: TripTask = {
+                id: nanoid(8),
+                task_id: taskId,
+                from: String(from).trim().toUpperCase(),
+                to: String(to).trim().toUpperCase(),
+                from_name: payload.from_name || null,
+                to_name: payload.to_name || null,
+                date: String(date),
+                return_date: payload.return_date || null,
+                state: "pending",
+                stage: "created",
+                attempts: 0,
+                pax,
+                attachments: [],
+                create_time: now,
+                update_time: now,
+            };
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { tripTasks: [...tripTasks, trip] });
+            return { trip };
+        },
+
+        /** 批量同步 ctrip 任务状态。payload = {} */
+        "sync-trip-tasks": async (order: OrderEntity, _payload: any, ctx: PluginContext) => {
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const tripTasks = std.tripTasks || [];
+            let changed = 0;
+            for (const trip of tripTasks) {
+                if (!trip.task_id) continue;
+                const remote = await ctripClient.getTask(trip.task_id);
+                if (!remote) continue;
+                if (remote.state !== trip.state || remote.stage !== trip.stage || (remote.attempts ?? 0) !== (trip.attempts ?? 0)) {
+                    trip.state = remote.state || trip.state;
+                    trip.stage = remote.stage || trip.stage;
+                    trip.attempts = remote.attempts ?? trip.attempts;
+                    trip.update_time = Date.now();
+                    changed++;
+                }
+            }
+            if (changed > 0) await ctx.setPluginData(STANDARD_PLUGIN_ID, { tripTasks });
+            return { tasks: tripTasks, changed };
+        },
+
+        /** 拉取 ctrip 产物 PDF 并挂到乘客申请单材料（category=机票预订）。payload = { trip_id } */
+        "attach-trip-files": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            if (!payload?.trip_id) throw "trip_id is required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const tripTasks = [...(std.tripTasks || [])];
+            const trip = tripTasks.find((t) => t.id === payload.trip_id);
+            if (!trip) throw "trip task not found";
+
+            const files = await ctripClient.listFiles();
+            let attached = 0;
+            const now = Date.now();
+
+            for (const pax of trip.pax) {
+                if (!pax.application_id || !pax.surname || !pax.givenname) continue;
+                const prefix = `${pax.surname}_${pax.givenname}_`.toUpperCase();
+                const matched = files.filter(
+                    (f) => f.name.toUpperCase().startsWith(prefix) &&
+                        !trip.attachments.some((a) => a.name === f.name),
+                );
+                for (const f of matched) {
+                    // 下载 → 落盘 → File 记录
+                    const buf = await ctripClient.downloadFile(f.name);
+                    const { storage_name, content_type } = saveToDisk(buf, f.name);
+                    const fileDto = await createFileRecord({
+                        filename: f.name,
+                        storage_name,
+                        content_type,
+                        size: buf.length,
+                        uploaded_by: "ctrip",
+                    });
+                    // 找/建申请单的「机票预订」材料行并挂文件
+                    const existing = await materialService.listByApplication(pax.application_id);
+                    let line = existing.find((m) => m.category === "机票预订");
+                    if (!line) {
+                        line = await materialService.create({ application_id: pax.application_id, category: "机票预订", required: false, received: true, remark: "ctrip 自动生成" });
+                    }
+                    await materialService.attachFile(line.id, fileDto.id, true);
+                    trip.attachments.push({ name: f.name, file_id: fileDto.id, application_id: pax.application_id, attached_time: now });
+                    attached++;
+                }
+            }
+            trip.update_time = now;
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { tripTasks: tripTasks.map((t) => (t.id === trip.id ? trip : t)) });
+            return { trip, attached };
+        },
+
+        /** IATA 城市表（创建机票任务时出发/目的地联想）。payload = {} */
+        "list-trip-cities": async () => {
+            const cities = await ctripClient.getCities();
+            return { cities };
+        },
+
+        /** 删除本地机票任务记录（不删 ctrip 侧任务）。payload = { trip_id } */
+        "delete-trip-task": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            if (!payload?.trip_id) throw "trip_id is required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const tripTasks = (std.tripTasks || []).filter((t) => t.id !== payload.trip_id);
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { tripTasks });
+            return { tripTasks };
+        },
+
         /** 导出行程单 markdown。payload = { itinerary_id } */
         "export-itinerary": async (order: OrderEntity, payload: any) => {
             if (!payload?.itinerary_id) throw "itinerary_id is required";
@@ -468,35 +627,115 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return buildContract(order);
         },
 
-        /** 分配表单：调用简表 API 生成真实填写链接，并预填客户姓名。payload = { form_name, customer_id } */
+        /** 列出某客户在某麦客表单下的全部可选提交（按时间倒序，供挑选）。payload = { form_name, customer_id, provider? } */
+        "search-form-submissions": async (order: OrderEntity, payload: any) => {
+            if (!payload?.form_name || !payload?.customer_id) throw "form_name and customer_id are required";
+            const providerDef = getFormProvider(payload.provider || "mike");
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customerName = customers.find((c) => c.id === payload.customer_id)?.name || "";
+            const matches = await providerDef.listMatches({ form_key: payload.form_name, customer_name: customerName });
+            // 推荐项：提交时间与订单创建时间最接近的一份
+            let suggested: string | null = null;
+            if (matches.length > 0) {
+                const anchor = order.create_time || Date.now();
+                suggested = matches.reduce((best, cur) =>
+                    Math.abs(cur.submit_time - anchor) < Math.abs(best.submit_time - anchor) ? cur : best,
+                ).key;
+            }
+            return { matches, suggested, customer_name: customerName };
+        },
+
+        /** 分配表单。payload = { form_name, customer_id, provider?, submission_key? }（provider: survey=简表 | mike=麦客捕获，缺省 survey）。
+         *  survey：调简表 API 生成填写链接并预填姓名；mike：按提交 key 或「与订单时间最接近的同名提交」匹配。 */
         "assign-form": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_name || !payload?.customer_id) throw "form_name and customer_id are required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const forms = std.forms || [];
+            const providerDef = getFormProvider(payload.provider);
 
-            // 找到客户姓名用于预填
+            // 找到客户姓名用于预填（survey）或匹配提交（mike）
             const customers = std.confirmed?.customers || std.draft?.customers || [];
             const customer = customers.find((c) => c.id === payload.customer_id);
-            const prefillName = customer?.name || "";
+            const customerName = customer?.name || "";
 
-            // 调用简表 API 创建填写项（同时预填姓名）
-            const { item_id, code, field_id } = await typeformClient.createFormItem(payload.form_name, { name: prefillName });
-            const baseUrl = process.env.TYPEFORM_BASE_URL || "https://survey.noworrytourism.cn";
-            // URL 的 t 必须用 item_id（而非 field_id），否则客户打开时会创建全新空白 item，预填数据丢失
-            const form_url = `${baseUrl}/fill?t=${item_id}#code:${code}`;
+            const created = await providerDef.createAssignment({
+                form_key: payload.form_name,
+                customer_name: customerName,
+                submission_key: payload.submission_key || null,
+                order_create_time: order.create_time,
+            });
 
             const assignment: FormAssignment = {
                 id: nanoid(8),
                 form_name: payload.form_name,
-                form_url,
+                form_url: created.url,
                 customer_id: payload.customer_id,
-                status: "sent",
-                item_id,
-                code,
-                field_id,
+                status: created.completed ? "completed" : "sent",
+                provider: providerDef.id,
+                item_id: created.external_id || undefined,
+                code: created.code || undefined,
+                completed_time: created.completed_time || undefined,
+                matched_name: created.matched_name,
+                last_check: null,
             };
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: [...forms, assignment] });
+            // 麦客：本地提交收件箱中标记该 key 已被引用
+            if (providerDef.id === "mike" && created.external_id) {
+                await claimSubmission(created.external_id, assignment.id).catch(() => {});
+            }
             return { assignment };
+        },
+
+        /** 搜索本地摄入的麦客提交（待匹配收件箱）。payload = { keyword?, form_name?, limit? } */
+        "search-mike-submissions": async (_order: OrderEntity, payload: any) => {
+            const { mikeClient } = await import("../../../../lib/mike-client");
+            if (!mikeClient.isConfigured()) return { list: [], live: false };
+            const kw = String(payload?.keyword || "").trim();
+            // 优先实时搜索（数据始终最新），失败时回退本地快照
+            try {
+                const { list } = await mikeClient.getSubmissions({ keyword: kw || undefined, limit: Number(payload?.limit) || 50 });
+                return { list, live: true };
+            } catch {
+                const submissionRepo: Repository<any> = Repository.instance("Submission");
+                const all = await submissionRepo.find({}, { limit: 200 });
+                const filtered = kw
+                    ? all.filter((s: any) => (s.submitter_name || "").includes(kw) || (s.form_name || "").includes(kw))
+                    : all;
+                return { list: filtered.slice(0, Number(payload?.limit) || 50), live: false };
+            }
+        },
+
+        /** 手动把麦客提交关联到表单分配。payload = { form_id, submission_key, submitter_name?, submit_time? } */
+        "link-mike-submission": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            if (!payload?.form_id || !payload?.submission_key) throw "form_id and submission_key are required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const forms = std.forms || [];
+            const form = forms.find((f) => f.id === payload.form_id);
+            if (!form) throw "form assignment not found";
+            if (form.provider !== "mike") throw "link-mike-submission only applies to mike forms";
+
+            const submitTime = Number(payload.submit_time) || 0;
+            const updatedForms = forms.map((f) =>
+                f.id === payload.form_id
+                    ? {
+                          ...f,
+                          item_id: String(payload.submission_key),
+                          status: "completed" as const,
+                          completed_time: submitTime || Date.now(),
+                          matched_name: payload.submitter_name || f.matched_name || null,
+                      }
+                    : f,
+            );
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: updatedForms });
+            await claimSubmission(String(payload.submission_key), form.id).catch(() => {});
+            return { forms: updatedForms };
+        },
+
+        /** 列出全部表单提供方的可用表单。payload = {} */
+        "list-forms": async () => {
+            const { forms, errors } = await listAllForms();
+            return { forms, errors };
         },
 
         /** 更新表单状态。payload = { form_id, status } */
@@ -510,43 +749,101 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { forms };
         },
 
-        /** 检查表单完成状态。payload = { form_id } */
+        /** 检查表单完成状态（survey 回查 item；mike 重新匹配提交）。payload = { form_id } */
         "check-form-completion": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_id) throw "form_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const forms = std.forms || [];
             const form = forms.find((f) => f.id === payload.form_id);
             if (!form) throw "form assignment not found";
-            if (!form.item_id || !form.code) throw "form has no item_id/code";
 
-            // 获取字段列表用于判断完成状态
-            const fields = await typeformClient.getFormFields(form.form_name);
-            const { completed, completedTime } = await typeformClient.checkCompletion(form.item_id, form.code, fields);
+            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customerName = customers.find((c) => c.id === form.customer_id)?.name || "";
+            const providerDef = getFormProvider(form.provider);
+            const re = await providerDef.recheck({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
 
-            // 更新表单状态
             const updatedForms = forms.map((f) => {
                 if (f.id !== payload.form_id) return f;
                 return {
                     ...f,
-                    status: completed ? "completed" as const : f.status,
-                    completed_time: completed ? (completedTime || Date.now()) : f.completed_time,
+                    status: re.completed ? ("completed" as const) : f.status,
+                    completed_time: re.completed ? (re.completed_time || Date.now()) : f.completed_time,
+                    item_id: re.external_id || f.item_id,
+                    matched_name: re.matched_name ?? f.matched_name,
                 };
             });
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: updatedForms });
-            return { completed, completedTime: completed ? (completedTime || Date.now()) : null };
+            return { completed: re.completed, completedTime: re.completed ? re.completed_time || Date.now() : null };
         },
 
         /** 获取表单填写数据。payload = { form_id } */
-        "get-form-data": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+        "get-form-data": async (order: OrderEntity, payload: any) => {
+            if (!payload?.form_id) throw "form_id is required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const form = (std.forms || []).find((f) => f.id === payload.form_id);
+            if (!form) throw "form assignment not found";
+
+            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customerName = customers.find((c) => c.id === form.customer_id)?.name || "";
+            const providerDef = getFormProvider(form.provider);
+            const data: FormDataItem[] = await providerDef.fetchData({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
+            return { data };
+        },
+
+        /** 表客表单转录：表单回填数据 → 申请单结构化字段提案（不落库，前端确认后走 apply-form-data）。
+         *  payload = { form_id } */
+        "transcribe-form-data": async (order: OrderEntity, payload: any) => {
+            if (!payload?.form_id) throw "form_id is required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const form = (std.forms || []).find((f) => f.id === payload.form_id);
+            if (!form) throw "form assignment not found";
+
+            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customerName = customers.find((c) => c.id === form.customer_id)?.name || "";
+            const providerDef = getFormProvider(form.provider);
+            const data = await providerDef.fetchData({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
+            if (data.length === 0) throw "表单暂无填写数据，无法转录";
+            const result = await transcribeFormData(data);
+            return result;
+        },
+
+        /** 应用转录提案：把 patch 写入申请单（服务端按白名单过滤字段）。payload = { application_id, patch } */
+        "apply-form-data": async (_order: OrderEntity, payload: any) => {
+            if (!payload?.application_id || !payload?.patch) throw "application_id and patch are required";
+            const applicationService = await import("../../../application/application.service");
+            const updated = await applicationService.update(String(payload.application_id), payload.patch);
+            if (!updated) throw "application not found";
+            return { application: updated };
+        },
+
+        /** AI 表单校验（完整性 + 自洽），结果持久化到分配记录。payload = { form_id, application_id? } */
+        "check-form-data": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_id) throw "form_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const forms = std.forms || [];
             const form = forms.find((f) => f.id === payload.form_id);
             if (!form) throw "form assignment not found";
-            if (!form.item_id || !form.code) throw "form has no item_id/code";
 
-            const data = await typeformClient.getStructuredData(form.item_id, form.code);
-            return { data };
+            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customerName = customers.find((c) => c.id === form.customer_id)?.name || "";
+            const providerDef = getFormProvider(form.provider);
+            const data = await providerDef.fetchData({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
+            if (data.length === 0) throw "表单暂无填写数据，无法校验";
+
+            // 交叉核对：申请单已登记的身份信息
+            let appSnapshot: { name?: string | null; passport_no?: string | null; passport_expiry?: string | null; dob?: string | null; visa_country?: string | null; visa_type?: string | null } | null = null;
+            if (payload.application_id) {
+                const applicationService = await import("../../../application/application.service");
+                const app = await applicationService.findOne(String(payload.application_id));
+                if (app) {
+                    appSnapshot = { name: app.name, passport_no: app.passport_no, passport_expiry: app.passport_expiry, dob: app.dob, visa_country: app.visa_country, visa_type: app.visa_type };
+                }
+            }
+
+            const check = await checkFormData(data, appSnapshot);
+            const updatedForms = forms.map((f) => (f.id === payload.form_id ? { ...f, last_check: check } : f));
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: updatedForms });
+            return { check };
         },
 
         /** 移除表单分配。payload = { form_id } */
@@ -556,40 +853,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const forms = (std.forms || []).filter((f) => f.id !== payload.form_id);
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms });
             return { forms };
-        },
-
-        /** 上传材料（v2：文件体走 File 实体）。payload = { file_id, category, uploaded_by } */
-        "upload-material": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
-            if (!payload?.file_id) throw "file_id is required";
-            const { findOne: findFile } = await import("../../../file/file.service");
-            const file = await findFile(payload.file_id);
-            if (!file) throw "file not found";
-            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const materials = std.materials || [];
-            const entry: MaterialEntry = {
-                id: nanoid(8),
-                file_id: file.id,
-                category: payload.category || "其他",
-                upload_time: Date.now(),
-                uploaded_by: payload.uploaded_by || "",
-                file: {
-                    filename: file.filename,
-                    url: `/api/media/${encodeURIComponent(file.storage_name)}`,
-                    content_type: file.content_type,
-                    size: file.size,
-                },
-            };
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { materials: [...materials, entry] });
-            return { material: entry };
-        },
-
-        /** 删除材料。payload = { material_id } */
-        "delete-material": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
-            if (!payload?.material_id) throw "material_id is required";
-            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const materials = (std.materials || []).filter((m) => m.id !== payload.material_id);
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { materials });
-            return { materials };
         },
 
         /** 主动生成草稿：从最近消息提取，写入 draft（如提取到）。 */

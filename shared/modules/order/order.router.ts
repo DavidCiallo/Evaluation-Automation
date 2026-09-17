@@ -6,6 +6,7 @@ import {
     OrderUpdateCustomerRemarkResponse,
     OrderRemarkResponse,
     OrderCreateFromChatResponse,
+    OrderCreateResponse,
     OrderRelatedChatsResponse,
 } from "./order.interface";
 
@@ -58,6 +59,12 @@ export const orderRoutes = {
         path: "/create-from-chat",
         request: {} as { chat_id: string; order_name?: string; auth?: string },
         response: {} as OrderCreateFromChatResponse,
+    },
+    /** 无会话建单（手动/邮件渠道） */
+    create: {
+        path: "/create",
+        request: {} as { order_name?: string; customer_id?: string | null; customer_name?: string; source?: "email" | "manual"; auth?: string },
+        response: {} as OrderCreateResponse,
     },
     /** 获取订单关联会话列表 */
     relatedChats: {

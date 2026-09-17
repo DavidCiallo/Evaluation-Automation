@@ -15,6 +15,8 @@ import type { ApplicantSummary, ApplicantDetail } from "../../../shared/modules/
 import { APPLICATION_STATUS_LABEL } from "../../../shared/modules/application/application.entity";
 import type { ApplicationEntity } from "../../../shared/modules/application/application.entity";
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
+import type { AccountEntity } from "../../../shared/modules/account/account.entity";
+import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import { getOrderPlugin, getEnabledOrderPlugins, type PluginContext } from "./plugin-registry";
@@ -24,7 +26,7 @@ const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
 const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
 const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
-const accountRepo: Repository<any> = Repository.instance("Account");
+const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 
 const PAGE_SIZE = 20;
 
@@ -344,6 +346,7 @@ export async function ensureOrderForChat(chatId: string): Promise<OrderEntity | 
 
     return orderRepo.insert({
         order_name: chat?.name || customerRemark || customerName || "",
+        source: "wecom",
         chat_id: chatId,
         private_chat_id: privateChatId,
         customer_id: customer?.wechat_id || "",
@@ -405,6 +408,7 @@ export async function createOrderFromChat(chatId: string, orderName?: string): P
     if (chat.type !== "group") {
         return orderRepo.insert({
             order_name: orderName || customerRemark || customerName || "",
+            source: "wecom",
             chat_id: "",
             private_chat_id: chatId,
             customer_id: customer?.wechat_id || "",
@@ -426,12 +430,74 @@ export async function createOrderFromChat(chatId: string, orderName?: string): P
 
     return orderRepo.insert({
         order_name: orderName || chat?.name || customerRemark || customerName || "",
+        source: "wecom",
         chat_id: chatId,
         private_chat_id: privateChatId,
         customer_id: customer?.wechat_id || "",
         customer_name: customerName,
         customer_remark: customerRemark,
         agent_ids: agentIds,
+        status: "draft",
+        remarks: [],
+        data: draftData,
+        version: 1,
+    });
+}
+
+// ---------- 无会话建单（手动 / 邮件渠道） ----------
+
+/**
+ * 手动（或邮件渠道）建单：不依赖任何会话，chat_id/private_chat_id 留空。
+ * customer_id 为客户档案（Customer）id；档案缺失时仅凭姓名建单。
+ * 邮件模块建单时传 source="email"，客服手动建单传 "manual"（默认）。
+ */
+export async function createManualOrder(input: {
+    order_name?: string;
+    customer_id?: string | null;
+    customer_name?: string;
+    source?: "email" | "manual";
+}): Promise<OrderEntity> {
+    const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
+    let customerName = (input.customer_name || "").trim();
+    let customerWechatId = "";
+
+    if (input.customer_id) {
+        const profile = await customerRepo.findOne({ id: input.customer_id });
+        if (profile) {
+            customerName = customerName || profile.name || "";
+            customerWechatId = profile.wechat_id || "";
+        }
+    }
+    if (!customerName) throw "customer_name or customer_id is required";
+
+    const draftData = {
+        [STANDARD_PLUGIN_ID]: {
+            draft: {
+                order_name: input.order_name || customerName,
+                price: null,
+                currency: null,
+                customers: [{
+                    id: nanoid(8),
+                    customer_id: input.customer_id || null,
+                    name: customerName,
+                    visa_type: null,
+                    departure: null,
+                    destination: null,
+                }],
+                raw: null,
+            },
+        },
+    };
+
+    return orderRepo.insert({
+        order_name: input.order_name || customerName,
+        source: input.source || "manual",
+        chat_id: "",
+        private_chat_id: "",
+        customer_id: customerWechatId,
+        customer_name: customerName,
+        customer_remark: "",
+        agent_ids: [],
         status: "draft",
         remarks: [],
         data: draftData,
@@ -603,6 +669,7 @@ export async function resolveApplicantsDetail(
             id: a.id,
             seq: a.seq ?? 0,
             is_lead: !!a.is_lead,
+            customer_id: a.customer_id || null,
             name: a.name || "",
             gender: a.gender ?? null,
             dob: a.dob ?? null,

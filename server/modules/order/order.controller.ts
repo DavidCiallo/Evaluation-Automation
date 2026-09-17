@@ -7,6 +7,7 @@ import {
     OrderUpdateCustomerRemarkRequest,
     OrderRemarkRequest,
     OrderCreateFromChatRequest,
+    OrderCreateRequest,
     OrderRelatedChatsRequest,
 } from "../../../shared/modules/order/order.interface";
 import * as svc from "./order.service";
@@ -66,6 +67,18 @@ async function createFromChat(request: OrderCreateFromChatRequest) {
     return { order: await svc.toDTO(order) };
 }
 
+/** 无会话建单（手动/邮件渠道）。 */
+async function create(request: OrderCreateRequest) {
+    const req = OrderCreateRequest.self(request);
+    const order = await svc.createManualOrder({
+        order_name: req.order_name,
+        customer_id: req.customer_id,
+        customer_name: req.customer_name,
+        source: req.source,
+    });
+    return { order: await svc.toDTO(order) };
+}
+
 async function relatedChats(request: OrderRelatedChatsRequest) {
     const req = OrderRelatedChatsRequest.self(request);
     return await svc.getRelatedChats(req.id);
@@ -78,5 +91,5 @@ async function typeformForms() {
 
 export const orderMount = {
     routes: orderRoutes,
-    handlers: { list, detail, transition, pluginAction, updateCustomerRemark, remark, createFromChat, relatedChats, typeformForms },
+    handlers: { list, detail, transition, pluginAction, updateCustomerRemark, remark, createFromChat, create, relatedChats, typeformForms },
 };
