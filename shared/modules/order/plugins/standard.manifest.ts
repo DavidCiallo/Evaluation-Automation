@@ -75,20 +75,6 @@ export interface OrderInfoConfirmed {
 
 // ============ 第二栏：表单收集 ============
 
-/** AI 表单校验问题项。 */
-export interface FormCheckIssue {
-    level: "error" | "warning" | "info";
-    field: string;
-    message: string;
-}
-
-/** 最近一次 AI 表单校验结果（数据完整性 + 内容自洽）。 */
-export interface FormCheckResult {
-    checked_time: number;
-    summary: string;
-    issues: FormCheckIssue[];
-}
-
 /** 表单分配记录。 */
 export interface FormAssignment {
     id: string;
@@ -108,8 +94,6 @@ export interface FormAssignment {
     completed_time?: number;
     /** mike 匹配到的提交人姓名 */
     matched_name?: string | null;
-    /** 最近一次 AI 校验结果 */
-    last_check?: FormCheckResult | null;
 }
 
 /** 占位表单选项（已废弃，改为从简表 API 动态获取）。 */

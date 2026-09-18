@@ -250,7 +250,6 @@ const std: StandardPluginData = {
         item_id: submission.key,
         matched_name: submission.submitter_name,
         completed_time: submission.submit_time,
-        last_check: null,
     }],
 };
 function randPrice(): number {

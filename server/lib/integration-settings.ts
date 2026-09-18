@@ -101,9 +101,9 @@ const META: Record<IntegrationProviderId, {
     },
     ctrip: {
         label: "ctrip 机票任务",
-        hint: "提交乘客护照建机票搜索任务，任务产物 PDF 一键挂申请单材料（该系统自身无鉴权）",
+        hint: "提交乘客护照建机票搜索任务，任务产物 PDF 一键挂申请单材料（需系统密码鉴权）",
         accountLabel: null,
-        secretLabel: null,
+        secretLabel: "系统密码",
         defaultIntervalMs: null,
     },
     email: {
@@ -144,7 +144,10 @@ function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { 
                 interval_ms: num(process.env.MIKE_INGEST_INTERVAL_MS),
             };
         case "ctrip":
-            return { base_url: process.env.CTRIP_BASE_URL || DEFAULT_BASE.ctrip };
+            return {
+                base_url: process.env.CTRIP_BASE_URL || DEFAULT_BASE.ctrip,
+                secret: process.env.CTRIP_PASSWORD || "",
+            };
         case "email":
             return {
                 base_url: process.env.EMAIL_BASE_URL || DEFAULT_BASE.email,

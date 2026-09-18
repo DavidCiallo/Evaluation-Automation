@@ -240,20 +240,29 @@ export function OrderDetailPage() {
 
                 {/* 行2：表单收集（点选）↔ 表单详情（左右各半） */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-2">
-                    <FormCollectionCard
-                        order={order}
-                        auth={auth}
-                        reload={load}
-                        selectedId={selForm?.id || null}
-                        onSelectForm={setSelForm}
-                    />
-                    <Card>
+                    <Card className="lg:col-span-1">
                         <CardHeader>
-                            <CardTitle>表单详情</CardTitle>
-                            <CardDescription>已分配表单的填写内容 · AI 校验与转录</CardDescription>
+                            <CardTitle>表单收集</CardTitle>
+                            <CardDescription>分配表单链接给客户填写</CardDescription>
                         </CardHeader>
                         <CardContent className="flex h-full flex-col">
-                            <FormDetailCard order={order} form={selForm} auth={auth} onChanged={() => { handleAppChanged(); load() }} />
+                            <FormCollectionCard
+                                order={order}
+                                auth={auth}
+                                reload={load}
+                                selectedId={selForm?.id || null}
+                                onSelectForm={setSelForm}
+                                bare
+                            />
+                        </CardContent>
+                    </Card>
+                    <Card className="lg:col-span-1">
+                        <CardHeader>
+                            <CardTitle>表单详情</CardTitle>
+                            <CardDescription>已分配表单的填写内容</CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex h-full flex-col">
+                            <FormDetailCard order={order} form={selForm} auth={auth} />
                         </CardContent>
                     </Card>
                 </div>

@@ -462,16 +462,6 @@ function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssig
     )
 }
 
-/** 表单 AI 校验结果的小圆点指示（来自持久化的 last_check）。 */
-function FormCheckDot({ form }: { form: FormAssignment }) {
-    const check = form.last_check
-    if (!check) return null
-    const errors = check.issues.filter((i) => i.level === "error").length
-    const warnings = check.issues.filter((i) => i.level === "warning").length
-    const cls = errors > 0 ? "bg-red-500" : warnings > 0 ? "bg-amber-500" : "bg-emerald-500"
-    return <span className={`inline-block size-1.5 shrink-0 rounded-full ${cls}`} title={check.summary} />
-}
-
 /** 麦客提交挑选弹窗：列出该客户在该表单下的全部提交，默认选「与订单时间最接近」的一份。 */
 function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, customerName, onAssigned }: {
     open: boolean
@@ -581,8 +571,8 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
 
 function FormCollectionSection({
     order, std, auth, reload,
-    selectedId, onSelectForm,
-}: PluginSectionProps & { std: StandardPluginData; selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void }) {
+    selectedId, onSelectForm, bare,
+}: PluginSectionProps & { std: StandardPluginData; selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const forms = std.forms || []
     const confirmed = std.confirmed
     const customers = confirmed?.customers || std.draft?.customers || []
@@ -702,7 +692,7 @@ function FormCollectionSection({
     return (
         <div className="space-y-3">
             <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">表单收集</span>
+                {!bare && <span className="text-sm font-medium">表单收集</span>}
                 <div className="flex overflow-hidden rounded-md border">
                     {PROVIDER_TABS.map((t) => (
                         <button
@@ -784,7 +774,6 @@ function FormCollectionSection({
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex min-w-0 items-center gap-1.5">
-                                        <FormCheckDot form={f} />
                                         <span className="truncate font-medium">{f.form_name}</span>
                                         <Badge variant="outline" className="shrink-0 px-1 text-[9px]">{isMike ? "麦客" : "简表"}</Badge>
                                     </div>
@@ -890,9 +879,10 @@ export function StandardDetailSection(props: PluginSectionProps) {
     )
 }
 
-/** 表单收集卡（独立导出，供详情页按行配对渲染）。 */
-export function FormCollectionCard(props: PluginSectionProps & { selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void }) {
+/** 表单收集卡（独立导出，供详情页按行配对渲染）。bare=true 时不自带 Card 外壳（由页面提供）。 */
+export function FormCollectionCard(props: PluginSectionProps & { selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const std: StandardPluginData = (props.order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
+    if (props.bare) return <FormCollectionSection {...props} std={std} />
     return (
         <Card>
             <CardHeader>

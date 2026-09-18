@@ -29,7 +29,6 @@ import {
 } from "../../../../../shared/modules/order/plugins/standard.manifest";
 import { extractDraft, detectRemarkUpdates, loadRecentMessages, hasIntentSignal } from "../../../intent/intent.service";
 import { getFormProvider, listAllForms, type FormDataItem } from "../../../../lib/form-providers";
-import { transcribeFormData, checkFormData } from "./form-ai";
 import { claimSubmission } from "../../../form/mike-ingest";
 import { ctripClient } from "../../../../lib/ctrip-client";
 import { saveToDisk, createFile as createFileRecord } from "../../../file/file.service";
@@ -729,7 +728,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 code: created.code || undefined,
                 completed_time: created.completed_time || undefined,
                 matched_name: created.matched_name,
-                last_check: null,
             };
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: [...forms, assignment] });
             // 麦客：本地提交收件箱中标记该 key 已被引用
@@ -840,62 +838,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const providerDef = getFormProvider(form.provider);
             const data: FormDataItem[] = await providerDef.fetchData({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
             return { data };
-        },
-
-        /** 表客表单转录：表单回填数据 → 申请单结构化字段提案（不落库，前端确认后走 apply-form-data）。
-         *  payload = { form_id } */
-        "transcribe-form-data": async (order: OrderEntity, payload: any) => {
-            if (!payload?.form_id) throw "form_id is required";
-            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const form = (std.forms || []).find((f) => f.id === payload.form_id);
-            if (!form) throw "form assignment not found";
-
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
-            const customerName = customers.find((c) => c.id === form.customer_id)?.name || "";
-            const providerDef = getFormProvider(form.provider);
-            const data = await providerDef.fetchData({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
-            if (data.length === 0) throw "表单暂无填写数据，无法转录";
-            const result = await transcribeFormData(data);
-            return result;
-        },
-
-        /** 应用转录提案：把 patch 写入申请单（服务端按白名单过滤字段）。payload = { application_id, patch } */
-        "apply-form-data": async (_order: OrderEntity, payload: any) => {
-            if (!payload?.application_id || !payload?.patch) throw "application_id and patch are required";
-            const applicationService = await import("../../../application/application.service");
-            const updated = await applicationService.update(String(payload.application_id), payload.patch);
-            if (!updated) throw "application not found";
-            return { application: updated };
-        },
-
-        /** AI 表单校验（完整性 + 自洽），结果持久化到分配记录。payload = { form_id, application_id? } */
-        "check-form-data": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
-            if (!payload?.form_id) throw "form_id is required";
-            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const forms = std.forms || [];
-            const form = forms.find((f) => f.id === payload.form_id);
-            if (!form) throw "form assignment not found";
-
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
-            const customerName = customers.find((c) => c.id === form.customer_id)?.name || "";
-            const providerDef = getFormProvider(form.provider);
-            const data = await providerDef.fetchData({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
-            if (data.length === 0) throw "表单暂无填写数据，无法校验";
-
-            // 交叉核对：申请单已登记的身份信息
-            let appSnapshot: { name?: string | null; passport_no?: string | null; passport_expiry?: string | null; dob?: string | null; visa_country?: string | null; visa_type?: string | null } | null = null;
-            if (payload.application_id) {
-                const applicationService = await import("../../../application/application.service");
-                const app = await applicationService.findOne(String(payload.application_id));
-                if (app) {
-                    appSnapshot = { name: app.name, passport_no: app.passport_no, passport_expiry: app.passport_expiry, dob: app.dob, visa_country: app.visa_country, visa_type: app.visa_type };
-                }
-            }
-
-            const check = await checkFormData(data, appSnapshot);
-            const updatedForms = forms.map((f) => (f.id === payload.form_id ? { ...f, last_check: check } : f));
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: updatedForms });
-            return { check };
         },
 
         /** 移除表单分配。payload = { form_id } */
@@ -1028,9 +970,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "update-form-status": { at: "form_collection" },
         "check-form-completion": { at: "form_collection" },
         "get-form-data": { at: "form_collection" },
-        "check-form-data": { at: "form_collection" },
-        "transcribe-form-data": { at: "form_collection" },
-        "apply-form-data": { at: "form_collection" },
         "remove-form": { at: "form_collection" },
         "search-mike-submissions": { at: "form_collection" },
         "link-mike-submission": { at: "form_collection" },

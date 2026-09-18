@@ -122,21 +122,6 @@ export const DEFAULT_FORM_TRANSCRIBE_PROMPT = `你是签证业务数据录入助
 表单数据：
 {fields_json}`;
 
-/** AI 表单校验 prompt（数据完整性 + 内容自洽）。 */
-export const DEFAULT_FORM_CHECK_PROMPT = `你是签证材料审核助手。给定一位申请人的表单回填数据（可能不完整），以及系统中已登记的申请人信息。
-请检查数据质量并输出问题清单，只输出 JSON，不要解释文字。
-
-检查维度：
-1. 内容自洽：字段之间是否矛盾（如姓名拼音与中文不符、性别称谓与姓名冲突、出生日期与年龄不合理、国家与签证类型不匹配等）
-2. 明显异常：护照号格式、日期不合理（未来出生、护照过期年月早于出行等）、必填项填了占位文字（"无"、"-"、"暂无"除外——这类归为缺失）
-
-输出 schema：
-{"summary":"一句话总评","issues":[{"level":"error|warning|info","field":"字段名","message":"问题描述"}]}
-- error：必须处理后才能递签（数据缺失/矛盾）
-- warning：建议核实
-- info：提示信息
-没有问题输出 {"summary":"数据完整自洽","issues":[]}`;
-
 /** AI 邮件摘要 prompt。 */
 export const DEFAULT_EMAIL_SUMMARIZE_PROMPT = `你是签证客服助理。请阅读一封客户邮件并输出 JSON（不要解释文字）：
 {"summary":"两句话以内的中文摘要","intent":"分类，取值：咨询|材料|进度|投诉|其他"}
@@ -220,7 +205,6 @@ const DEFAULTS: Record<string, any> = {
     remark_detect_prompt: DEFAULT_REMARK_DETECT_PROMPT,
     itinerary_prompt: DEFAULT_ITINERARY_PROMPT,
     form_transcribe_prompt: DEFAULT_FORM_TRANSCRIBE_PROMPT,
-    form_check_prompt: DEFAULT_FORM_CHECK_PROMPT,
     email_summarize_prompt: DEFAULT_EMAIL_SUMMARIZE_PROMPT,
     email_reply_prompt: DEFAULT_EMAIL_REPLY_PROMPT,
     business_start_hour: 8,
@@ -277,7 +261,6 @@ const ALLOWED_KEYS = new Set([
     "remark_detect_prompt",
     "itinerary_prompt",
     "form_transcribe_prompt",
-    "form_check_prompt",
     "email_summarize_prompt",
     "email_reply_prompt",
     "business_start_hour",
