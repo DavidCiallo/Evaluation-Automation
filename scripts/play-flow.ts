@@ -1,9 +1,14 @@
 /**
  * 业务流程冒烟测试：从建客户 → 建订单 → 确认信息 → 建申请单 → 上传材料 → 推进状态 → 完结。
  * 逐步调用真实 API，每步输出业务动作 + 数据结果。
+ *
+ * 运行前置：服务端已启动且 .env 中配置了 ADMIN_EMAIL / ADMIN_PASSWORD。
  */
-const BASE = "http://localhost:2900/api";
-const auth = "";
+import { config } from "dotenv";
+config();
+
+const BASE = `http://localhost:${process.env.SERVER_PORT || 2900}/api`;
+let auth = "";
 
 async function call(path: string, body: any) {
     const r = await fetch(BASE + path, {
@@ -15,6 +20,17 @@ async function call(path: string, body: any) {
     if (!j?.success) throw new Error(`[${path}] ${j?.message || JSON.stringify(j)}`);
     return j.data;
 }
+
+// 统一鉴权门禁生效后，所有业务接口要求有效 token：先登录取 token（登录本身公开）。
+const loginData: any = await call("/auth/login", {
+    identify: {
+        email: process.env.ADMIN_EMAIL || "",
+        password: process.env.ADMIN_PASSWORD || "",
+    },
+});
+auth = loginData?.token || "";
+if (!auth) throw new Error("登录失败：请确认服务端已启动且 .env 配置了 ADMIN_EMAIL / ADMIN_PASSWORD");
+console.log("登录成功，token 长度", auth.length);
 
 const step = (n: number, title: string) => console.log(`\n===== 步骤 ${n}：${title} =====`);
 

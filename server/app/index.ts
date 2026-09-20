@@ -32,8 +32,22 @@ import { startEmailLinkJob } from "../modules/email/email.service";
 import { isWxConfigured } from "../lib/wx";
 import { isWecomSeeded, seedFromWecomDb } from "../lib/seed-wecom";
 import { ensureIntegrationSettings, getIntegration } from "../lib/integration-settings";
+import { verifyToken } from "../lib/auth-guard";
 
-const PORT = parseInt(process.env.SERVER_PORT || process.env.PORT || "3300");
+/**
+ * multipart 上传不走 mounthttp（非 JSON 体），在此单独做与门禁一致的鉴权：
+ * token 来自请求头（Authorization Bearer / token / x-api-key）。
+ */
+function requireAuth(req: Request): string | null {
+    const token =
+        req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ||
+        req.headers.get("token") ||
+        req.headers.get("x-api-key") ||
+        "";
+    return verifyToken(token);
+}
+
+const PORT = parseInt(process.env.SERVER_PORT || process.env.PORT || "2900");
 await initialize();
 
 // 外围系统接入设置必须先于任何后台任务装载：任务启动时读取开关/间隔/地址
@@ -89,11 +103,23 @@ Bun.serve({
 
         // Upload material files (multipart/form-data) — 模块化：文件上传统一走 /api/file/upload
         if (pathName === "/api/file/upload" && req.method === "POST") {
+            if (!requireAuth(req)) {
+                return new Response(JSON.stringify({ success: false, message: "Authorization failed", data: null }), {
+                    status: 401,
+                    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+                });
+            }
             return fileMount.uploadMultipart(req);
         }
 
         // 兼容旧接口：订单材料上传也转交文件模块（迁移期保留）
         if (pathName === "/api/order/upload-material-file" && req.method === "POST") {
+            if (!requireAuth(req)) {
+                return new Response(JSON.stringify({ success: false, message: "Authorization failed", data: null }), {
+                    status: 401,
+                    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+                });
+            }
             return fileMount.uploadMultipart(req);
         }
 

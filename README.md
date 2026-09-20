@@ -19,7 +19,7 @@ cp .env.example .env
 bun run serve
 ```
 
-Server runs at http://localhost:3300.
+Server runs at http://localhost:2900（端口由 `SERVER_PORT` 决定，默认 2900，与 rsbuild 代理目标一致）。
 
 老数据（data/*.jsonl）在启动时自动迁移到 SQLite；也可手动执行 `bun run migrate`。
 

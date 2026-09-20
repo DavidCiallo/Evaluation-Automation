@@ -123,8 +123,10 @@ export const SqliteDriver: RepositoryDriver = {
         const since = config?.since;
         const limit = config?.limit;
         const offset = config?.offset || 0;
+        // where 非空时匹配在 JS 侧完成：SQL 的 LIMIT 会提前截掉尚未取到的匹配行，
+        // 导致「过滤后不足 limit 条」。此时只能取全量（仍受 since/delete_time 初筛）再在 JS 分页。
+        const hasFilter = Object.keys(where).length > 0;
 
-        // delete_time 物化列在 SQL 侧过滤；since 走 create_time 列
         let sql = `SELECT id, data, create_time, update_time, delete_time, rowid FROM "${name}" WHERE delete_time IS NULL`;
         const params: any[] = [];
         if (since !== undefined) {
@@ -132,17 +134,22 @@ export const SqliteDriver: RepositoryDriver = {
             params.push(since);
         }
         sql += ` ORDER BY rowid DESC`;
-        if (limit !== undefined) {
-            sql += ` LIMIT ?`;
-            params.push(offset + limit);
+
+        if (!hasFilter && limit !== undefined) {
+            // 无 JS 过滤时分页全部下推 SQL
+            sql += ` LIMIT ? OFFSET ?`;
+            params.push(limit, offset);
+            const rows = getDb().prepare(sql).all(...params) as Row[];
+            return rows.map(parseRow);
         }
 
         const rows = getDb().prepare(sql).all(...params) as Row[];
         const results: Record<string, any>[] = [];
         for (const r of rows) {
             const row = parseRow(r);
-            if (where && !matches(row, where)) continue;
+            if (!matches(row, where)) continue;
             results.push(row);
+            // 已取到 offset+limit 条即停，避免继续扫表
             if (limit !== undefined && results.length >= offset + limit) break;
         }
         if (offset > 0 || limit !== undefined) {
