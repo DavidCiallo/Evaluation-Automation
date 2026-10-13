@@ -70,3 +70,34 @@ export function buildContent(fields: Array<{ name: string; value: string }>): st
     }
     return lines.length ? lines.join("\n") : null;
 }
+
+/**
+ * 客户档案 → 确认单正文（没有表单提交时的兜底）。
+ * 字段比表单少，客户在签署页补填即可；有空白可核对，也好过签不出来。
+ */
+export function buildContentFromProfile(p: {
+    name?: string | null;
+    gender?: string | null;
+    dob?: string | null;
+    passport_no?: string | null;
+    passport_expiry?: string | null;
+    phone?: string | null;
+    email?: string | null;
+}): string | null {
+    const rows: Array<[string, string | null | undefined]> = [
+        ["中文姓名", p.name],
+        ["性别", p.gender],
+        ["出生日期", p.dob],
+        ["护照号码", p.passport_no],
+        ["护照有效期", p.passport_expiry],
+        ["手机", p.phone],
+        ["邮箱", p.email],
+    ];
+    const lines: string[] = [];
+    for (const [label, raw] of rows) {
+        const v = String(raw ?? "").trim().replace(/\r?\n/g, "，").replace(/\s{2,}/g, " ");
+        if (!v) continue;
+        lines.push(`${label}：${v}`);
+    }
+    return lines.length ? lines.join("\n") : null;
+}

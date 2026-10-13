@@ -15,7 +15,7 @@ import type {
 } from "../../../shared/modules/confirmation/confirmation.entity";
 import { CONFIRMATION_STATUS_LABEL } from "../../../shared/modules/confirmation/confirmation.entity";
 import { createContractSheet, isContractConfigured, internalSigners } from "../../lib/contract-client";
-import { buildContent } from "../form/content";
+import { buildContent, buildContentFromProfile } from "../form/content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest";
@@ -137,9 +137,9 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
     const failed: string[] = [];
     for (const c of targets) {
         const name = c.name || "";
-        const content = contentForCustomer(name, submissions);
+        const content = await contentForCustomer(name, c, submissions);
         if (!content) {
-            failed.push(`${name || "未命名"}（未找到表单提交）`);
+            failed.push(`${name || "未命名"}（无表单提交，档案也没资料）`);
             continue;
         }
 
@@ -179,13 +179,30 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
 }
 
 /**
- * 客户姓名 → 确认单正文。
- * 直接按提交人姓名匹配麦客提交；同一人多次提交取最近一次（列表已按时间倒序）。
+ * 客户 → 确认单正文。优先用该客户已提交的表单（字段最全），
+ * 没有提交时退回客户档案——否则还没填表的客户一张都签不出来。
  */
-function contentForCustomer(name: string, submissions: SubmissionEntity[]): string | null {
-    if (!name) return null;
-    const hit = submissions.find((s) => s.submitter_name === name);
-    return hit ? buildContent(hit.fields) : null;
+async function contentForCustomer(
+    name: string,
+    customer: OrderCustomerInfo,
+    submissions: SubmissionEntity[],
+): Promise<string | null> {
+    if (name) {
+        const hit = submissions.find((s) => s.submitter_name === name);
+        const fromForm = hit ? buildContent(hit.fields) : null;
+        if (fromForm) return fromForm;
+    }
+
+    let profile: CustomerEntity | null = null;
+    if (customer.customer_id) profile = await customerRepo.findOne({ id: customer.customer_id });
+    if (!profile && name) profile = await customerRepo.findOne({ name });
+    if (profile) {
+        const fromProfile = buildContentFromProfile(profile);
+        if (fromProfile) return fromProfile;
+    }
+
+    // 档案也没有时，至少把姓名写进正文，客户仍可在签署页补全其余资料
+    return name ? `中文姓名：${name}` : null;
 }
 
 export async function revoke(id: string, reason: string, by: string): Promise<ConfirmationDTO> {
