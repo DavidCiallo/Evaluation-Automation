@@ -53,8 +53,8 @@ export interface ConfirmationEntity {
     /** 客户姓名快照，便于列表展示不 join 订单 */
     customer_name: string;
     /**
-     * 客户回签令牌。**无鉴权入口的唯一凭证**，故单独建索引；
-     * 用 nanoid(12) 保证不可猜（与业务 id 同一级别但更短，便于放进 URL）。
+     * 客户回签令牌 = 确认单服务上的单据 id。**无鉴权入口的唯一凭证**，故单独建索引。
+     * 由外部服务生成（本系统不再自造），因此不保证长度与字符集。
      */
     token: string;
     status: ConfirmationStatus;
@@ -65,6 +65,12 @@ export interface ConfirmationEntity {
     signed_time: number | null;
     /** 外部签名服务的记录 id，便于出问题时对账 */
     external_ref: string | null;
+    /**
+     * 客户签署链接，由确认单服务在签发时返回。
+     * 存下来而不是每次拼：链接的对外域名由服务端决定（CLIENT_URL），
+     * 本系统再拼一次就可能与服务端不一致。
+     */
+    sign_url: string | null;
     /** 撤销信息 */
     revoked_time: number | null;
     revoked_by: string | null;

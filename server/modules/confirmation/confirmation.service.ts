@@ -7,7 +7,6 @@
  * 鉴权边界：list/issue/revoke 是客服侧接口（走统一门禁）；
  * fetch/submit 是客户侧接口，凭 token 访问，已在 mount.ts 放行。
  */
-import { nanoid } from "nanoid";
 import Repository from "../../lib/repository";
 import type {
     ConfirmationEntity,
@@ -15,6 +14,9 @@ import type {
     ConfirmationSnapshot,
 } from "../../../shared/modules/confirmation/confirmation.entity";
 import { CONFIRMATION_STATUS_LABEL, buildSignUrl } from "../../../shared/modules/confirmation/confirmation.entity";
+import { createContractSheet, isContractConfigured, internalSigners } from "../../lib/contract-client";
+import { buildContent } from "../form/content";
+import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest";
 import type { StandardPluginData, OrderCustomerInfo } from "../../../shared/modules/order/plugins/standard.manifest";
@@ -23,9 +25,10 @@ import type { CustomerEntity } from "../../../shared/modules/customer/customer.e
 const repo: Repository<ConfirmationEntity> = Repository.instance("Confirmation");
 const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
+const submissionRepo: Repository<SubmissionEntity> = Repository.instance("Submission");
 
-/** token 长度：够短能放进 URL，够长不可猜（12 位 nanoid ≈ 71 bit）。 */
-const TOKEN_LEN = 12;
+/** 确认单有效期（天）。与麦客建单保持同一口径。 */
+const DEADLINE_DAYS = 7;
 
 function toDTO(e: ConfirmationEntity, withUrl = true): ConfirmationDTO {
     return {
@@ -41,7 +44,7 @@ function toDTO(e: ConfirmationEntity, withUrl = true): ConfirmationDTO {
         external_ref: e.external_ref ?? null,
         revoked_time: e.revoked_time ?? null,
         revoked_reason: e.revoked_reason ?? null,
-        sign_url: withUrl ? buildSignUrl(e.token) : null,
+        sign_url: withUrl ? (e.sign_url || buildSignUrl(e.token)) : null,
         version: e.version,
         create_time: e.create_time,
         update_time: e.update_time,
@@ -102,6 +105,9 @@ export async function areAllSigned(orderId: string): Promise<{ met: boolean; det
 /**
  * 签发确认单。幂等：已有 pending/signed 记录的客户不重复签发，
  * 只有 revoked 或缺单的客户才会新建——避免客服多点一次就多出一堆链接。
+ *
+ * 单据建在确认单服务上，本地只存它返回的 id 与链接：客户签署页由服务端渲染，
+ * 本系统自造 token 的话客户点开只会看到「确认单不存在」。
  */
 export async function issueForOrder(orderId: string, customerIds?: string[]): Promise<{ list: ConfirmationDTO[]; created: number }> {
     const order = await orderRepo.findOne({ id: orderId });
@@ -118,19 +124,47 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
         if (customerIds && !customerIds.includes(c.id)) return false;
         return !activeByCustomer.has(c.id);
     });
+    if (targets.length === 0) return { list: await listByOrder(orderId), created: 0 };
+
+    if (!isContractConfigured()) {
+        throw "确认单服务未配置（API Key），请在「系统配置 → 外围系统接入」中补全";
+    }
+
+    const deadline = Date.now() + DEADLINE_DAYS * 86400000;
+    const submissions = await submissionRepo.find({}, { limit: 500 });
 
     let created = 0;
+    const failed: string[] = [];
     for (const c of targets) {
+        const name = c.name || "";
+        const content = contentForCustomer(name, submissions);
+        if (!content) {
+            failed.push(`${name || "未命名"}（未找到表单提交）`);
+            continue;
+        }
+
+        const sheet = await createContractSheet({
+            title: `${order.order_name || "订单"} - ${name || "未命名"} 信息确认`,
+            content,
+            deadline,
+            external_names: [name || "申请人"],
+            internal_ids: internalSigners(),
+            external_min: 1,
+            // 内部签署人只是留痕，不要求每个客服都签，否则单子永远签不完
+            internal_min: 0,
+        });
+
         await repo.insert({
             order_id: orderId,
             customer_id: c.id,
-            customer_name: c.name || "",
-            token: nanoid(TOKEN_LEN),
+            customer_name: name,
+            token: sheet.id,
             status: "pending",
             snapshot: await buildSnapshot(c),
             signed_snapshot: null,
             signed_time: null,
-            external_ref: null,
+            external_ref: sheet.id,
+            sign_url: sheet.url,
             revoked_time: null,
             revoked_by: null,
             revoked_reason: null,
@@ -139,7 +173,19 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
         created++;
     }
 
+    if (created === 0 && failed.length > 0) throw `未能签发：${failed.join("、")}`;
+
     return { list: await listByOrder(orderId), created };
+}
+
+/**
+ * 客户姓名 → 确认单正文。
+ * 直接按提交人姓名匹配麦客提交；同一人多次提交取最近一次（列表已按时间倒序）。
+ */
+function contentForCustomer(name: string, submissions: SubmissionEntity[]): string | null {
+    if (!name) return null;
+    const hit = submissions.find((s) => s.submitter_name === name);
+    return hit ? buildContent(hit.fields) : null;
 }
 
 export async function revoke(id: string, reason: string, by: string): Promise<ConfirmationDTO> {
