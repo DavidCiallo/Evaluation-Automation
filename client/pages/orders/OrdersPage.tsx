@@ -15,25 +15,34 @@ import { Skeleton } from "@/client/components/ui/skeleton"
 import { orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
-import { ORDER_STATUS_FLOW, ORDER_STATUS_LABEL } from "../../../shared/modules/order/order.entity"
+import { OrderStageBar, fmtDuration, fmtStamp, timeScaleMsPerPercent } from "./StageBar"
 import { ensureClientPluginsRegistered } from "./plugins/index"
 import { getEnabledClientOrderPlugins } from "./plugin-registry"
 
 ensureClientPluginsRegistered()
 
+/**
+ * 只有「是否已取消」值得筛。原来的草稿/信息收集/材料制作/… 一排页签全删了：
+ * 那套粗粒度状态由申请单推导，而申请单要到「注册填表」才产生，
+ * 所以订单一律显示为草稿，页签既筛不出东西也不反映真实进度 —— 进度看阶段。
+ */
 const STATUS_TABS: Array<{ key: string; label: string }> = [
     { key: "all", label: "全部" },
-    ...ORDER_STATUS_FLOW.map((s) => ({ key: s, label: ORDER_STATUS_LABEL[s] })),
+    { key: "active", label: "在办" },
+    { key: "cancelled", label: "已取消" },
 ]
 
-const STATUS_COLOR: Record<string, any> = {
-    draft: "secondary",
-    confirmed: "default",
-    info_collection: "default",
-    material_preparation: "default",
-    process_handling: "default",
-    completed: "outline",
-    cancelled: "outline",
+type ViewMode = "card" | "stage" | "time"
+
+const VIEW_TABS: Array<{ key: ViewMode; label: string; hint: string }> = [
+    { key: "card", label: "卡片", hint: "每单一卡片，看单子本身" },
+    { key: "stage", label: "阶段", hint: "每单一一行，横向对比各单进度与卡点" },
+    { key: "time", label: "时间", hint: "每单一一行，看各阶段花了多久（最慢的一步铺满）" },
+]
+
+/** 订单当前聚焦的阶段名（第一个 ready）；没有 ready 时返回 null，由调用方决定怎么说。 */
+function stageLabelOf(o: OrderDTO): string | null {
+    return (o.stages || []).find((s) => s.state === "ready")?.label || null
 }
 
 /** 申请单个人状态 → 小徽章可见样式（绿=出签、红=拒签/取消、黄=取回、灰=进行中）。 */
@@ -52,15 +61,18 @@ export function OrdersPage() {
     const [orders, setOrders] = useState<OrderDTO[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
+    const [view, setView] = useState<ViewMode>("card")
+    // 卡片视图不需要阶段数据（服务端算阶段要按单查材料），只有阶段/时间视图才要
+    const needsStages = view !== "card"
 
     const load = async () => {
         setLoading(true)
         try {
-            const res: any = await orderApi.list({ page, status, customer, auth })
+            const res: any = await orderApi.list({ page, status, customer, with_stages: needsStages, auth })
             setOrders((res?.data?.list as OrderDTO[]) || [])
             setTotal(res?.data?.total || 0)
         } catch (e: any) {
-            toast.error(`加载失败: ${e?.message || ""}`)
+            toast.error(`鍔犺浇澶辫触: ${e?.message || ""}`)
         } finally {
             setLoading(false)
         }
@@ -69,12 +81,16 @@ export function OrdersPage() {
     useEffect(() => {
         load()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page, status])
+    }, [page, status, view])
 
     const totalPages = useMemo(() => Math.max(1, Math.ceil(total / 20)), [total])
     const clientPlugins = useMemo(() => getEnabledClientOrderPlugins(), [])
+    // 标尺按整页订单统一算，不是每行各自归一化——否则同一段时间在不同行里长度不同，没法横向比
+    const timeScale = useMemo(() => timeScaleMsPerPercent(orders), [orders])
 
     return (
+        // 原本用 -mx 负外边距给阶段条多挤点宽度，但那会让卡片比外层还宽、
+        // 顶着页面边缘，看着像把外壳挤变形了。宽度就交给外层留白，不动它。
         <div className="space-y-6">
             <Card>
                 <CardHeader>
@@ -108,6 +124,21 @@ export function OrdersPage() {
                         <Button variant="secondary" size="sm" onClick={() => { setPage(1); load() }}>
                             查询
                         </Button>
+                        {/* 视图切换：卡片=看单子本身；阶段=横向对比每单卡在哪；
+                            时间=看每单各步花了多久 */}
+                        <div className="flex overflow-hidden rounded-md border">
+                            {VIEW_TABS.map((v) => (
+                                <button
+                                    key={v.key}
+                                    type="button"
+                                    title={v.hint}
+                                    className={`px-2.5 py-1 text-xs transition ${view === v.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                                    onClick={() => setView(v.key as ViewMode)}
+                                >
+                                    {v.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </CardHeader>
                 <CardContent>
@@ -125,7 +156,67 @@ export function OrdersPage() {
                         </p>
                     )}
 
-                    {!loading && orders.length > 0 && (
+                    {!loading && orders.length > 0 && view === "stage" && (
+                        <div className="space-y-2.5">
+                            {orders.map((o) => (
+                                <Link
+                                    key={o.id}
+                                    to={`/orders/${o.id}`}
+                                    className="hover:border-primary/40 block rounded-md border px-3 py-3.5 transition hover:bg-muted/30"
+                                >
+                                    <div className="mb-3 flex items-center gap-2">
+                                        <span className="truncate text-base font-medium">
+                                            {o.order_name || o.customer_name || "未命名订单"}
+                                        </span>
+                                        {o.stages_done && (
+                                            <Badge variant="outline" className="shrink-0 px-1 text-[10px]">
+                                                已完结
+                                            </Badge>
+                                        )}
+                                        <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+                                            {fmtStamp(o.create_time)}
+                                            {!o.stages_done &&
+                                                (stageLabelOf(o)
+                                                    ? ` · 进行到「${stageLabelOf(o)}」`
+                                                    : " · 尚未开始")}
+                                        </span>
+                                    </div>
+                                    <OrderStageBar stages={o.stages} current={o.current_stage} compact />
+                                </Link>
+                            ))}
+                        </div>
+                    )}
+
+                    {!loading && orders.length > 0 && view === "time" && (
+                        <div className="space-y-2.5">
+                            {orders.map((o) => (
+                                <Link
+                                    key={o.id}
+                                    to={`/orders/${o.id}`}
+                                    className="hover:border-primary/40 block rounded-md border px-3 py-3.5 transition hover:bg-muted/30"
+                                >
+                                    <div className="mb-3 flex items-center gap-2">
+                                        <span className="truncate text-base font-medium">
+                                            {o.order_name || o.customer_name || "未命名订单"}
+                                        </span>
+                                        <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+                                            {fmtStamp(o.create_time)} · 整单{" "}
+                                            {fmtDuration(o.duration_ms || 0)}
+                                        </span>
+                                    </div>
+                                    <OrderStageBar
+                                        stages={o.stages || []}
+                                        current={o.current_stage}
+                                        compact
+                                        showTime
+                                        timeScale={timeScale}
+                                    />
+                                </Link>
+                            ))}
+                        </div>
+                    )}
+
+                    {!loading && orders.length > 0 && view === "card" && (
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                             {orders.map((o) => (
                                 <Link key={o.id} to={`/orders/${o.id}`}>
@@ -137,12 +228,13 @@ export function OrdersPage() {
                                                         {o.order_name || o.customer_remark || o.customer_name || "未命名订单"}
                                                     </div>
                                                     <div className="text-muted-foreground text-xs">
-                                                        #{o.id.slice(0, 8)}
+                                                        #{o.id.slice(0, 8)} · {fmtStamp(o.create_time)}
                                                     </div>
                                                 </div>
-                                                <Badge variant={STATUS_COLOR[o.status] || "outline"}>
-                                                    {o.status_label}
-                                                </Badge>
+                                                {o.visa_type_label && <Badge variant="outline">{o.visa_type_label}</Badge>}
+                                                {/* 进度看阶段条，这里只标「已取消」——在办就不用徽章了，
+                                                    否则每张卡都挂一个没有信息量的「进行中」。 */}
+                                                {o.cancelled_at ? <Badge variant="destructive">已取消</Badge> : null}
                                             </div>
                                         </CardHeader>
                                         <CardContent className="space-y-2">
@@ -202,3 +294,4 @@ export function OrdersPage() {
         </div>
     )
 }
+

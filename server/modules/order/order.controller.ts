@@ -2,10 +2,12 @@ import { orderRoutes } from "../../../shared/modules/order/order.router";
 import {
     OrderListRequest,
     OrderDetailRequest,
-    OrderTransitionRequest,
+    OrderCancelRequest,
+    OrderReopenRequest,
     OrderPluginActionRequest,
     OrderUpdateCustomerRemarkRequest,
     OrderRemarkRequest,
+    OrderSetVisaTypeRequest,
     OrderCreateFromChatRequest,
     OrderCreateRequest,
     OrderRelatedChatsRequest,
@@ -24,7 +26,7 @@ async function list(request: OrderListRequest) {
         start: req.start,
         end: req.end,
     });
-    return { list: await svc.toDTOs(list), total };
+    return { list: await svc.toDTOs(list, !!req.with_stages), total };
 }
 
 async function detail(request: OrderDetailRequest) {
@@ -34,17 +36,9 @@ async function detail(request: OrderDetailRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-async function transition(request: OrderTransitionRequest) {
-    const req = OrderTransitionRequest.self(request);
-    const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
-    const order = await svc.transition(req.id, req.status, req.note, by);
-    if (!order) throw "transition failed";
-    return { order: await svc.toDTO(order) };
-}
-
 /** 取消整单（需填原因）。 */
-async function cancel(request: OrderTransitionRequest) {
-    const req = OrderTransitionRequest.self(request);
+async function cancel(request: OrderCancelRequest) {
+    const req = OrderCancelRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
     const order = await svc.cancelOrder(req.id, req.note, by);
     if (!order) throw "cancel failed";
@@ -52,8 +46,8 @@ async function cancel(request: OrderTransitionRequest) {
 }
 
 /** 恢复被取消的订单。 */
-async function reopen(request: OrderTransitionRequest) {
-    const req = OrderTransitionRequest.self(request);
+async function reopen(request: OrderReopenRequest) {
+    const req = OrderReopenRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
     const order = await svc.reopenOrder(req.id, req.note, by);
     if (!order) throw "reopen failed";
@@ -76,6 +70,13 @@ async function updateCustomerRemark(request: OrderUpdateCustomerRemarkRequest) {
 async function remark(request: OrderRemarkRequest) {
     const req = OrderRemarkRequest.self(request);
     const order = await svc.appendRemark(req.id, req.content, "manual");
+    if (!order) throw "order not found";
+    return { order: await svc.toDTO(order) };
+}
+
+async function setVisaType(request: OrderSetVisaTypeRequest) {
+    const req = OrderSetVisaTypeRequest.self(request);
+    const order = await svc.setOrderVisaType(req.id, req.visa_type);
     if (!order) throw "order not found";
     return { order: await svc.toDTO(order) };
 }
@@ -111,6 +112,6 @@ async function typeformForms() {
 
 export const orderMount = {
     routes: orderRoutes,
-        handlers: { list, detail, transition, cancel, reopen, pluginAction, updateCustomerRemark, remark, createFromChat, create, relatedChats, typeformForms },
+        handlers: { list, detail, cancel, reopen, pluginAction, updateCustomerRemark, remark, setVisaType, createFromChat, create, relatedChats, typeformForms },
 
 };

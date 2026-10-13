@@ -1,7 +1,6 @@
 import {
     OrderListResponse,
     OrderDetailResponse,
-    OrderTransitionResponse,
     OrderPluginActionResponse,
     OrderUpdateCustomerRemarkResponse,
     OrderRemarkResponse,
@@ -22,6 +21,8 @@ export const orderRoutes = {
             customer?: string;
             start?: number;
             end?: number;
+            /** 附带阶段视图（订单管理的阶段/时间视图用；卡片视图不传以省掉按单材料查询） */
+            with_stages?: boolean;
             auth?: string;
         },
         response: {} as OrderListResponse,
@@ -31,22 +32,17 @@ export const orderRoutes = {
         request: {} as { id: string; auth?: string },
         response: {} as OrderDetailResponse,
     },
-    transition: {
-        path: "/transition",
-        request: {} as { id: string; status: string; note?: string; auth?: string },
-        response: {} as OrderTransitionResponse,
-    },
     /** 取消整单（需填原因，可通过 reopen 恢复） */
     cancel: {
         path: "/cancel",
-        request: {} as { id: string; status: "cancelled"; note: string; auth?: string },
-        response: {} as OrderTransitionResponse,
+        request: {} as { id: string; note: string; auth?: string },
+        response: {} as OrderDetailResponse,
     },
     /** 恢复被取消的订单 */
     reopen: {
         path: "/reopen",
-        request: {} as { id: string; status: "draft"; note?: string; auth?: string },
-        response: {} as OrderTransitionResponse,
+        request: {} as { id: string; note?: string; auth?: string },
+        response: {} as OrderDetailResponse,
     },
     /** 触发插件动作：{ id, plugin_id, action, payload } */
     pluginAction: {
@@ -65,6 +61,12 @@ export const orderRoutes = {
         path: "/remark",
         request: {} as { id: string; content: string; auth?: string },
         response: {} as OrderRemarkResponse,
+    },
+    /** 设置订单级签证类型标记（VISA_TYPES.value；空串清除） */
+    setVisaType: {
+        path: "/set-visa-type",
+        request: {} as { id: string; visa_type: string; auth?: string },
+        response: {} as OrderUpdateCustomerRemarkResponse,
     },
     /** 手动从会话创建订单（支持私聊/群聊） */
     createFromChat: {

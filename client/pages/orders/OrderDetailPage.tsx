@@ -25,9 +25,12 @@ import { ApplicationSection } from "./ApplicationSection"
 import { ApplicationDetailCard } from "./ApplicationDetailCard"
 import { FormDetailCard } from "./FormDetailCard"
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest"
+import { VISA_TYPES } from "../../../shared/modules/order/visa"
 import { OrderInfoCard, FormCollectionCard, ItineraryCard } from "./plugins/standard/DetailSection"
 import { OrderStageBar } from "./StageBar"
 import { SendMaterialsDialog } from "./SendMaterialsDialog"
+import { ConfirmationCard } from "./ConfirmationCard"
+import { AccountPoolCard } from "./AccountPoolCard"
 
 ensureClientPluginsRegistered()
 
@@ -147,8 +150,34 @@ export function OrderDetailPage() {
                         #{order.id.slice(0, 8)} · v{order.version}
                     </p>
                 </div>
-                <Badge variant={order.status === "cancelled" ? "destructive" : "default"}>{order.status_label}</Badge>
-                {order.status === "cancelled" ? (
+                {/* 取消是订单唯一的粗粒度标志：进度看阶段卡片，这里只区分在办/已取消 */}
+                {order.cancelled_at ? <Badge variant="destructive">已取消</Badge> : null}
+                {/* 签证类型是整单标记，用于辨认这单办哪个国家 */}
+                <select
+                    className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+                    value={order.visa_type || ""}
+                    disabled={busy}
+                    onChange={async (e) => {
+                        setBusy(true)
+                        try {
+                            await orderApi.setVisaType({ id: order.id, visa_type: e.target.value, auth })
+                            toast.success("签证类型已更新")
+                            await load()
+                        } catch (err: any) {
+                            toast.error(err?.message || "更新失败")
+                        } finally {
+                            setBusy(false)
+                        }
+                    }}
+                >
+                    <option value="">未标记签证类型</option>
+                    {VISA_TYPES.map((v) => (
+                        <option key={v.value} value={v.value}>
+                            {v.label}
+                        </option>
+                    ))}
+                </select>
+                {order.cancelled_at ? (
                     <Button
                         variant="outline"
                         size="sm"
@@ -158,7 +187,7 @@ export function OrderDetailPage() {
                             if (reason === null) return
                             setBusy(true)
                             try {
-                                await orderApi.reopen({ id: order.id, status: "draft", note: reason, auth })
+                                await orderApi.reopen({ id: order.id, note: reason, auth })
                                 toast.success("订单已恢复")
                                 load()
                             } catch (e: any) {
@@ -185,7 +214,7 @@ export function OrderDetailPage() {
                             }
                             setBusy(true)
                             try {
-                                await orderApi.cancel({ id: order.id, status: "cancelled", note: reason.trim(), auth })
+                                await orderApi.cancel({ id: order.id, note: reason.trim(), auth })
                                 toast.success("订单已取消")
                                 load()
                             } catch (e: any) {
@@ -199,15 +228,6 @@ export function OrderDetailPage() {
                     </Button>
                 )}
             </div>
-
-            {/* 阶段条：实时显示各阶段就绪状态与缺口（推进靠业务动作，不可手工改状态） */}
-            {(order.stages || []).length > 0 && (
-                <Card>
-                    <CardContent className="pt-6">
-                        <OrderStageBar stages={order.stages} current={order.current_stage ?? null} />
-                    </CardContent>
-                </Card>
-            )}
 
             {/* 订单信息 + 订单阶段（最上方） */}
             <OrderInfoCard order={order} auth={auth} reload={load} />
@@ -266,6 +286,16 @@ export function OrderDetailPage() {
                         </CardContent>
                     </Card>
                 </div>
+
+                {/* 行2.5：信息确认（表单回收后、行程安排前） */}
+                <ConfirmationCard orderId={order.id} />
+
+                {/* 行2.6：办签账号（信息确认后、注册填表前） */}
+                <AccountPoolCard
+                    orderId={order.id}
+                    applications={(order.applicants_detail || []).map((a) => ({ id: a.id, name: a.name }))}
+                    reload={load}
+                />
 
                 {/* 行3：行程单（宽）↔ 核心信息 */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-3">

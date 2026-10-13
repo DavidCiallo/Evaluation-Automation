@@ -219,20 +219,7 @@ export async function create(payload: {
         return { applicant_ids: ids };
     });
 
-    // 订单状态聚合刷新（订单状态 = 申请单实况推导）
-    await refreshParentOrder(payload.order_id);
-
     return toDTO(entity);
-}
-
-/** 让父订单状态跟随申请单实况（动态 import 避免循环依赖）。 */
-async function refreshParentOrder(orderId: string): Promise<void> {
-    try {
-        const { refreshOrderStatus } = await import("../order/order.service");
-        await refreshOrderStatus(orderId);
-    } catch (e) {
-        console.error("[application] refresh parent order failed:", e);
-    }
 }
 
 // ---------- 更新（状态走 transition，其余字段走 update） ----------
@@ -251,7 +238,6 @@ export async function update(id: string, patch: Record<string, any>): Promise<Ap
     });
 
     const updated = await appRepo.findOne({ id });
-    if (updated) await refreshParentOrder(updated.order_id);
     return updated ? toDTO(updated) : null;
 }
 
@@ -280,7 +266,6 @@ export async function transition(id: string, target: ApplicationStatus, note: st
     });
 
     const updated = await appRepo.findOne({ id });
-    if (updated) await refreshParentOrder(updated.order_id);
     return updated ? toDTO(updated) : null;
 }
 
@@ -297,6 +282,5 @@ export async function remove(id: string): Promise<boolean> {
     });
     // 申请单软删后，其材料行一并软删（保留物理数据可追溯）
     await matSvc.removeByApplication(id).catch((e) => console.error("[application] remove materials failed:", e));
-    await refreshParentOrder(cur.order_id);
     return true;
 }

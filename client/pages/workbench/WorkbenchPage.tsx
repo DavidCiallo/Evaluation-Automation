@@ -19,7 +19,6 @@ import {
     STANDARD_PLUGIN_ID,
     type StandardPluginData,
 } from "../../../shared/modules/order/plugins/standard.manifest"
-import { ORDER_STATUS_LABEL, type OrderStatus } from "../../../shared/modules/order/order.entity"
 
 type Chat = {
     id: string
@@ -59,8 +58,7 @@ type Order = {
     chat_id: string
     customer_name: string
     customer_remark: string
-    status: OrderStatus
-    status_label: string
+    cancelled_at: number | null
     agent_names: string[]
     data: Record<string, any>
     version: number
@@ -459,9 +457,9 @@ export function WorkbenchPage() {
                             <div className="flex items-center gap-2 text-sm font-medium">
                                 <Sparkles className="text-primary size-4" /> 订单与助手
                             </div>
-                            {activeOrder && (
-                                <Badge variant="outline">{activeOrder.status_label}</Badge>
-                            )}
+                            {activeOrder?.cancelled_at ? (
+                                <Badge variant="destructive">已取消</Badge>
+                            ) : null}
                         </div>
 
                         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
