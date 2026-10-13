@@ -9,7 +9,7 @@ import {
     createContractSheet,
     isContractConfigured,
     listContractTitles,
-    INTERNAL_SIGNERS,
+    internalSigners,
 } from "../../lib/contract-client";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
 
@@ -120,7 +120,7 @@ export interface SyncResult {
  */
 export async function syncSubmissionsToContracts(maxAgeMinutes: number | null = MAX_AGE_MINUTES): Promise<SyncResult> {
     if (!isContractConfigured()) {
-        throw new Error("确认单服务未配置（CONTRACT_API_KEY），请在 .env 中补全");
+        throw new Error("确认单服务未配置（API Key），请在「系统配置 → 外围系统接入」中补全");
     }
 
     const all = await submissionRepo.find({}, { limit: 500 });
@@ -156,7 +156,7 @@ export async function syncSubmissionsToContracts(maxAgeMinutes: number | null = 
                 content,
                 deadline,
                 external_names: [s.submitter_name || "申请人"],
-                internal_ids: INTERNAL_SIGNERS,
+                internal_ids: internalSigners(),
                 external_min: 1,
                 // 内部签署人只是留痕，不要求每个客服都签，否则单子永远签不完
                 internal_min: 0,

@@ -30,6 +30,7 @@ type Draft = {
     account: string
     secret: string
     interval_sec: string
+    signers: string
 }
 
 type SdkDraft = {
@@ -46,6 +47,7 @@ function toDraft(p: IntegrationProviderView): Draft {
         account: p.account,
         secret: "",
         interval_sec: p.interval_ms != null ? String(Math.round(p.interval_ms / 1000)) : "",
+        signers: p.signers ?? "",
     }
 }
 
@@ -99,6 +101,7 @@ export function IntegrationSettingsCard() {
             // 空串表示保持已存的密钥不变，避免误清空
             if (d.secret !== "") patch.secret = d.secret
             if (d.interval_sec !== "") patch.interval_ms = Math.round(Number(d.interval_sec) * 1000)
+            if (p.signers_label) patch.signers = d.signers
             const res: any = await integrationApi.update({ id: p.id, patch, auth })
             if (res?.data) applyView(res.data)
             toast.success(`${p.label} 已保存`)
@@ -163,7 +166,7 @@ export function IntegrationSettingsCard() {
             <Card>
                 <CardHeader>
                     <CardTitle>外围系统接入</CardTitle>
-                    <CardDescription>配置四个外围系统与会话源的入口</CardDescription>
+                    <CardDescription>配置各外围系统与会话源的入口</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Skeleton className="h-32 w-full" />
@@ -177,7 +180,7 @@ export function IntegrationSettingsCard() {
             <CardHeader>
                 <CardTitle>外围系统接入</CardTitle>
                 <CardDescription>
-                    四个外围系统（简表 / 麦客 / ctrip / NW 邮箱）与会话源的入口地址、账号、口令都在这里维护。
+                    外围系统（简表 / 麦客 / ctrip / NW 邮箱 / 确认单）与会话源的入口地址、账号、口令都在这里维护。
                     设置写入本机数据库（data/app.db，不入仓库）；留空项回落到 .env 环境变量。
                 </CardDescription>
             </CardHeader>
@@ -283,6 +286,19 @@ function ProviderRow({
                             placeholder={provider.has_secret ? "••••••（留空不修改）" : ""}
                             onChange={(e) => onChange({ secret: e.target.value })}
                             className="h-8 text-xs"
+                        />
+                    </Field>
+                )}
+                {provider.signers_label && (
+                    <Field
+                        label={provider.signers_label}
+                        hint="逗号分隔的内部成员 id，留空用内置默认值"
+                    >
+                        <Input
+                            value={draft.signers}
+                            placeholder="xiaolv, xiaoning"
+                            onChange={(e) => onChange({ signers: e.target.value })}
+                            className="h-8 font-mono text-xs"
                         />
                     </Field>
                 )}

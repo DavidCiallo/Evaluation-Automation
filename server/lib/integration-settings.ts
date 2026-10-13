@@ -38,6 +38,7 @@ const DEFAULT_BASE: Record<IntegrationProviderId, string> = {
     mike: "https://mike.noworrytourism.cn",
     ctrip: "https://ctrip.noworrytourism.cn",
     email: "https://email.noworrytourism.cn",
+    contract: "https://contract.noworrytourism.cn",
     qixioma: "https://chat.noworrytourism.cn",
 };
 
@@ -50,6 +51,8 @@ interface StoredEntry {
     account?: string;
     secret?: string;
     interval_ms?: number;
+    /** 字符串数组类的附加项（如确认单的内部签署人名单） */
+    signers?: string;
 }
 
 /** 会话源库内设置。 */
@@ -84,6 +87,8 @@ const META: Record<IntegrationProviderId, {
     accountLabel: string | null;
     secretLabel: string | null;
     defaultIntervalMs: number | null;
+    /** 该提供方是否有「内部签署人」这类自定义字段；null 表示前端不渲染 */
+    signersLabel?: string | null;
 }> = {
     survey: {
         label: "简表 survey",
@@ -112,6 +117,14 @@ const META: Record<IntegrationProviderId, {
         accountLabel: "登录邮箱",
         secretLabel: "登录密码",
         defaultIntervalMs: 15 * 60 * 1000,
+    },
+    contract: {
+        label: "确认单 contract",
+        hint: "把客户信息整理成带签署链接的确认单，客户回签后据以解锁下一步；建单前按标题去重",
+        accountLabel: null,
+        secretLabel: "API Key",
+        defaultIntervalMs: null,
+        signersLabel: "内部签署人",
     },
     qixioma: {
         label: "企小码会话源",
@@ -157,6 +170,12 @@ function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { 
                 enabled: process.env.EMAIL_LINK === "off" ? false : true,
                 interval_ms: num(process.env.EMAIL_LINK_INTERVAL_MS),
             };
+        case "contract":
+            return {
+                base_url: process.env.CONTRACT_BASE_URL || DEFAULT_BASE.contract,
+                secret: process.env.CONTRACT_API_KEY || "",
+                signers: process.env.CONTRACT_INTERNAL_SIGNERS || "",
+            };
         case "qixioma":
             // 轮询间隔不在提供方上配置：企小码作为消息源时使用「会话源」的间隔
             return { base_url: process.env.QIXIOMA_BASE_URL || DEFAULT_BASE.qixioma };
@@ -179,6 +198,8 @@ export interface ResolvedProvider {
     secret: string;
     secretSource: SecretSource;
     intervalMs: number | null;
+    /** 已解析的附加名单（逗号分隔原样保存，由调用方按需切分） */
+    signers: string;
 }
 
 /** 已解析的会话源设置。 */
@@ -207,6 +228,7 @@ function resolveProvider(id: IntegrationProviderId): ResolvedProvider {
         secret,
         secretSource: source,
         intervalMs: db.interval_ms ?? env.interval_ms ?? META[id].defaultIntervalMs,
+        signers: db.signers ?? env.signers ?? "",
     };
 }
 
@@ -306,6 +328,10 @@ export async function saveIntegration(id: IntegrationTargetId, patch: Record<str
     if (patch.account !== undefined) entry.account = String(patch.account).trim();
     if (patch.secret !== undefined && String(patch.secret) !== "") entry.secret = String(patch.secret);
     if (patch.interval_ms !== undefined) entry.interval_ms = sanitizeInterval(patch.interval_ms);
+    if (patch.signers !== undefined) {
+        if (!META[id as IntegrationProviderId]?.signersLabel) throw `设置项 ${id} 不支持签署人名单`;
+        entry.signers = String(patch.signers ?? "").trim();
+    }
 
     if (id === "sdk") {
         if (patch.host !== undefined) {
@@ -373,6 +399,8 @@ function toProviderView(p: ResolvedProvider): IntegrationProviderView {
         has_secret: !!p.secret,
         secret_source: p.secretSource,
         interval_ms: meta.defaultIntervalMs === null ? null : p.intervalMs,
+        signers: meta.signersLabel ? p.signers : null,
+        signers_label: meta.signersLabel ?? null,
         configured: missing.length === 0,
         missing,
     };

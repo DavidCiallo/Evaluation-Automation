@@ -21,7 +21,7 @@ import {
 } from "../../lib/integration-settings";
 import { getPollerStatus } from "../sync/sync.service";
 
-const VALID_IDS: IntegrationTargetId[] = ["survey", "mike", "ctrip", "email", "qixioma", "sdk"];
+const VALID_IDS: IntegrationTargetId[] = ["survey", "mike", "ctrip", "email", "contract", "qixioma", "sdk"];
 
 function assertId(id: string): IntegrationTargetId {
     if (!VALID_IDS.includes(id as IntegrationTargetId)) throw `unknown integration: ${id}`;

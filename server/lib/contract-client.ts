@@ -4,9 +4,11 @@
  * POST /api/contract/query 分页列出已有单（用于幂等去重，标题即业务主键）。
  *
  * 鉴权是一个共享口令，放在 `token` 请求头里——不是 Bearer，也不是 query 参数。
+ *
+ * 入口地址与口令来自「系统配置 → 外围系统接入」，环境变量仅作兜底；
+ * 配置变更通过 revision 识别（地址改了不需要重启进程）。
  */
-const DEFAULT_BASE = "https://contract.noworrytourism.cn";
-
+import { getIntegration } from "./integration-settings";
 export interface ContractSheet {
     id: string;
     title: string;
@@ -26,30 +28,42 @@ interface QuickPayload {
 }
 
 /**
- * 内部签署人（我方客服）。服务端按 member id 校验，写错会直接拒绝整张单
- * （「内部人员不存在」），所以名单固定在这里，不做成自由文本。
+ * 内部签署人（我方客服）的默认名单。服务端按 member id 校验，写错会直接拒绝
+ * 整张单（「内部人员不存在」），所以这里给一份可用默认值，实际以配置为准：
+ * 各部署的成员 id 不同，写死在代码里改一次就得发版。
  */
-export const INTERNAL_SIGNERS = ["xiaolv", "xiaoning"];
+export const DEFAULT_INTERNAL_SIGNERS = ["xiaolv", "xiaoning"];
 
-function baseUrl(): string {
-    return (process.env.CONTRACT_BASE_URL || DEFAULT_BASE).replace(/\/+$/, "");
+function readConfig(): { baseUrl: string; apiKey: string; signers: string[] } {
+    const p = getIntegration("contract");
+    return {
+        baseUrl: p.baseUrl.replace(/\/+$/, ""),
+        apiKey: p.secret,
+        signers: p.signers
+            ? p.signers.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean)
+            : DEFAULT_INTERNAL_SIGNERS,
+    };
 }
 
-function apiKey(): string {
-    return process.env.CONTRACT_API_KEY || "";
+/** 内部签署人名单：配置优先，未配置时用默认值。 */
+export function internalSigners(): string[] {
+    return readConfig().signers;
 }
 
 export function isContractConfigured(): boolean {
-    return !!apiKey();
+    const p = getIntegration("contract");
+    return p.enabled && !!p.secret;
 }
 
 async function post<T = any>(path: string, body: unknown): Promise<T> {
-    const key = apiKey();
-    if (!key) throw new Error("确认单服务未配置（CONTRACT_API_KEY），请在 .env 中补全");
+    const cfg = readConfig();
+    if (!cfg.apiKey) {
+        throw new Error("确认单服务未配置（API Key），请在「系统配置 → 外围系统接入」中补全");
+    }
 
-    const res = await fetch(`${baseUrl()}${path}`, {
+    const res = await fetch(`${cfg.baseUrl}${path}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", token: key },
+        headers: { "Content-Type": "application/json", token: cfg.apiKey },
         body: JSON.stringify(body),
     });
     const json = (await res.json()) as any;
