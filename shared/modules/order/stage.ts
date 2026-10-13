@@ -19,6 +19,9 @@
 export type OrderStageId =
     | "order_info" // 订单信息：客户与签证要素
     | "form_collection" // 表单收集：每位客户的表单分配与回收
+    | "info_confirmation" // 信息确认：每位客户回签自己的资料确认单
+    | "account_allocation" // 账号分配：决定几个办签账号、哪张申请单填在哪个号
+    | "registration" // 注册填表：机器人注册账号并按计划填表
     | "itinerary" // 行程安排：客户同意 + 行程单
     | "flight" // 机票办理：乘客证件齐备并提交 ctrip
     | "materials" // 材料制作：各申请单必备材料收齐
@@ -29,6 +32,9 @@ export type OrderRequirementKey =
     | "customers_present" // 已确认订单信息，且至少有一位客户
     | "customers_complete" // 每位客户的姓名/签证类型/出发地/目的地齐全
     | "forms_assigned" // 每位客户都已分配表单
+    | "confirmations_signed" // 每位客户都已回签信息确认单
+    | "accounts_allocated" // 每张申请单都挂到了具体办签账号上
+    | "accounts_registered" // 所有账号已注册且申请单填表完成
     | "itinerary_consent" // 客户已同意按行程办理（客服确认）
     | "itinerary_exists" // 至少一份行程单或机票任务
     | "pax_documents" // 每位机票乘客证件与联系人信息齐备
@@ -55,8 +61,6 @@ export const ORDER_STAGES: OrderStageMeta[] = [
         description: "确认客户名单（谁办这次签证）",
         optional: false,
         waivable: false,
-        // 只要求「已确认且有客户」：签证要素由表单收集而来，
-        // 若在此要求要素齐全，会把「先发表单」这条路堵死，逻辑正好相反。
         requirements: ["customers_present"],
     },
     {
@@ -66,6 +70,32 @@ export const ORDER_STAGES: OrderStageMeta[] = [
         optional: false,
         waivable: true,
         requirements: ["forms_assigned"],
+    },
+    {
+        id: "info_confirmation",
+        label: "信息确认",
+        description: "客户核对并回签自己的资料确认单",
+        optional: false,
+        waivable: true,
+        requirements: ["confirmations_signed"],
+    },
+    {
+        id: "account_allocation",
+        label: "账号分配",
+        description: "决定用几个办签账号，并指定每张申请单填在哪个账号",
+        optional: false,
+        waivable: true,
+        // 只要求「每张申请单都挂上了账号」：账号数量多少、是否均衡属于业务判断，
+        // 系统不替客服设配额。
+        requirements: ["accounts_allocated"],
+    },
+    {
+        id: "registration",
+        label: "注册填表",
+        description: "机器人注册办签账号并按计划填表（也可人工录入结果）",
+        optional: false,
+        waivable: true,
+        requirements: ["accounts_registered"],
     },
     {
         id: "itinerary",
@@ -112,6 +142,9 @@ export const ORDER_REQUIREMENT_LABEL: Record<OrderRequirementKey, string> = {
     customers_present: "已确认订单信息（至少一位客户）",
     customers_complete: "客户签证要素齐全（类型/出发地/目的地）",
     forms_assigned: "每位客户都已分配表单",
+    confirmations_signed: "每位客户都已回签信息确认单",
+    accounts_allocated: "每张申请单都已分配到办签账号",
+    accounts_registered: "所有账号已注册且申请单填表完成",
     itinerary_consent: "客户已同意行程方案",
     itinerary_exists: "已生成行程单或已建机票任务",
     pax_documents: "乘客证件与联系人信息齐备",
@@ -158,6 +191,35 @@ export interface OrderStageView {
     missing: number;
     /** 豁免记录（state=skipped 且为人工豁免时有值） */
     waiver: StageWaiver | null;
+    /**
+     * 该阶段完成的时间。
+     *
+     * 证据模型记录的是「做没做」，不是「何时做」，所以这里只能取该阶段
+     * 相关证据里**最晚**的一个时间戳（如表单完成时间、回签时间）。取最晚是
+     * 因为一个阶段要等所有客户都做完才算完成。取不到时为 null——**不猜**，
+     * 界面显示「—」，避免拿订单创建时间冒充。
+     */
+    completed_time: number | null;
+    /**
+     * 这一步**本身**花了多久：本步完成时刻 − 上一步完成时刻。
+     * 无 completed_time 时为 null。
+     *
+     * 注意不是「距订单创建多久」——那样算会把前面几步的时间重复计入后面每一步，
+     * 越靠后的阶段看着越慢，其实只是排得晚。
+     */
+    elapsed_ms: number | null;
+    /**
+     * 当前这一步已经走了多久：现在 − **订单创建时刻**。
+     *
+     * 和 elapsed_ms 分开是因为语义不同：elapsed_ms 是这一步**做完**用了多久，
+     * 是定格的历史；running_ms 是这一步**还没做完**、还在走。只有 state=ready
+     * 的那个阶段有值，其余为 null。
+     *
+     * 起点刻意用订单创建而不是上一步完成：否则同一阶段的两条线起点不同
+     * （前面有证据的单起点晚、没证据的单退回创建时间），长度对不齐。
+     * 代价是这段时间含前面几步，但同一阶段必然等长，横向可比。
+     */
+    running_ms: number | null;
 }
 
 /** 阶段豁免记录：某阶段不适用于本单时由客服显式跳过，留痕可审计。 */

@@ -12,6 +12,8 @@ import Repository from "../../lib/repository";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { ApplicationEntity } from "../../../shared/modules/application/application.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
+import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
+import type { PoolAccountEntity } from "../../../shared/modules/account-pool/account-pool.entity";
 import {
     ORDER_STAGES,
     ORDER_REQUIREMENT_LABEL,
@@ -33,6 +35,8 @@ import { hasItineraryConsent, type ItineraryConsent } from "../../../shared/modu
 
 const appRepo: Repository<ApplicationEntity> = Repository.instance("Application");
 const materialRepo: Repository<MaterialLineEntity> = Repository.instance("Material");
+const confirmationRepo: Repository<ConfirmationEntity> = Repository.instance("Confirmation");
+const accountPoolRepo: Repository<PoolAccountEntity> = Repository.instance("AccountPool");
 
 /** 各阶段豁免记录存放于 data.standard.stageWaivers。 */
 export type StageWaivers = Partial<Record<OrderStageId, StageWaiver>>;
@@ -123,6 +127,57 @@ async function evalRequirement(
             );
         }
 
+        case "confirmations_signed": {
+            // 直接读 Confirmation 仓，理由与上面读 Application/Material 相同：
+            // 反向依赖 confirmation.service 会形成循环（它也依赖订单）。
+            const rows = await confirmationRepo.find({ order_id: order.id });
+            const signed = new Set(rows.filter((r) => r.status === "signed").map((r) => r.customer_id));
+            const pending = customers.filter((c) => !signed.has(c.id));
+            if (customers.length === 0) return done(false, "尚无客户名单");
+            if (pending.length === 0) return done(true);
+            const revoked = new Set(rows.filter((r) => r.status === "revoked").map((r) => r.customer_id));
+            const noTicket = pending.filter((c) => !rows.some((r) => r.customer_id === c.id && r.status !== "revoked"));
+            const parts = [`待回签 ${pending.length} 位：${pending.map((c) => c.name || "未命名").join("、")}`];
+            if (noTicket.length > 0) parts.push(`其中 ${noTicket.length} 位尚未签发确认单`);
+            if (revoked.size > 0) parts.push(`含 ${revoked.size} 份已撤销`);
+            return done(false, parts.join("；"));
+        }
+
+        case "accounts_allocated": {
+            // 同样直接读仓，避免与 account-pool.service 形成循环依赖。
+            const accounts = await accountPoolRepo.find({ order_id: order.id });
+            const apps = await appRepo.find({ order_id: order.id });
+            if (apps.length === 0) return done(false, "尚无申请单，先建立客户名单");
+            if (accounts.length === 0) return done(false, "尚未建立办签账号");
+
+            const claimed = new Set(accounts.flatMap((a) => a.application_ids || []));
+            const unassigned = apps.filter((a) => !claimed.has(a.id));
+            if (unassigned.length === 0) return done(true);
+            return done(
+                false,
+                `${unassigned.length} 张申请单未分配账号：${unassigned.map((a) => a.name || "未命名").join("、")}`,
+            );
+        }
+
+        case "accounts_registered": {
+            const accounts = await accountPoolRepo.find({ order_id: order.id });
+            if (accounts.length === 0) return done(false, "尚未建立办签账号");
+
+            const registered = accounts.filter((a) => a.status === "registered");
+            const failed = accounts.filter((a) => a.status === "failed");
+            const missing = accounts.filter((a) => !a.email || !a.password);
+
+            const parts: string[] = [];
+            if (registered.length < accounts.length) {
+                parts.push(`已注册 ${registered.length}/${accounts.length} 个账号`);
+            }
+            if (failed.length > 0) parts.push(`${failed.length} 个注册失败`);
+            if (missing.length > 0) parts.push(`${missing.length} 个账号缺邮箱或密码`);
+
+            if (parts.length === 0) return done(true);
+            return done(false, parts.join("；"));
+        }
+
         case "itinerary_consent": {
             const consent = getConsent(order);
             if (hasItineraryConsent(consent)) return done(true);
@@ -177,7 +232,67 @@ export interface OrderStageEvaluation {
     current: OrderStageId;
     /** 所有阶段是否都已完成或跳过 */
     all_done: boolean;
+    /** 整单用时（毫秒）：创建 → 最后一步完成；没完结的算到「现在」。 */
+    duration_ms: number;
 }
+
+/** 一批带时间戳的业务证据，求最晚的一个（阶段要等所有客户都做完才算完成）。 */
+function latestOf(ts: Array<number | null | undefined>): number | null {
+    const nums = ts.filter((t): t is number => typeof t === "number" && t > 0);
+    return nums.length > 0 ? Math.max(...nums) : null;
+}
+
+/**
+ * 推导各阶段的完成时间。
+ *
+ * 证据模型记录的是「做没做」而不是「何时做」，只有部分数据自带时间戳，
+ * 所以这里逐个阶段挑**真实存在**的时间字段：
+ *   订单信息=订单创建；表单收集=系统认定该表单完成的时刻；信息确认=回签；
+ *   行程=客服确认同意；机票=任务创建；材料=材料行最后更新；完结=申请单出结果。
+ * 注册填表与账号分配没有可用时间戳，取不到就返回 null，界面显示「—」。
+ * 不用订单创建时间兜底——那会让每个未完成阶段都显示成 0，看着像有数据其实是假的。
+ */
+function deriveStageTimes(
+    order: OrderEntity,
+    apps: ApplicationEntity[],
+    materials: MaterialLineEntity[],
+    confs: ConfirmationEntity[],
+    waivers: StageWaivers,
+): Map<OrderStageId, number> {
+    const out = new Map<OrderStageId, number>();
+    const std = stdData(order);
+
+    // 订单创建之前的时间戳不能当本单的阶段证据：客户可能在下单前就先填了表，
+    // 那个时刻跟这单走到哪一步没关系，拿来算耗时会被下面的 Math.max(0,...) 夹成 0，
+    // 看着像「这一步瞬间完成」。宁可当作没有证据，返回 null。
+    const after = (ts: number | null | undefined): number | null =>
+        ts != null && ts > order.create_time ? ts : null;
+
+    out.set("order_info", order.create_time);
+    // 优先取 bound_time（系统认定完成的时刻）；老数据没有该字段，退回客户提交时间
+    const forms = latestOf((std.forms || []).map((f) => after(f.bound_time || f.completed_time)));
+    if (forms) out.set("form_collection", forms);
+    const signed = latestOf(
+        confs.flatMap((c) => [after(c.signed_time), after(c.revoked_time)]),
+    );
+    if (signed) out.set("info_confirmation", signed);
+    const consent = getConsent(order);
+    if (consent?.confirmed_time) out.set("itinerary", consent.confirmed_time);
+    const trip = latestOf((std.tripTasks || []).map((t) => t.create_time));
+    if (trip) out.set("flight", trip);
+    // 材料只存了布尔 received，没有到达时间；已收到的行用行自身更新时间近似
+    const mat = latestOf(materials.filter((m) => m.received).map((m) => m.update_time || null));
+    if (mat) out.set("materials", mat);
+    const done = latestOf(apps.map((a) => a.result?.approved_date || null));
+    if (done) out.set("completion", done);
+
+    // 豁免过的阶段以豁免时间为准（表示「到此为止不再等待」）
+    for (const [id, w] of Object.entries(waivers)) {
+        if (w?.time) out.set(id as OrderStageId, w.time);
+    }
+    return out;
+}
+
 
 /**
  * 计算订单的阶段视图。
@@ -192,6 +307,9 @@ export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStag
             ? await materialRepo.find({ application_id: { $in: apps.map((a) => a.id) } })
             : [];
     const waivers = getStageWaivers(order);
+    const confs = await confirmationRepo.find({ order_id: order.id });
+    const stageTimes = deriveStageTimes(order, apps, materials, confs, waivers);
+    const now = Date.now();
 
     // 逐阶段算准入项（并行无意义：同一进程内 IO 已串行，且项数很少）
     const stageResults: Array<{ id: OrderStageId; reqs: OrderRequirementView[] }> = [];
@@ -205,6 +323,8 @@ export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStag
 
     const stages: OrderStageView[] = [];
     let blockedBy: OrderStageId | null = null;
+    // 区间耗时的起点：上一步的完成时刻。初始为 null，表示从订单创建算起。
+    let lastDoneId: OrderStageId | null = null;
 
     for (const meta of ORDER_STAGES) {
         const result = stageResults.find((r) => r.id === meta.id)!;
@@ -222,6 +342,21 @@ export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStag
             state = "ready";
         }
 
+        // 只给已完成/已跳过的阶段报耗时：阶段被卡住时，即使存在零散证据时间戳
+        // （例如客户同意了行程，但更早的阶段还没做完），报出来会让人以为这一步已经完成
+        const reached = state === "done" || state === "skipped";
+        const completedTime = reached ? (stageTimes.get(meta.id) ?? null) : null;
+        // 每一步的耗时 = 本步完成时刻 − 上一步完成时刻，而不是「距订单创建多久」。
+        // 后者会把前面几步的时间重复算进后面每一步，越靠后的阶段看着越慢，
+        // 其实只是排得晚。
+        const prevTime = (lastDoneId && stageTimes.get(lastDoneId)) || order.create_time;
+        const stepMs = completedTime != null ? Math.max(0, completedTime - prevTime) : null;
+        // 进行中的这一步统一从订单创建算起，而不是从上一步完成时刻。
+        // 用「上一步完成时刻」会让同一阶段的两条线起点不同：前面有真实证据的单
+        // 起点晚、没证据的单退回创建时间，于是都停在「信息确认」的两单长度却不一样，
+        // 看着像进度不同。代价是这段时间包含了前面几步，但**同一阶段必然等长**，
+        // 横向可比——这正是时间视图要的。
+        const running = state === "ready" ? Math.max(0, now - order.create_time) : null;
         stages.push({
             id: meta.id,
             label: meta.label,
@@ -233,17 +368,32 @@ export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStag
             blocked_by: state === "blocked" ? blockedBy : null,
             missing,
             waiver,
+            completed_time: completedTime,
+            elapsed_ms: stepMs,
+            running_ms: running,
         });
 
         // 卡点传播：本阶段未完成且未跳过时，后续阶段一律 blocked
         if (!blockedBy && state !== "done" && state !== "skipped") blockedBy = meta.id;
+        // 上一步的完成时刻，供下一轮算区间耗时；没完成的阶段不推进它
+        if (completedTime != null) lastDoneId = meta.id;
     }
 
     const currentStage = stages.find((s) => s.state === "ready") || stages[stages.length - 1];
+    const allDone = stages.every((s) => s.state === "done" || s.state === "skipped");
+    // 整单用时：已完结的定格在最后一步完成的时刻，没完结的算到「现在」——
+    // 两种口径混在一张图里比较，才看得出谁快谁慢
+    const lastDone = allDone
+        ? Math.max(
+              order.create_time,
+              ...stages.map((s) => s.completed_time || 0),
+          )
+        : now;
     return {
         stages,
         current: currentStage.id,
-        all_done: stages.every((s) => s.state === "done" || s.state === "skipped"),
+        all_done: allDone,
+        duration_ms: Math.max(0, lastDone - order.create_time),
     };
 }
 
