@@ -100,10 +100,7 @@ export interface ConfirmationDTO {
 }
 
 /**
- * 签名服务基址。客户点击的链接由外部服务托管，本系统只存 token。
- * 默认指向本地开发端口，部署时用 SIGN_BASE_URL 覆盖。
+ * 签署链接一律由确认单服务在签发时返回并存下来（见 ConfirmationEntity.sign_url）。
+ * 本系统不自行拼接：对外域名由服务端 CLIENT_URL 决定，本地再拼一次就会指向
+ * 本机端口。
  */
-export function buildSignUrl(token: string): string {
-    const base = (process.env.SIGN_BASE_URL || "http://127.0.0.1:3400").replace(/\/+$/, "");
-    return `${base}/sign?id=${encodeURIComponent(token)}`;
-}

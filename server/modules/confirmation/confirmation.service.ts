@@ -13,7 +13,7 @@ import type {
     ConfirmationDTO,
     ConfirmationSnapshot,
 } from "../../../shared/modules/confirmation/confirmation.entity";
-import { CONFIRMATION_STATUS_LABEL, buildSignUrl } from "../../../shared/modules/confirmation/confirmation.entity";
+import { CONFIRMATION_STATUS_LABEL } from "../../../shared/modules/confirmation/confirmation.entity";
 import { createContractSheet, isContractConfigured, internalSigners } from "../../lib/contract-client";
 import { buildContent } from "../form/content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
@@ -44,7 +44,7 @@ function toDTO(e: ConfirmationEntity, withUrl = true): ConfirmationDTO {
         external_ref: e.external_ref ?? null,
         revoked_time: e.revoked_time ?? null,
         revoked_reason: e.revoked_reason ?? null,
-        sign_url: withUrl ? (e.sign_url || buildSignUrl(e.token)) : null,
+        sign_url: withUrl ? (e.sign_url || null) : null,
         version: e.version,
         create_time: e.create_time,
         update_time: e.update_time,
