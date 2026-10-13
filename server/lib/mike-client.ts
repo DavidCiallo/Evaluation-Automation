@@ -169,6 +169,21 @@ class MikeClient {
         }
         return null;
     }
+
+    /**
+     * 跨全部表单按姓名找提交。
+     *
+     * 不能先按签证类型挑表单：同一类型的提交散落在多张表里
+     * （申根签（中国）104 份、英国申根 51 份、国际申根 12 份），
+     * 钉死一张会漏掉大多数真实提交。
+     */
+    async findSubmissionsByNameAnyForm(name: string, limit = 100): Promise<MikeSubmission[]> {
+        const target = (name || "").trim();
+        if (!target) return [];
+        const { list } = await this.getSubmissions({ keyword: target, limit });
+        const exact = list.filter((s) => s.submitter_name.trim() === target);
+        return (exact.length > 0 ? exact : list).sort((a, b) => b.submit_time - a.submit_time);
+    }
 }
 
 export const mikeClient = new MikeClient();
