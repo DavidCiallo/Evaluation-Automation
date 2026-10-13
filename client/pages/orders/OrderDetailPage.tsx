@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ArrowLeft, MessageSquare, Users, MessageCircle, Send } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
@@ -17,12 +17,9 @@ import { ConversationDTO } from "../../../shared/modules/conversation/conversati
 import { conversationApi, orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
-import type { ApplicationDTO } from "../../../shared/modules/application/application.entity"
 import type { FormAssignment } from "../../../shared/modules/order/plugins/standard.manifest"
 import { ensureClientPluginsRegistered } from "./plugins/index"
 import { getEnabledClientOrderPlugins } from "./plugin-registry"
-import { ApplicationSection } from "./ApplicationSection"
-import { ApplicationDetailCard } from "./ApplicationDetailCard"
 import { FormDetailCard } from "./FormDetailCard"
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest"
 import { VISA_TYPES } from "../../../shared/modules/order/visa"
@@ -55,13 +52,9 @@ export function OrderDetailPage() {
     const [remark, setRemark] = useState("")
     const [busy, setBusy] = useState(false)
     // 主从联动：左侧选中 → 右侧详情查看
-    const [selApp, setSelApp] = useState<ApplicationDTO | null>(null)
     const [selForm, setSelForm] = useState<FormAssignment | null>(null)
     // 发材料邮件
     const [sendMailOpen, setSendMailOpen] = useState(false)
-    // 右侧详情卡操作后刷新左侧申请单列表（重新拉取并联动更新选中）
-    const appSectionRef = useRef<{ reload: () => Promise<void> } | null>(null)
-    const handleAppChanged = () => { appSectionRef.current?.reload() }
 
     const load = async () => {
         if (!params.id) return
@@ -234,31 +227,7 @@ export function OrderDetailPage() {
 
             {/* 按行配对：左侧（span 2）操作 / 右侧（span 1）查看，items-stretch 保证同一行两边等高 */}
             <div className="space-y-4">
-                {/* 行1：申请单列表（只读，窄）↔ 申请单详情（每列一条，宽） */}
-                <div className="grid items-stretch gap-4 lg:grid-cols-3">
-                    <Card className="lg:col-span-1">
-                        <CardHeader>
-                            <CardTitle>申请单</CardTitle>
-                            <CardDescription>点击某位申请人，右侧查看详情与材料</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <ApplicationSection
-                                ref={appSectionRef}
-                                orderId={order.id}
-                                auth={auth}
-                                selectedId={selApp?.id || null}
-                                onSelect={setSelApp}
-                            />
-                        </CardContent>
-                    </Card>
-                    <Card className="lg:col-span-2">
-                        <CardContent className="flex h-full flex-col pt-6">
-                            <ApplicationDetailCard app={selApp} auth={auth} onChanged={handleAppChanged} />
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* 行2：表单收集（点选）↔ 表单详情（左右各半） */}
+                {/* 行1：表单收集（点选）↔ 表单详情（左右各半） */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-2">
                     <Card className="lg:col-span-1">
                         <CardHeader>
