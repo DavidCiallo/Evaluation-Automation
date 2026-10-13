@@ -90,3 +90,31 @@ export async function createContractSheet(payload: QuickPayload): Promise<Contra
     const r = await post<{ data: { id: string; url: string } }>("/api/contract/quick", payload);
     return { id: String(r.data?.id || ""), title: payload.title, url: String(r.data?.url || "") };
 }
+
+/** 一位签署人的状态。duration 由主签署人（客户）决定，内部签署人不影响结论。 */
+export interface ContractSigner {
+    name: string;
+    signer_type: "internal" | "external";
+    /** 空串=未签；"ok"=已确认；"wrong"=有异议（须同时有 reason） */
+    result: string;
+    reason: string;
+    signed_at: number;
+}
+
+/**
+ * 查一张确认单的签署状态。
+ * 这是判断「客户签没签」的唯一权威来源——客户在服务端页面上签字，
+ * 本系统收不到任何推送，只能问。
+ */
+export async function fetchContractSigners(id: string): Promise<ContractSigner[]> {
+    if (!id) return [];
+    const r = await post<{ data: { list: ContractSigner[] } }>("/api/contract/signers", { id });
+    return r.data?.list || [];
+}
+
+/** 客户本人是否已确认（内部签署人不算，result="wrong" 也不算）。 */
+export async function isCustomerSigned(id: string): Promise<{ signed: boolean; signedAt: number }> {
+    const signers = await fetchContractSigners(id);
+    const me = signers.find((s) => s.signer_type === "external" && s.result === "ok");
+    return { signed: !!me, signedAt: me?.signed_at || 0 };
+}

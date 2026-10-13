@@ -9,6 +9,7 @@
  * 避免与 order.service / application.service 形成循环。
  */
 import Repository from "../../lib/repository";
+import { isCustomerSigned } from "../../lib/contract-client";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { ApplicationEntity } from "../../../shared/modules/application/application.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
@@ -69,8 +70,33 @@ const REQUIRED_CUSTOMER_FIELDS: Array<{ key: keyof OrderCustomerInfo; label: str
     { key: "destination", label: "目的地" },
 ];
 
-/** 每位机票乘客必须齐备的字段（ctrip 规则）。 */
-function paxGaps(t: TripTask): string[] {
+/**
+ * 向确认单服务核对签署状态并回写本地。
+ * 与 confirmation.service 的同名逻辑重复，是为了避开循环依赖（它依赖订单）；
+ * 判定口径必须与其一致：只认客户本人（external）已签。
+ * 单条查询失败不影响其余——服务抖动不该让阶段判定整体报错。
+ */
+async function refreshConfirmedFromService(rows: ConfirmationEntity[]): Promise<void> {
+    for (const e of rows) {
+        if (e.status !== "pending" || !e.token) continue;
+        let r: { signed: boolean; signedAt: number };
+        try {
+            r = await isCustomerSigned(e.token);
+        } catch {
+            continue;
+        }
+        if (!r.signed) continue;
+        const at = r.signedAt || Date.now();
+        await confirmationRepo.atomicPatch({ id: e.id }, (row) => {
+            if (!row || row.status !== "pending") return null;
+            return { status: "signed", signed_time: at, version: row.version + 1 };
+        });
+        e.status = "signed";
+        e.signed_time = at;
+    }
+}
+
+/** 每位机票乘客必须齐备的字段（ctrip 规则）。 */function paxGaps(t: TripTask): string[] {
     const gaps: string[] = [];
     t.pax.forEach((p, i) => {
         const miss: string[] = [];
@@ -131,6 +157,8 @@ async function evalRequirement(
             // 直接读 Confirmation 仓，理由与上面读 Application/Material 相同：
             // 反向依赖 confirmation.service 会形成循环（它也依赖订单）。
             const rows = await confirmationRepo.find({ order_id: order.id });
+            // 签署状态以确认单服务为准：客户在服务端签字不会有推送过来
+            await refreshConfirmedFromService(rows);
             const signed = new Set(rows.filter((r) => r.status === "signed").map((r) => r.customer_id));
             const pending = customers.filter((c) => !signed.has(c.id));
             if (customers.length === 0) return done(false, "尚无客户名单");

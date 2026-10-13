@@ -14,7 +14,7 @@ import type {
     ConfirmationSnapshot,
 } from "../../../shared/modules/confirmation/confirmation.entity";
 import { CONFIRMATION_STATUS_LABEL } from "../../../shared/modules/confirmation/confirmation.entity";
-import { createContractSheet, isContractConfigured, internalSigners } from "../../lib/contract-client";
+import { createContractSheet, isContractConfigured, internalSigners, fetchContractSigners } from "../../lib/contract-client";
 import { buildContent, buildContentFromProfile } from "../form/content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
@@ -82,10 +82,17 @@ async function buildSnapshot(customer: OrderCustomerInfo): Promise<ConfirmationS
 
 export async function listByOrder(orderId: string): Promise<ConfirmationDTO[]> {
     const rows = await repo.find({ order_id: orderId });
+    // 客服打开列表时顺带核对一次服务端，否则已签的单会一直显示「待确认」
+    await refreshSignedFromService(rows);
     return rows.sort((a, b) => a.create_time - b.create_time).map((e) => toDTO(e));
 }
 
-/** 订单下是否每位客户都已回签（阶段准入判定用）。 */
+/**
+ * 订单下是否每位客户都已回签（阶段准入判定用）。
+ *
+ * 签署状态以确认单服务为准：客户在服务端页面上签字后本系统收不到推送，
+ * 只看本地 status 会永远停在 pending。查询结果顺带回写本地，供列表展示。
+ */
 export async function areAllSigned(orderId: string): Promise<{ met: boolean; detail: string | null }> {
     const order = await orderRepo.findOne({ id: orderId });
     if (!order) return { met: false, detail: "订单不存在" };
@@ -93,6 +100,8 @@ export async function areAllSigned(orderId: string): Promise<{ met: boolean; det
     if (customers.length === 0) return { met: false, detail: "尚无客户名单" };
 
     const rows = await repo.find({ order_id: orderId });
+    await refreshSignedFromService(rows);
+
     const signed = new Set(rows.filter((r) => r.status === "signed").map((r) => r.customer_id));
     const missing = customers.filter((c) => !signed.has(c.id));
     if (missing.length === 0) return { met: true, detail: null };
@@ -100,6 +109,41 @@ export async function areAllSigned(orderId: string): Promise<{ met: boolean; det
         met: false,
         detail: `待回签 ${missing.length} 位：${missing.map((c) => c.name || "未命名").join("、")}`,
     };
+}
+
+/**
+ * 向确认单服务核对签署状态并回写本地。
+ *
+ * 只有「客户本人（external）已签」才算数：内部签署人只是留痕，不要求每人签；
+ * result="wrong" 表示客户对资料有异议，同样不算通过。
+ * 单条查询失败不影响其余——服务抖动不该让整个列表报错。
+ */
+export async function refreshSignedFromService(rows: ConfirmationEntity[]): Promise<number> {
+    let refreshed = 0;
+    for (const e of rows) {
+        if (e.status !== "pending" || !e.token) continue;
+        let signers;
+        try {
+            signers = await fetchContractSigners(e.token);
+        } catch {
+            continue;
+        }
+        const customer = signers.find((s) => s.signer_type === "external" && s.result === "ok");
+        if (!customer) continue;
+
+        await repo.atomicPatch({ id: e.id }, (row) => {
+            if (!row || row.status !== "pending") return null;
+            return {
+                status: "signed",
+                signed_time: customer.signed_at || Date.now(),
+                version: row.version + 1,
+            };
+        });
+        e.status = "signed";
+        e.signed_time = customer.signed_at || Date.now();
+        refreshed++;
+    }
+    return refreshed;
 }
 
 /**
