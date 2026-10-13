@@ -1,0 +1,49 @@
+import {
+    AccountPoolAssignResponse,
+    AccountPoolListResponse,
+    AccountPoolPlanResponse,
+    AccountPoolRemoveResponse,
+    AccountPoolUpsertResponse,
+} from "./account-pool.interface";
+
+export const accountPoolRoutes = {
+    base: "/api",
+    prefix: "/account-pool",
+    /** 订单下的账号池 */
+    list: {
+        path: "/list",
+        request: {} as { order_id: string; with_secret?: boolean; auth?: string },
+        response: {} as AccountPoolListResponse,
+    },
+    /** 拟定账号数量：建出占位账号并把申请单均分过去 */
+    plan: {
+        path: "/plan",
+        request: {} as { order_id: string; count: number; auth?: string },
+        response: {} as AccountPoolPlanResponse,
+    },
+    /** 手动填写/修改账号（未走机器人时客服直接录） */
+    upsert: {
+        path: "/upsert",
+        request: {} as {
+            id: string;
+            email?: string;
+            password?: string;
+            label?: string;
+            remark?: string;
+            auth?: string;
+        },
+        response: {} as AccountPoolUpsertResponse,
+    },
+    /** 把申请单分配到指定账号 */
+    assign: {
+        path: "/assign",
+        request: {} as { order_id: string; account_id: string; application_ids: string[]; auth?: string },
+        response: {} as AccountPoolAssignResponse,
+    },
+    /** 删除账号（其申请单回到未分配） */
+    remove: {
+        path: "/remove",
+        request: {} as { id: string; auth?: string },
+        response: {} as AccountPoolRemoveResponse,
+    },
+} as const;
