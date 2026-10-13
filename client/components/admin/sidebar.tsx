@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Headset,
   ClipboardList,
+  Inbox,
   Users,
   IdCard,
   Settings,
@@ -26,6 +27,7 @@ type NavItem = {
 const mainNav: NavItem[] = [
   { title: "总览仪表盘", href: "/dashboard", icon: LayoutDashboard },
   { title: "客服工作台", href: "/workbench", icon: Headset, badge: "AI" },
+  { title: "接单工单", href: "/cases", icon: Inbox },
   { title: "订单管理", href: "/orders", icon: ClipboardList },
   { title: "客户档案", href: "/customers", icon: IdCard },
   { title: "邮件中心", href: "/emails", icon: Mail, badge: "AI" },

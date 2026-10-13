@@ -13,6 +13,11 @@ import { accountMount } from "../modules/account/account.controller";
 import { chatMount } from "../modules/chat/chat.controller";
 import { conversationMount } from "../modules/conversation/conversation.controller";
 import { orderMount } from "../modules/order/order.controller";
+import { caseMount } from "../modules/case/case.controller";
+import { confirmationMount } from "../modules/confirmation/confirmation.controller";
+import { accountPoolMount } from "../modules/account-pool/account-pool.controller";
+import { robotTaskMount } from "../modules/robot-task/robot-task.controller";
+import { formMount } from "../modules/form/form.controller";
 import { applicationMount } from "../modules/application/application.controller";
 import { customerMount } from "../modules/customer/customer.controller";
 import { fileMount } from "../modules/file/file.controller";
@@ -128,6 +133,11 @@ Bun.serve({
             accountMount,
             chatMount,
             conversationMount,
+            caseMount,
+            confirmationMount,
+            accountPoolMount,
+            robotTaskMount,
+            formMount,
             orderMount,
             applicationMount,
             customerMount,

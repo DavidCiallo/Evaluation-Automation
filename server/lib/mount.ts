@@ -12,8 +12,18 @@ export interface RouteMount {
  * （统一在此拦截，避免各 handler 自愿鉴权导致漏网）。
  * - login  登录本身必须公开
  * - alive  登录态探测（设计上允许无 token 调用并返回 Unauthorized）
+ * - confirmation/fetch|submit  客户回签入口：客户持 token 而非客服会话，
+ *   鉴权由 token 本身承担（不可猜、可撤销），见 confirmation.service
+ * - robot-task/callback  机器人回调：机器人没有客服会话，鉴权由
+ *   任务 id（不可猜）+ ROBOT_CALLBACK_TOKEN 承担，见 robot-task.controller
  */
-const PUBLIC_PATHS = new Set<string>(["/api/auth/login", "/api/auth/alive"]);
+const PUBLIC_PATHS = new Set<string>([
+    "/api/auth/login",
+    "/api/auth/alive",
+    "/api/confirmation/fetch",
+    "/api/confirmation/submit",
+    "/api/robot-task/callback",
+]);
 
 function unauthorized(): Response {
     // 文案与前端 webhttp.ts 的重定向约定一致（message === "Authorization failed"）

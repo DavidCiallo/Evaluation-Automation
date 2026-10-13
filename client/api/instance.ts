@@ -16,6 +16,11 @@ import { integrationRoutes } from "../../shared/modules/config/integration.route
 import { syncRoutes } from "../../shared/modules/sync/sync.router";
 import { exemptionRoutes } from "../../shared/modules/exemption/exemption.router";
 import { emailRoutes } from "../../shared/modules/email/email.router";
+import { caseRoutes } from "../../shared/modules/case/case.router";
+import { confirmationRoutes } from "../../shared/modules/confirmation/confirmation.router";
+import { accountPoolRoutes } from "../../shared/modules/account-pool/account-pool.router";
+import { robotTaskRoutes } from "../../shared/modules/robot-task/robot-task.router";
+import { formRoutes } from "../../shared/modules/form/form.router";
 
 export const authApi = createClient(authRoutes);
 export const accountApi = createClient(accountRoutes);
@@ -34,3 +39,8 @@ export const integrationApi = createClient(integrationRoutes);
 export const syncApi = createClient(syncRoutes);
 export const exemptionApi = createClient(exemptionRoutes);
 export const emailApi = createClient(emailRoutes);
+export const caseApi = createClient(caseRoutes);
+export const confirmationApi = createClient(confirmationRoutes);
+export const accountPoolApi = createClient(accountPoolRoutes);
+export const robotTaskApi = createClient(robotTaskRoutes);
+export const formApi = createClient(formRoutes);

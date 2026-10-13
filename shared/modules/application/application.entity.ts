@@ -115,6 +115,11 @@ export interface ApplicationEntity {
     order_id: string;
     /** 关联客户档案 id，可空（新客先建单后补档） */
     customer_id: string | null;
+    /**
+     * 归属的办签账号 id（PoolAccount）。可空：账号分配阶段之前尚未决定，
+     * 阶段门禁会拦住后续动作，因此这里允许为空而不设默认值。
+     */
+    account_id: string | null;
     /** 排序序号，主申请人在前 */
     seq: number;
     /** 是否主申请人（选主申人做联系人/收款人） */
@@ -147,6 +152,7 @@ export class ApplicationDTO {
     public id: string;
     public order_id: string;
     public customer_id: string | null;
+    public account_id: string | null;
     public seq: number;
     public is_lead: boolean;
     public name: string;
@@ -172,6 +178,7 @@ export class ApplicationDTO {
         this.id = origin.id;
         this.order_id = origin.order_id;
         this.customer_id = origin.customer_id || null;
+        this.account_id = origin.account_id || null;
         this.seq = origin.seq || 0;
         this.is_lead = !!origin.is_lead;
         this.name = origin.name || "";
