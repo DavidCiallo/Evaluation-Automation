@@ -90,8 +90,18 @@ export interface FormAssignment {
     code?: string;
     /** survey：用于构造 URL 的 field_id */
     field_id?: string;
-    /** 完成时间戳 */
+    /**
+     * 客户提交这份表单的时间（来源系统给的原始时间）。
+     * 可能早于订单创建——客户常在拉群之前就自己填过表了。
+     */
     completed_time?: number;
+    /**
+     * 系统把它认定为已完成、绑定到本客户的时刻。
+     *
+     * 阶段耗时以此为准而非 completed_time：客户可能在建单前很久就填了表，
+     * 用提交时间会算出负耗时，也不反映「这一步在本单里是什么时候做完的」。
+     */
+    bound_time?: number;
     /** mike 匹配到的提交人姓名 */
     matched_name?: string | null;
 }

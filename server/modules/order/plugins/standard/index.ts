@@ -13,6 +13,7 @@ import type { CustomerEntity } from "../../../../../shared/modules/customer/cust
 import type { ConversationEntity } from "../../../../../shared/modules/conversation/conversation.entity";
 import type { IntentDraftData } from "../../../../../shared/modules/intent/intent.interface";
 import type { ServerOrderPlugin, PluginMessageResult, PluginContext } from "../../plugin-registry";
+import { agentLabel, isKnownAgent } from "../../../../../shared/modules/case/case.entity";
 import {
     standardManifest,
     STANDARD_PLUGIN_ID,
@@ -176,6 +177,8 @@ async function resolveAgentNames(agentIds: string[]): Promise<string[]> {
     const accounts = await accountRepo.find({ wechat_id: { $in: unique } });
     const map = new Map<string, string>();
     for (const a of accounts) if (a.wechat_id) map.set(a.wechat_id, a.name || a.wechat_id);
+    // 内置客服选项不在账号表里，合同上要写中文名而不是 xiaoning
+    for (const id of unique) if (!map.has(id) && isKnownAgent(id)) map.set(id, agentLabel(id));
     return unique.map((id) => map.get(id) || id);
 }
 
@@ -782,9 +785,69 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { forms: updatedForms };
         },
 
+        /**
+         * 自动绑定麦克提交：按客户姓名跨全部表单找同名提交，命中就建表单分配。
+         *
+         * 订单确认信息后异步跑一次。找不到提交的客户不建分配——
+         * 建了也没有 url 可发，只会在界面上留一条空记录；等客服手动分配即可。
+         * payload = { only_missing? }
+         */
+        "auto-bind-mike": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            const { mikeClient } = await import("../../../../lib/mike-client");
+            if (!mikeClient.isConfigured()) return { bound: [], skipped: [], reason: "not_configured" };
+
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const forms = std.forms || [];
+            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            if (customers.length === 0) return { bound: [], skipped: [], reason: "no_customers" };
+
+            // 已经绑过麦克的客户不再重复绑（除非显式要求全量重跑）
+            const onlyMissing = payload?.only_missing !== false;
+            const boundIds = new Set(
+                forms.filter((f) => f.provider === "mike").map((f) => f.customer_id),
+            );
+
+            const added: FormAssignment[] = [];
+            const skipped: string[] = [];
+            for (const c of customers) {
+                const name = (c.name || "").trim();
+                if (!name) continue;
+                if (onlyMissing && boundIds.has(c.id)) { skipped.push(name); continue; }
+                let hit: any = null;
+                try {
+                    hit = (await mikeClient.findSubmissionsByNameAnyForm(name))[0] || null;
+                } catch {
+                    // 网络/接口异常不该拖垮整批，继续试下一个客户
+                    continue;
+                }
+                if (!hit) { skipped.push(name); continue; }
+                if (forms.some((f) => f.provider === "mike" && f.item_id === hit.key)) continue;
+                added.push({
+                    id: nanoid(8),
+                    form_name: hit.form_name || "",
+                    form_url: "",
+                    customer_id: c.id,
+                    status: "completed",
+                    provider: "mike",
+                    item_id: hit.key,
+                    completed_time: hit.submit_time || undefined,
+                    bound_time: Date.now(),
+                    matched_name: hit.submitter_name || null,
+                });
+                boundIds.add(c.id);
+            }
+
+            if (added.length > 0) {
+                await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: [...forms, ...added] });
+                for (const a of added) {
+                    if (a.item_id) await claimSubmission(a.item_id, a.id).catch(() => {});
+                }
+            }
+            return { bound: added, skipped };
+        },
+
         /** 列出全部表单提供方的可用表单。payload = {} */
-        "list-forms": async () => {
-            const { forms, errors } = await listAllForms();
+        "list-forms": async () => {            const { forms, errors } = await listAllForms();
             return { forms, errors };
         },
 
@@ -974,7 +1037,23 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "search-mike-submissions": { at: "form_collection" },
         "link-mike-submission": { at: "form_collection" },
         "search-form-submissions": { at: "form_collection" },
+        "auto-bind-mike": { at: "form_collection", require: ["customers_present"] },
         "list-forms": {},
+
+        // 信息确认：签发确认单须先有确认过的客户名单，回签由客户在外部页面完成
+        "issue-confirmation": { at: "info_confirmation", require: ["customers_present"] },
+        "revoke-confirmation": { at: "info_confirmation" },
+        "list-confirmations": {},
+
+        // 账号分配 / 注册填表：改动都要在客户已确认资料之后，
+        // 否则可能按错的资料注册出账号。
+        "plan-accounts": { at: "account_allocation", require: ["confirmations_signed"] },
+        "upsert-account": { at: "account_allocation" },
+        "assign-account": { at: "account_allocation" },
+        "remove-account": { at: "account_allocation" },
+        "list-accounts": {},
+        "dispatch-robot-task": { at: "registration", require: ["accounts_allocated"] },
+        "list-robot-tasks": {},
 
         // 行程安排：生成/保存行程须客户已同意
         "generate-itinerary": { at: "itinerary", require: ["itinerary_consent"] },

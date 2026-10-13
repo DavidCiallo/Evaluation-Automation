@@ -174,88 +174,79 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
         <div className="space-y-3">
             {/* 展示区：名称标题 + 图标信息项 + 客户 chips + 操作（有数据且非编辑态） */}
             {src && !editing && (
-            <div className="rounded-lg border bg-muted/20 p-3">
-                {/* 名称行 */}
-                <div className="mb-2.5 flex items-center gap-2">
-                    <span className="min-w-0 truncate text-[15px] font-semibold">
-                        {src?.order_name || order.order_name || "未命名订单"}
-                    </span>
-                    {isConfirmed && <Badge className="shrink-0 text-[10px]">已确认</Badge>}
-                    {!isConfirmed && src && <Badge variant="secondary" className="shrink-0 text-[10px]">草稿</Badge>}
-                </div>
-
-                {/* 图标信息项 2×2 */}
-                <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 text-sm">
-                    {/* 价格 */}
-                    <div className="flex items-center gap-2">
-                        <Wallet className="text-muted-foreground size-4 shrink-0" />
-                        {src?.price != null ? (
-                            <span className="text-primary font-semibold">
-                                {src.currency === "CNY" ? "¥" : (src.currency || "CNY") + " "}{src.price.toLocaleString("zh-CN")}
-                            </span>
-                        ) : (
-                            <span className="text-muted-foreground">价格未定</span>
-                        )}
-                    </div>
-                    {/* 客服 */}
-                    <div className="flex items-center gap-2">
-                        <User className="text-muted-foreground size-4 shrink-0" />
-                        <span className="font-medium">
-                            {order.agent_names && order.agent_names.length > 0
-                                ? order.agent_names.join("、")
-                                : <span className="text-muted-foreground">暂无客服</span>}
+                <div className="rounded-lg border bg-muted/20 p-3">
+                    {/* 名称行 */}
+                    <div className="mb-2.5 flex items-center gap-2">
+                        <span className="min-w-0 truncate text-[15px] font-semibold">
+                            {src?.order_name || order.order_name || "未命名订单"}
                         </span>
+                        {isConfirmed && <Badge className="shrink-0 text-[10px]">已确认</Badge>}
+                        {!isConfirmed && src && <Badge variant="secondary" className="shrink-0 text-[10px]">草稿</Badge>}
                     </div>
-                    {/* 客户 */}
-                    <div className="flex items-start gap-2">
-                        <Users className="text-muted-foreground mt-0.5 size-4 shrink-0" />
-                        <div className="flex flex-wrap items-center gap-1">
-                            {customers.length > 0 ? (
-                                customers.map((c, i) => {
-                                    // customer_id 为主关联：显示时实时取档案名；查不到（档案被删）回退快照名
-                                    const live = c.customer_id
-                                        ? customerPool.find((x) => x.id === c.customer_id)?.name
-                                        : null
-                                    const shown = live ?? c.name ?? "未命名"
-                                    return (
-                                        <span key={c.id || i} className="inline-flex items-center gap-1">
-                                            <span className="font-medium">{shown}</span>
-                                            {i < customers.length - 1 && <span className="text-muted-foreground">、</span>}
-                                        </span>
-                                    )
-                                })
+
+                    {/* 图标信息项 2×2 */}
+                    <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 text-sm">
+                        {/* 价格 */}
+                        <div className="flex items-center gap-2">
+                            <Wallet className="text-muted-foreground size-4 shrink-0" />
+                            {src?.price != null ? (
+                                <span className="text-primary font-semibold">
+                                    {src.currency === "CNY" ? "¥" : (src.currency || "CNY") + " "}{src.price.toLocaleString("zh-CN")}
+                                </span>
                             ) : (
-                                <span className="text-muted-foreground">未选择</span>
+                                <span className="text-muted-foreground">价格未定</span>
                             )}
                         </div>
+                        {/* 客服 */}
+                        <div className="flex items-center gap-2">
+                            <User className="text-muted-foreground size-4 shrink-0" />
+                            <span className="font-medium">
+                                {order.agent_names && order.agent_names.length > 0
+                                    ? order.agent_names.join("、")
+                                    : <span className="text-muted-foreground">暂无客服</span>}
+                            </span>
+                        </div>
+                        {/* 客户 */}
+                        <div className="flex items-start gap-2">
+                            <Users className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                            <div className="flex flex-wrap items-center gap-1">
+                                {customers.length > 0 ? (
+                                    customers.map((c, i) => {
+                                        // customer_id 为主关联：显示时实时取档案名；查不到（档案被删）回退快照名
+                                        const live = c.customer_id
+                                            ? customerPool.find((x) => x.id === c.customer_id)?.name
+                                            : null
+                                        const shown = live ?? c.name ?? "未命名"
+                                        return (
+                                            <span key={c.id || i} className="inline-flex items-center gap-1">
+                                                <span className="font-medium">{shown}</span>
+                                                {i < customers.length - 1 && <span className="text-muted-foreground">、</span>}
+                                            </span>
+                                        )
+                                    })
+                                ) : (
+                                    <span className="text-muted-foreground">未选择</span>
+                                )}
+                            </div>
+                        </div>
+                        {/* 时间 */}
+                        <div className="flex items-center gap-2">
+                            <CalendarDays className="text-muted-foreground size-4 shrink-0" />
+                            <span className="text-muted-foreground">
+                                创建于 {new Date(order.create_time).toLocaleDateString("zh-CN")}
+                            </span>
+                        </div>
                     </div>
-                    {/* 时间 */}
-                    <div className="flex items-center gap-2">
-                        <CalendarDays className="text-muted-foreground size-4 shrink-0" />
-                        <span className="text-muted-foreground">
-                            创建于 {new Date(order.create_time).toLocaleDateString("zh-CN")}
-                        </span>
-                    </div>
-                </div>
 
-                {/* 操作栏 */}
-                {!editing && (
-                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-2.5">
-                        {!isConfirmed ? (
+                    {/* 操作栏 */}
+                    {!editing && (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-2.5">
                             <Button size="sm" onClick={startEdit} disabled={busy}>
-                                <Pencil className="mr-1 size-3" /> 编辑并确认
+                                <Pencil className="mr-1 size-3" /> 编辑
                             </Button>
-                        ) : (
-                            <Button size="sm" variant="outline" onClick={startEdit} disabled={busy}>
-                                <Pencil className="mr-1 size-3" /> 修改
-                            </Button>
-                        )}
-                        <Button size="sm" variant="secondary" onClick={generateContract} disabled={busy}>
-                            <FileText className="mr-1 size-3" /> 生成合同
-                        </Button>
-                    </div>
-                )}
-            </div>
+                        </div>
+                    )}
+                </div>
             )}
 
             {!src && !editing && (
@@ -322,7 +313,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                                 ? customerPool.filter((c) =>
                                     (c.name || "").toLowerCase().includes(q) ||
                                     (c.passport_no || "").toLowerCase().includes(q)
-                                  )
+                                )
                                 : customerPool
                             ).filter((c) => !unselectedIds.has(c.id)).slice(0, 8)
                             const showList = searchFocused && custSearch.trim() !== ""
@@ -603,7 +594,7 @@ function FormCollectionSection({
                 setProviderForms((res?.data?.result?.forms as ProviderFormInfo[]) || [])
                 setFormErrors((res?.data?.result?.errors as any[]) || [])
             })
-            .catch(() => {})
+            .catch(() => { })
             .finally(() => setLoadingForms(false))
     }
 
@@ -611,6 +602,20 @@ function FormCollectionSection({
         loadForms()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [order.id, auth])
+
+    // 已绑定表单里选一份作为默认：优先麦客（自动绑定产出的就是它），
+    // 否则取第一份。同理把 provider 切到对应的标签页——否则「表单收集」
+    // 打开时停在简表页，刚自动绑好的麦客记录要再点一下才看得见。
+    useEffect(() => {
+        if (forms.length === 0) return
+        if (selectedId && forms.some((f) => f.id === selectedId)) return
+        const first = forms.find((f) => f.provider === "mike") || forms[0]
+        if (first) {
+            onSelectForm?.(first)
+            setProvider(first.provider === "mike" ? "mike" : "survey")
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [forms.length, selectedId])
 
     const visibleForms = providerForms.filter((f) => f.provider === provider)
 
@@ -698,7 +703,7 @@ function FormCollectionSection({
                         <button
                             key={t.id}
                             type="button"
-                            className={`px-2 py-0.5 text-[10px] transition ${provider === t.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                            className={`px-2 py-0.5 text-[14px] transition ${provider === t.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
                             onClick={() => { setProvider(t.id); setSelForm("") }}
                         >
                             {t.label}
@@ -711,7 +716,7 @@ function FormCollectionSection({
             <div className="space-y-2 rounded-md border p-2">
                 <div className="grid grid-cols-2 gap-2">
                     <select
-                        className="border-input bg-background rounded-md border px-2 py-1.5 text-xs outline-none disabled:opacity-50"
+                        className="border-input bg-background rounded-md border px-2 py-1.5 text-sm outline-none disabled:opacity-50"
                         value={selForm}
                         onChange={(e) => setSelForm(e.target.value)}
                         disabled={loadingForms}
@@ -726,7 +731,7 @@ function FormCollectionSection({
                         ))}
                     </select>
                     <select
-                        className="border-input bg-background rounded-md border px-2 py-1.5 text-xs outline-none"
+                        className="border-input bg-background rounded-md border px-2 py-1.5 text-sm outline-none"
                         value={selCustomer}
                         onChange={(e) => setSelCustomer(e.target.value)}
                     >
@@ -755,7 +760,7 @@ function FormCollectionSection({
 
             {/* 已分配表单列表 */}
             {forms.length === 0 ? (
-                <p className="text-muted-foreground text-xs">暂未分配表单</p>
+                <p className="text-muted-foreground text-sm">暂未分配表单</p>
             ) : (
                 <div className="space-y-2">
                     {forms.map((f) => {
@@ -766,11 +771,10 @@ function FormCollectionSection({
                             <div
                                 key={f.id}
                                 onClick={() => onSelectForm?.(f)}
-                                className={`cursor-pointer space-y-1.5 rounded-md border p-2 text-xs transition ${
-                                    isSelected
-                                        ? "border-primary ring-primary/30 bg-primary/5 ring-1"
-                                        : "border-border hover:bg-muted/40"
-                                }`}
+                                className={`cursor-pointer space-y-1.5 rounded-md border p-2 text-xs transition ${isSelected
+                                    ? "border-primary ring-primary/30 bg-primary/5 ring-1"
+                                    : "border-border hover:bg-muted/40"
+                                    }`}
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex min-w-0 items-center gap-1.5">
@@ -803,18 +807,20 @@ function FormCollectionSection({
                                 <div className="text-muted-foreground">
                                     客户：{cust?.name || "—"}
                                     {isMike && f.matched_name && f.matched_name !== cust?.name && `（匹配到：${f.matched_name}）`}
-                                    {isMike && f.completed_time && (
-                                        <span className="text-emerald-600">
-                                            {" "}· 填写于 {new Date(f.completed_time).toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                                        </span>
-                                    )}
                                 </div>
-                                {f.form_url && (
+                                {!!f.form_url && (
                                     <div className="flex items-center gap-1">
                                         <code className="text-muted-foreground flex-1 truncate">{f.form_url}</code>
                                         <Button size="sm" variant="ghost" className="size-6 p-0" onClick={(e) => { e.stopPropagation(); copyLink(f.form_url!) }}>
                                             <Copy className="size-3" />
                                         </Button>
+                                    </div>
+                                )}
+                                {isMike && f.completed_time && !f.form_url && (
+                                    <div className="flex items-center gap-1 py-1">
+                                        <span className="text-muted-foreground flex-1 truncate text-xs">
+                                            填写于 {new Date(f.completed_time).toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                                        </span>
                                     </div>
                                 )}
                             </div>
@@ -887,7 +893,7 @@ export function FormCollectionCard(props: PluginSectionProps & { selectedId?: st
         <Card>
             <CardHeader>
                 <CardTitle>表单收集</CardTitle>
-                <CardDescription>简表 · 分配表单链接给客户填写</CardDescription>
+                <CardDescription>分配表单链接给客户填写</CardDescription>
             </CardHeader>
             <CardContent>
                 <FormCollectionSection {...props} std={std} />
