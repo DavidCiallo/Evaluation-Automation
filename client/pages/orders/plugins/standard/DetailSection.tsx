@@ -52,7 +52,6 @@ function OrderStatusFlow({ order }: PluginSectionProps) {
 function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { std: StandardPluginData }) {
     const draft = std.draft || null
     const confirmed = std.confirmed || null
-    const isConfirmed = !!confirmed
 
     const [editing, setEditing] = useState(false)
     const [busy, setBusy] = useState(false)
@@ -93,7 +92,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
     }, [order.id])
 
     const startEdit = () => {
-        const src = confirmed || draft
+        const src = draft || confirmed
         setEditName(src?.order_name ?? order.order_name ?? "")
         setEditPrice(src?.price ?? null)
         setEditCurrency(src?.currency ?? null)
@@ -107,7 +106,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
 
     const cancelEdit = () => setEditing(false)
 
-    const doConfirm = async () => {
+    const doSave = async () => {
         setBusy(true)
         try {
             const newName = editName.trim()
@@ -117,7 +116,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
             await orderApi.pluginAction({
                 id: order.id,
                 plugin_id: STANDARD_PLUGIN_ID,
-                action: "confirm",
+                action: "edit-order-info",
                 payload: {
                     order_name: newName,
                     price: editPrice,
@@ -127,11 +126,11 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                 },
                 auth,
             })
-            toast.success("已确认订单信息")
+            toast.success("订单信息已保存")
             setEditing(false)
             reload()
         } catch (e: any) {
-            toast.error(`确认失败: ${e?.message || ""}`)
+            toast.error(`保存失败: ${e?.message || ""}`)
         } finally {
             setBusy(false)
         }
@@ -167,7 +166,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
         }
     }
 
-    const src = confirmed || draft
+    const src = draft || confirmed
     const customers = src?.customers || []
 
     return (
@@ -180,8 +179,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                         <span className="min-w-0 truncate text-[15px] font-semibold">
                             {src?.order_name || order.order_name || "未命名订单"}
                         </span>
-                        {isConfirmed && <Badge className="shrink-0 text-[10px]">已确认</Badge>}
-                        {!isConfirmed && src && <Badge variant="secondary" className="shrink-0 text-[10px]">草稿</Badge>}
                     </div>
 
                     {/* 图标信息项 2×2 */}
@@ -398,8 +395,8 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                         <Button size="sm" variant="outline" onClick={cancelEdit}>
                             <X className="mr-1 size-3" /> 取消
                         </Button>
-                        <Button size="sm" onClick={doConfirm} disabled={busy}>
-                            <Check className="mr-1 size-3" /> 确认
+                        <Button size="sm" onClick={doSave} disabled={busy}>
+                            <Check className="mr-1 size-3" /> 保存
                         </Button>
                     </div>
                 </div>
@@ -565,10 +562,9 @@ function FormCollectionSection({
     selectedId, onSelectForm, bare,
 }: PluginSectionProps & { std: StandardPluginData; selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const forms = std.forms || []
-    const confirmed = std.confirmed
-    const customers = confirmed?.customers || std.draft?.customers || []
-    /** 表单阶段未就绪的原因（如尚未确认订单信息）；null 表示可执行 */
-    const assignBlocked = !confirmed ? "请先在订单信息卡中确认客户名单" : customers.length === 0 ? "订单信息中没有客户" : null
+    const customers = std.draft?.customers || std.confirmed?.customers || []
+    /** 表单阶段未就绪的原因（如订单里一个客户都没有）；null 表示可执行 */
+    const assignBlocked = customers.length === 0 ? "订单信息中没有客户" : null
 
     const [busy, setBusy] = useState(false)
     const [selForm, setSelForm] = useState("")
@@ -919,7 +915,7 @@ export function ItineraryCard(props: PluginSectionProps) {
 
 export function StandardCardBadge({ order }: { order: any }) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
-    const src = std.confirmed || std.draft
+    const src = std.draft || std.confirmed
     if (!src) return null
     const parts: string[] = []
     if (src.order_name) parts.push(src.order_name)

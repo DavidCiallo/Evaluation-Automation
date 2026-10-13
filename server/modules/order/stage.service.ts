@@ -55,10 +55,11 @@ function stdData(order: OrderEntity): StandardPluginData {
     return (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
 }
 
-/** 当前有效的客户名单：已确认优先，否则取草稿。 */
+/** 当前有效的客户名单：草稿优先。
+ *  拆单时名单即定稿，confirmed 只对存量订单还有意义，因此排在后面兜底。 */
 function effectiveCustomers(order: OrderEntity): OrderCustomerInfo[] {
     const std = stdData(order);
-    return std.confirmed?.customers || std.draft?.customers || [];
+    return std.draft?.customers || std.confirmed?.customers || [];
 }
 
 const REQUIRED_CUSTOMER_FIELDS: Array<{ key: keyof OrderCustomerInfo; label: string }> = [
@@ -99,9 +100,8 @@ async function evalRequirement(
 
     switch (key) {
         case "customers_present": {
-            if (customers.length > 0) return done(true);
-            const std = stdData(order);
-            return done(false, std.confirmed ? "已确认订单信息，但客户名单为空" : "尚未确认订单信息");
+            // 只看有没有人，「是否确认过」已不是概念——拆单即定稿
+            return customers.length > 0 ? done(true) : done(false, "尚无客户名单");
         }
 
         case "customers_complete": {

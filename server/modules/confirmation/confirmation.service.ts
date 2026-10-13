@@ -48,10 +48,10 @@ function toDTO(e: ConfirmationEntity, withUrl = true): ConfirmationDTO {
     };
 }
 
-/** 当前有效客户名单（已确认为准，回退草稿）——与 stage.service 的口径保持一致。 */
+/** 当前有效客户名单（草稿优先）——与 stage.service 的口径保持一致。 */
 function effectiveCustomers(order: OrderEntity): OrderCustomerInfo[] {
     const std = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-    return std.confirmed?.customers || std.draft?.customers || [];
+    return std.draft?.customers || std.confirmed?.customers || [];
 }
 
 /** 由订单的客户条目 + 客户档案组装签发快照。 */

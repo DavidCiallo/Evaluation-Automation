@@ -16,6 +16,7 @@ import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
+import type { OrderCustomerInfo } from "../../../shared/modules/order/plugins/standard.manifest";
 import { analyzeChat, buildCandidates, parseNamesFromChatName } from "./analysis";
 import { detectVisaType, composeOrderName, visaTypePrefix } from "../../../shared/modules/order/visa";
 import { dispatchPluginAction } from "../order/order.service";
@@ -45,6 +46,29 @@ async function resolveCustomerIds(candidates: CaseCustomerCandidate[]): Promise<
         out.push({ ...c, customer_id: profile?.id || null });
     }
     return out;
+}
+
+/** 按姓名查档案，没有就建一个（只有姓名，其余待客服补）。
+ *  与订单插件里的同名函数口径一致：拆单与手工建单不该产生两套档案规则。 */
+async function resolveCustomerIdByName(name: string): Promise<string | null> {
+    const q = name.trim().toLowerCase();
+    if (!q) return null;
+    const all = await customerRepo.findAllIgnoreDelete();
+    const hit = all.find((c: any) => (c.name || "").trim().toLowerCase() === q);
+    if (hit?.id) return hit.id;
+    const created = await customerRepo.insert({
+        name: name.trim(),
+        gender: null,
+        dob: null,
+        passport_no: null,
+        passport_expiry: null,
+        phone: null,
+        email: null,
+        wechat_id: null,
+        remark: "",
+        source: "manual",
+    });
+    return created.id;
 }
 
 // ---------- 查询 ----------
@@ -341,14 +365,20 @@ export async function confirmSplit(id: string, by: string, groups?: CaseSplitGro
             ? rawName
             : composeOrderName(visaType, [rawName]);
 
-        const draftCustomers = members.map((c) => ({
-            id: nanoid(8),
-            customer_id: c.customer_id || null,
-            name: c.name,
-            visa_type: null,
-            departure: null,
-            destination: null,
-        }));
+        const draftCustomers: OrderCustomerInfo[] = [];
+        for (const c of members) {
+            // 拆单时名单即定稿，因此顺带把档案绑上：后续账号分配、确认单签发
+            // 都按 customer_id 找人，留到「确认订单信息」再绑会多一个中间态。
+            const customerId = c.customer_id || (await resolveCustomerIdByName(c.name));
+            draftCustomers.push({
+                id: nanoid(8),
+                customer_id: customerId,
+                name: c.name,
+                visa_type: null,
+                departure: null,
+                destination: null,
+            });
+        }
 
         const order = await orderRepo.insert({
             order_name: orderName,

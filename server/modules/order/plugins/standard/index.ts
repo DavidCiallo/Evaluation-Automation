@@ -347,17 +347,14 @@ export const standardOrderPlugin: ServerOrderPlugin = {
     manifest: standardManifest,
 
     actions: {
-        /** 确认订单信息：payload = { order_name, price, currency, customers }
-         *  customers 项可含 customer_id（系统客户库引用）；缺省时按 name 自动建档案并回填。 */
-        confirm: async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+        /** 直接改写订单信息：payload = { order_name?, price?, currency?, customers? }。
+         *  拆单时名单已定稿，此后只是修改而非「确认」，因此写回 draft。
+         *  仍按姓名建/绑档案——客服新增的客户也需要 customer_id 才能往下走。 */
+        "edit-order-info": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const draft = migrateLegacyDraft(std, order.order_name);
-            // 显式传入的 customers 一律采纳（含空数组）——空数组意味着「就是要清空」，
-            // 不能回退到草稿，否则客服清空客户名单的意图会被静默忽略。
-            // 仅当完全没有传该字段时（如工作台一键确认）才用草稿兜底。
             const raw = Array.isArray(payload?.customers) ? payload.customers : (draft?.customers || []);
 
-            // 解析客户引用：无 customer_id 的（新增客户）→ 建/查 Customer 档案并回填
             const customers: OrderCustomerInfo[] = [];
             for (const c of raw) {
                 let customerId = c?.customer_id || null;
@@ -375,22 +372,23 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 });
             }
 
-            const confirmed: OrderInfoConfirmed = {
-                order_name: payload?.order_name ?? draft?.order_name ?? order.order_name ?? "",
-                price: payload?.price ?? draft?.price ?? null,
-                currency: payload?.currency ?? draft?.currency ?? null,
-                customers,
-            };
-            // 一个客户都没有的「确认」等于把订单推进到空阶段：后续分配表单、生成行程
-            // 都无从落地，却会让订单信息阶段显示为已完成。此处直接拒绝。
-            if (customers.length === 0) throw "请至少添加一位客户后再确认订单信息";
-            const unnamed = customers.filter((c) => !c.name);
-            if (unnamed.length > 0) throw "每位客户都必须有姓名";
+            if (customers.length === 0) throw "请至少保留一位客户";
+            if (customers.some((c) => !c.name)) throw "每位客户都必须有姓名";
             if (payload?.price != null && (!Number.isFinite(Number(payload.price)) || Number(payload.price) < 0)) {
                 throw "订单价格必须是非负数字";
             }
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { confirmed });
-            return { confirmed };
+
+            // price/currency 用 hasOwnProperty 判断而非 ??：编辑界面里「清空价格」
+            // 传的是显式 null，用 ?? 会被当成「没传」而保留旧值，清不掉。
+            const next: OrderInfoDraft = {
+                order_name: payload?.order_name ?? draft?.order_name ?? order.order_name ?? "",
+                price: "price" in (payload || {}) ? payload.price : (draft?.price ?? null),
+                currency: "currency" in (payload || {}) ? payload.currency : (draft?.currency ?? null),
+                customers,
+                raw: draft?.raw ?? null,
+            };
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { draft: next });
+            return { draft: next };
         },
 
         /** 列出系统客户档案（订单信息卡客户选择器数据源）。 */
@@ -440,7 +438,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
 
             // 行程单必须挂在真实客户上：否则会留下指向不存在客户的「幽灵行程」，
             // 界面上无法归属、也无法随客户删除而清理。
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
             if (!customers.some((c) => c.id === payload.customer_id)) {
                 throw "所选客户不属于本订单，请从订单信息的客户名单中选择";
             }
@@ -663,7 +661,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const it = (std.itineraries || []).find((i) => i.id === payload.itinerary_id);
             if (!it) throw "itinerary not found";
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
             const cust = customers.find((c) => c.id === it.customer_id);
             const customerName = cust?.name || order.customer_name || "";
             const content = buildItineraryMarkdown(it, customerName);
@@ -680,7 +678,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             if (!payload?.form_name || !payload?.customer_id) throw "form_name and customer_id are required";
             const providerDef = getFormProvider(payload.provider || "mike");
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
             const customerName = customers.find((c) => c.id === payload.customer_id)?.name || "";
             const matches = await providerDef.listMatches({ form_key: payload.form_name, customer_name: customerName });
             // 推荐项：提交时间与订单创建时间最接近的一份
@@ -703,7 +701,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const providerDef = getFormProvider(payload.provider);
 
             // 找到客户姓名用于预填（survey）或匹配提交（mike）
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
             const customer = customers.find((c) => c.id === payload.customer_id);
             // 客户必须属于本订单：否则会写出指向不存在客户的表单分配，
             // 界面无法展示、表单回收也无处归档。
@@ -798,7 +796,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
 
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const forms = std.forms || [];
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
             if (customers.length === 0) return { bound: [], skipped: [], reason: "no_customers" };
 
             // 已经绑过麦克的客户不再重复绑（除非显式要求全量重跑）
@@ -870,7 +868,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const form = forms.find((f) => f.id === payload.form_id);
             if (!form) throw "form assignment not found";
 
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
             const customerName = customers.find((c) => c.id === form.customer_id)?.name || "";
             const providerDef = getFormProvider(form.provider);
             const re = await providerDef.recheck({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
@@ -896,7 +894,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const form = (std.forms || []).find((f) => f.id === payload.form_id);
             if (!form) throw "form assignment not found";
 
-            const customers = std.confirmed?.customers || std.draft?.customers || [];
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
             const customerName = customers.find((c) => c.id === form.customer_id)?.name || "";
             const providerDef = getFormProvider(form.provider);
             const data: FormDataItem[] = await providerDef.fetchData({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
@@ -1023,8 +1021,8 @@ export const standardOrderPlugin: ServerOrderPlugin = {
      * 未声明的动作不做阶段准入（只读查询、清理、以及阶段之外的元动作）。
      */
     actionGates: {
-        // 订单信息阶段：确认订单信息本身就是该阶段的完成动作
-        confirm: { at: "order_info" },
+        // 订单信息阶段：名单与价格在拆单时落定，此后是直接编辑，没有「确认」这一步
+        "edit-order-info": { at: "order_info" },
         "list-customers": {},
         "generate-contract": { at: "order_info", require: ["customers_present"] },
 

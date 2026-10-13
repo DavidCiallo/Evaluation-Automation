@@ -58,7 +58,7 @@ export const ORDER_STAGES: OrderStageMeta[] = [
     {
         id: "order_info",
         label: "订单信息",
-        description: "确认客户名单（谁办这次签证）",
+        description: "客户名单与价格（拆单时已定，可直接修改）",
         optional: false,
         waivable: false,
         requirements: ["customers_present"],
@@ -139,7 +139,7 @@ export const ORDER_STAGE_LABEL: Record<OrderStageId, string> = ORDER_STAGES.redu
 
 /** 阶段准入项的展示名（未满足时的报错文案以此拼装）。 */
 export const ORDER_REQUIREMENT_LABEL: Record<OrderRequirementKey, string> = {
-    customers_present: "已确认订单信息（至少一位客户）",
+    customers_present: "有客户名单（至少一位）",
     customers_complete: "客户签证要素齐全（类型/出发地/目的地）",
     forms_assigned: "每位客户都已分配表单",
     confirmations_signed: "每位客户都已回签信息确认单",
