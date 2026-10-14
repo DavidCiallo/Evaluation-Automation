@@ -64,7 +64,8 @@ function SignerLines({ id }: { id: string }) {
                 const r = SIGNER_RESULT[s.result] || SIGNER_RESULT.pending
                 const extra = s.reason ? `（${s.reason}）` : ""
                 return (
-                    <span key={`${s.name}-${i}`} className={r.className}>
+                    // 每位签署人之间空三个字，否则前一个的「暂未签署」和后一个的名字挤在一起
+                    <span key={`${s.name}-${i}`} className={`${r.className} ${i > 0 ? "ml-[3em]" : ""}`}>
                         {/* 名字至少占四个字宽：短名和长名混排时状态文字才对齐 */}
                         <span className="inline-block min-w-[4em]">{s.name}</span>{" "}
                         {s.result === "ok" ? fmtSignTime(s.signed_at) : r.label}
