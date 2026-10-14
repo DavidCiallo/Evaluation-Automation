@@ -7,6 +7,8 @@
         "build": "rsbuild build",
         "dev": "rsbuild dev",
         "serve": "bun run server/app/index.ts",
+        "migrate": "bun run scripts/migrate-jsonl-to-sqlite.ts",
+        "seed:metrics": "bun run scripts/seed-metrics-demo.ts --days=10 --wipe",
         "reset": "rm -rf data && bun run server/app/index.ts"
     },
     "dependencies": {

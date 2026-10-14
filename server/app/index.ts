@@ -10,11 +10,14 @@ const staticPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 import { mounthttp, mountstatic } from "../lib/mount";
 import { authMount } from "../modules/auth/auth.controller";
 import { accountMount } from "../modules/account/account.controller";
-import { demoMount } from "../modules/demo/demo.controller";
-import { blogMount } from "../modules/blog/blog.controller";
 import { chatMount } from "../modules/chat/chat.controller";
 import { conversationMount } from "../modules/conversation/conversation.controller";
 import { orderMount } from "../modules/order/order.controller";
+import { caseMount } from "../modules/case/case.controller";
+import { confirmationMount } from "../modules/confirmation/confirmation.controller";
+import { accountPoolMount } from "../modules/account-pool/account-pool.controller";
+import { robotTaskMount } from "../modules/robot-task/robot-task.controller";
+import { formMount } from "../modules/form/form.controller";
 import { applicationMount } from "../modules/application/application.controller";
 import { customerMount } from "../modules/customer/customer.controller";
 import { fileMount } from "../modules/file/file.controller";
@@ -23,15 +26,37 @@ import { metricMount } from "../modules/metric/metric.controller";
 import { intentMount } from "../modules/intent/intent.controller";
 import { workbenchMount } from "../modules/workbench/workbench.controller";
 import { configMount } from "../modules/config/config.controller";
+import { integrationMount } from "../modules/config/integration.controller";
 import { syncMount } from "../modules/sync/sync.controller";
 import { exemptionMount } from "../modules/exemption/exemption.controller";
+import { emailMount } from "../modules/email/email.controller";
 import { startPoller } from "../modules/sync/sync.service";
 import { startMetricsJob } from "../modules/metric/metric.service";
+import { startMikeIngest } from "../modules/form/mike-ingest";
+import { startEmailLinkJob } from "../modules/email/email.service";
 import { isWxConfigured } from "../lib/wx";
 import { isWecomSeeded, seedFromWecomDb } from "../lib/seed-wecom";
+import { ensureIntegrationSettings, getIntegration } from "../lib/integration-settings";
+import { verifyToken } from "../lib/auth-guard";
 
-const PORT = parseInt(process.env.SERVER_PORT || process.env.PORT || "3300");
+/**
+ * multipart 上传不走 mounthttp（非 JSON 体），在此单独做与门禁一致的鉴权：
+ * token 来自请求头（Authorization Bearer / token / x-api-key）。
+ */
+function requireAuth(req: Request): string | null {
+    const token =
+        req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ||
+        req.headers.get("token") ||
+        req.headers.get("x-api-key") ||
+        "";
+    return verifyToken(token);
+}
+
+const PORT = parseInt(process.env.SERVER_PORT || process.env.PORT || "2900");
 await initialize();
+
+// 外围系统接入设置必须先于任何后台任务装载：任务启动时读取开关/间隔/地址
+await ensureIntegrationSettings();
 
 // Boot: import from WeCom DB if configured and not yet seeded
 if (process.env.WECOM_DB_PATH && !isWecomSeeded()) {
@@ -39,16 +64,21 @@ if (process.env.WECOM_DB_PATH && !isWecomSeeded()) {
 }
 
 // Start poller: live SDK or mock fallback. Skip only when static seed data was loaded.
+// 轮询开关由「系统配置 → 外围系统接入 · 会话源」维护（默认 off，需要摄入时在界面开启）。
 const seeded = isWecomSeeded();
-const sdkHost = process.env.SDK_HOST || "http://121.196.237.175:8899";
-const hasLiveSdk = sdkHost !== "http://127.0.0.1:8899";
-// if (isWxConfigured() || hasLiveSdk || !seeded) {
-//     startPoller().catch((e) => console.error("[boot] poller failed", e));
-// } else {
-//     console.log("[boot] data seeded from WeCom DB — poller disabled");
-// }
+const sdk = getIntegration("sdk");
+const hasLiveSdk = sdk.host !== "http://127.0.0.1:8899";
+if (!sdk.pollerEnabled) {
+    console.log("[boot] 会话轮询未启用 — ingestion disabled");
+} else if (sdk.source === "qixioma" || isWxConfigured() || hasLiveSdk || !seeded) {
+    startPoller().catch((e) => console.error("[boot] poller failed", e));
+} else {
+    console.log("[boot] data seeded from WeCom DB — poller disabled");
+}
 
 startMetricsJob();
+startMikeIngest();
+startEmailLinkJob();
 
 // @ts-ignore
 Bun.serve({
@@ -78,11 +108,23 @@ Bun.serve({
 
         // Upload material files (multipart/form-data) — 模块化：文件上传统一走 /api/file/upload
         if (pathName === "/api/file/upload" && req.method === "POST") {
+            if (!requireAuth(req)) {
+                return new Response(JSON.stringify({ success: false, message: "Authorization failed", data: null }), {
+                    status: 401,
+                    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+                });
+            }
             return fileMount.uploadMultipart(req);
         }
 
         // 兼容旧接口：订单材料上传也转交文件模块（迁移期保留）
         if (pathName === "/api/order/upload-material-file" && req.method === "POST") {
+            if (!requireAuth(req)) {
+                return new Response(JSON.stringify({ success: false, message: "Authorization failed", data: null }), {
+                    status: 401,
+                    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+                });
+            }
             return fileMount.uploadMultipart(req);
         }
 
@@ -91,6 +133,11 @@ Bun.serve({
             accountMount,
             chatMount,
             conversationMount,
+            caseMount,
+            confirmationMount,
+            accountPoolMount,
+            robotTaskMount,
+            formMount,
             orderMount,
             applicationMount,
             customerMount,
@@ -100,10 +147,10 @@ Bun.serve({
             intentMount,
             workbenchMount,
             configMount,
+            integrationMount,
             syncMount,
             exemptionMount,
-            demoMount,
-            blogMount,
+            emailMount,
         ]);
         if (apiResponse) return apiResponse;
 

@@ -1,35 +1,60 @@
 import Repository from "../../lib/repository";
 import { readSeq, writeSeq } from "../../lib/seq";
 import { ensureSeedData, generateNextEvent, mockReplyDelayMs, type MockEvent } from "../../lib/mock";
+import { getIntegration, onIntegrationChanged } from "../../lib/integration-settings";
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
-import type { ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
+import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
+import type { AccountEntity } from "../../../shared/modules/account/account.entity";
 
-const SDK_HOST = process.env.SDK_HOST || "http://127.0.0.1:8899";
-const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 5000);
+/** 会话源 SDK 地址/间隔/消息源均来自「系统配置 → 外围系统接入」，每次读取时解析。 */
+const LOCAL_SDK_HOST = "http://127.0.0.1:8899";
+
+function sdkHost(): string {
+    return getIntegration("sdk").host;
+}
+
+function pollIntervalMs(): number {
+    return getIntegration("sdk").intervalMs;
+}
+
+function syncSource(): "sdk" | "qixioma" {
+    return getIntegration("sdk").source;
+}
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let currentSeq = 0;
 let isPolling = false;
+/** 启动中的轮询器 promise；用于串行化并发的启动请求。 */
+let startPromise: Promise<void> | null = null;
+/** 当前运行中的消息源；未运行为 null。 */
+let runningSource: "sdk" | "qixioma" | null = null;
+/** 当前生效的轮询间隔（毫秒）；用于判断设置变更是否需要重启。 */
+let activeIntervalMs = 0;
+/**
+ * 停用代次：每次 stopPoller 自增。启动流程持有启动时的代次，
+ * 中途发现代次已变即放弃装定时器——否则「启动中收到停用」会漏掉。
+ */
+let stopGeneration = 0;
 
-/** True when SDK_HOST points to a real (non-localhost) SDK endpoint. */
+/** True when the configured SDK host points to a real (non-localhost) endpoint. */
 function hasLiveSdk(): boolean {
-    return SDK_HOST !== "http://127.0.0.1:8899";
+    return sdkHost() !== LOCAL_SDK_HOST;
 }
 
 export function isPollerRunning() {
     return intervalId !== null;
 }
 
-export function getPollerStatus(): { running: boolean; seq: number; source: "wx" | "mock" } {
-    return { running: intervalId !== null, seq: currentSeq, source: hasLiveSdk() ? "wx" : "mock" };
+export function getPollerStatus(): { running: boolean; seq: number; source: "wx" | "mock"; running_source: "sdk" | "qixioma" | null } {
+    return { running: intervalId !== null, seq: currentSeq, source: hasLiveSdk() ? "wx" : "mock", running_source: runningSource };
 }
 
 // ---------- ingest ----------
 
-const chatRepo: Repository<any> = Repository.instance("Chat");
-const memberRepo: Repository<any> = Repository.instance("ChatMember");
-const conversationRepo: Repository<any> = Repository.instance("Conversation");
+const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
+const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
+const conversationRepo: Repository<ConversationEntity> = Repository.instance("Conversation");
 const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
 
 async function ensureChat(roomid: string, fromId: string, tolist: string[]): Promise<string> {
@@ -110,7 +135,7 @@ async function ensureChat(roomid: string, fromId: string, tolist: string[]): Pro
 }
 
 async function resolveRole(wechatId: string): Promise<"agent" | "customer"> {
-    const accountRepo: Repository<any> = Repository.instance("Account");
+    const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
     const acc = await accountRepo.findOne({ wechat_id: wechatId });
     if (acc) return "agent";
     // Heuristic: agents seeded with prefix agent_ in mock mode
@@ -120,7 +145,7 @@ async function resolveRole(wechatId: string): Promise<"agent" | "customer"> {
 
 async function resolveMemberName(wechatId: string): Promise<string | null> {
     // 1. Try internal Account table first (agents)
-    const accountRepo: Repository<any> = Repository.instance("Account");
+    const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
     const acc = await accountRepo.findOne({ wechat_id: wechatId });
     if (acc?.name) return acc.name;
 
@@ -493,7 +518,7 @@ async function pollOnceFromSDK(): Promise<void> {
     if (isPolling) return;
     isPolling = true;
     try {
-        const res = await fetch(`${SDK_HOST}?k=${currentSeq}`);
+        const res = await fetch(`${sdkHost()}?k=${currentSeq}`);
         const body = await res.json();
         if (!body || !body.data) {
             if (body?.current_seq && body.current_seq > currentSeq) {
@@ -531,23 +556,100 @@ async function pollOnceFromMock(): Promise<void> {
     }
 }
 
+// ---------- 企小码（qixioma）消息源 ----------
+
+let qixiomaSkipped = 0;
+
+/**
+ * 从企小码 Web2API 增量拉取消息。每轮拉第 1 页（新消息在前），
+ * 逐条经 ingestMessage（msg_id 去重），遇到连续已入库的消息即停。
+ * 字段容错：sender/chatName 缺失（上游数据修复中）的消息跳过不落库，
+ * 因此在数据修复完成前切换到该源是安全的（不会产生脏会话）。
+ */
+async function pollOnceFromQixioma(): Promise<void> {
+    if (isPolling) return;
+    isPolling = true;
+    try {
+        const { qixiomaClient } = await import("../../lib/qixioma-client");
+        const { list } = await qixiomaClient.getMessages({ page: 1, limit: 100 });
+        let consecutiveKnown = 0;
+        for (const m of list) {
+            if (!m.msgid) continue;
+            const dup = await conversationRepo.findOne({ msg_id: m.msgid });
+            if (dup) {
+                consecutiveKnown++;
+                if (consecutiveKnown >= 3) break;
+                continue;
+            }
+            consecutiveKnown = 0;
+            // 字段缺失：跳过（上游 sender/chatName/msgtime 修复中）
+            if (!m.sender || !m.chatName) {
+                qixiomaSkipped++;
+                continue;
+            }
+            await ingestMessage({
+                msgid: m.msgid,
+                from: m.sender,
+                tolist: [],
+                roomid: `qixioma_${m.chatName}`,
+                msgtype: "text",
+                msgtime: m.msgtime || Date.now(),
+                text: { content: m.content },
+            });
+        }
+        if (qixiomaSkipped > 0 && qixiomaSkipped % 500 === 0) {
+            console.log(`[qixioma] ${qixiomaSkipped} message(s) skipped for missing sender/chatName (upstream data pending fix)`);
+        }
+    } catch (err) {
+        console.error("[qixioma] poll failed:", err);
+    } finally {
+        isPolling = false;
+    }
+}
+
 export async function startPoller(): Promise<void> {
     if (intervalId) return;
-    await ensureSeedData();
-    await backfillMissingSnapshots();
-    // Align every snapshot's unread_count with the current exemption config
-    // (no-op write when nothing changed, e.g. empty config).
-    await recomputeSnapshotUnread();
-    await backfillMissingImages();
-    currentSeq = readSeq();
-    const useLive = hasLiveSdk();
-    const fn = useLive ? pollOnceFromSDK : pollOnceFromMock;
-    console.log(`[Poller] started (source=${useLive ? "wx-sdk" : "mock"}, interval=${POLL_INTERVAL_MS}ms)`);
-    // Kick once immediately
-    await fn();
+    // 设置变更触发的重启是「先停后起」，两次快速变更可能并发进来；
+    // 用启动中的 promise 串行化，避免起出两个定时器。
+    if (startPromise) return startPromise;
+    // 启动过程含多个 await（种子数据、首次拉取），期间可能收到停用/改源请求；
+    // 用代次号让过期的启动流程自行放弃，否则停用之后定时器还会被装上。
+    const gen = stopGeneration;
+    startPromise = doStartPoller(gen).finally(() => { startPromise = null; });
+    return startPromise;
+}
+
+async function doStartPoller(gen: number): Promise<void> {
+    const cancelled = () => gen !== stopGeneration;
+    if (intervalId) return;
+
+    const interval = pollIntervalMs();
+    const source = syncSource();
+
+    if (source !== "qixioma") {
+        await ensureSeedData();
+        await backfillMissingSnapshots();
+        // Align every snapshot's unread_count with the current exemption config
+        // (no-op write when nothing changed, e.g. empty config).
+        await recomputeSnapshotUnread();
+        await backfillMissingImages();
+        if (cancelled()) return;
+        currentSeq = readSeq();
+    }
+
+    const useLive = source === "qixioma" ? false : hasLiveSdk();
+    const fn = source === "qixioma" ? pollOnceFromQixioma : useLive ? pollOnceFromSDK : pollOnceFromMock;
+    const label = source === "qixioma" ? "qixioma" : useLive ? "wx-sdk" : "mock";
+    // 先记状态再拉一次，避免首次拉取期间接口读到「未运行」
+    runningSource = source === "qixioma" ? "qixioma" : "sdk";
+    activeIntervalMs = interval;
     intervalId = setInterval(() => {
         fn().catch((e) => console.error("[Poller] tick error", e));
-    }, POLL_INTERVAL_MS);
+    }, interval);
+    console.log(`[Poller] started (source=${label}, interval=${interval}ms)`);
+    // Kick once immediately（失败不影响已运行的定时器）
+    await fn().catch((e) => console.error("[Poller] initial tick failed", e));
+    if (cancelled()) return;
 
     // Start metadata refresh (customer names + group chat names)
     if (useLive) {
@@ -561,9 +663,13 @@ export async function startPoller(): Promise<void> {
 }
 
 export function stopPoller(): void {
+    // 让进行中的启动流程作废（见 startPoller 的代次号说明）
+    stopGeneration++;
     if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
+        runningSource = null;
+        activeIntervalMs = 0;
         console.log(`[Poller] stopped (seq=${currentSeq})`);
     }
     if (metadataIntervalId) {
@@ -572,3 +678,31 @@ export function stopPoller(): void {
         console.log(`[metadata] refresh stopped`);
     }
 }
+
+/**
+ * 按当前设置重启轮询器：系统配置里改了「消息源 / SDK 地址 / 轮询间隔 / 启用开关」
+ * 后调用，无需重启进程。运行中的源与实际设置不一致时也会重启。
+ */
+export async function restartPoller(): Promise<void> {
+    const want = getIntegration("sdk");
+    const running = intervalId !== null;
+    // 开关、消息源、间隔任一变化都要重启才能生效
+    const needRestart = want.pollerEnabled !== running
+        || (want.pollerEnabled && (runningSource !== want.source || activeIntervalMs !== want.intervalMs));
+    if (!needRestart) return;
+    stopPoller();
+    if (!want.pollerEnabled) {
+        console.log("[Poller] disabled by settings");
+        return;
+    }
+    // 等待在途的启动流程结束，再按新设置启动
+    if (startPromise) await startPromise.catch(() => {});
+    await startPoller();
+}
+
+// 会话源设置变更时自动重启轮询器（消息源/地址/间隔/开关生效，无需重启进程）
+onIntegrationChanged((id) => {
+    if (id === "sdk") {
+        restartPoller().catch((e) => console.error("[Poller] restart failed:", e));
+    }
+});

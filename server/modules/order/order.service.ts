@@ -1,101 +1,53 @@
 /**
  * 订单内核服务（微内核第一层）。
- * 职责：订单 CRUD、6 态生命周期流转、群聊建单、备注时间线、插件数据袋读写、
+ * 职责：订单 CRUD、群聊建单、备注时间线、插件数据袋读写、
  *       插件动作分发与新消息钩子调度。业务能力全部交由插件实现。
+ *
+ * 订单没有粗粒度的 status：进度一律看阶段（shared/modules/order/stage.ts，
+ * 由业务证据推导），状态只看是否已取消（cancelled_at）。
  */
 import { nanoid } from "nanoid";
 import Repository from "../../lib/repository";
 import type {
     OrderEntity,
-    OrderStatus,
     RemarkEntry,
 } from "../../../shared/modules/order/order.entity";
-import { OrderDTO, ORDER_STATUS_FLOW, ORDER_STATUS_LABEL } from "../../../shared/modules/order/order.entity";
+import { OrderDTO } from "../../../shared/modules/order/order.entity";
 import type { ApplicantSummary, ApplicantDetail } from "../../../shared/modules/order/order.entity";
 import { APPLICATION_STATUS_LABEL } from "../../../shared/modules/application/application.entity";
 import type { ApplicationEntity } from "../../../shared/modules/application/application.entity";
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
+import type { AccountEntity } from "../../../shared/modules/account/account.entity";
+import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import { getOrderPlugin, getEnabledOrderPlugins, type PluginContext } from "./plugin-registry";
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest";
+import { getVisaType } from "../../../shared/modules/order/visa";
+import { agentLabel, isKnownAgent } from "../../../shared/modules/case/case.entity";
 
 const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
 const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
 const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
-const accountRepo: Repository<any> = Repository.instance("Account");
+const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 
 const PAGE_SIZE = 20;
 
 const appRepo: Repository<ApplicationEntity> = Repository.instance("Application");
 
-// ---------- 订单状态聚合推导 ----------
-
-/** 申请单状态 → 订单粗粒度阶段（取「最慢/最靠前的进行中阶段」作为订单阶段）。 */
-const APP_TO_ORDER_STAGE: Record<string, OrderStatus> = {
-    pending_receipt: "info_collection",
-    material_review: "material_preparation",
-    appointment: "process_handling",
-    submitted: "process_handling",
-    embassy_review: "process_handling",
-    approved: "completed",
-    refused: "process_handling",
-    withdrawn: "completed",
-    cancelled: "cancelled",
-};
-
-/**
- * 由下属申请单推导订单状态。
- * 规则：
- *  - 无申请单 → draft
- *  - 有拒签 → process_handling（警示，即使有人已出签）
- *  - 全部取消 → cancelled
- *  - 全部出签/取回 → completed
- *  - 否则取最靠前的进行中阶段（最慢的那个申请单决定订单进度）
- */
-export function deriveOrderStatus(applications: ApplicationEntity[]): OrderStatus {
-    if (!applications || applications.length === 0) return "draft";
-    if (applications.every((a) => a.status === "cancelled")) return "cancelled";
-    if (applications.some((a) => a.status === "refused")) return "process_handling";
-    let worst: OrderStatus = "completed";
-    for (const a of applications) {
-        const stage = APP_TO_ORDER_STAGE[a.status] || "draft";
-        if (ORDER_STATUS_FLOW.indexOf(stage) < ORDER_STATUS_FLOW.indexOf(worst)) worst = stage;
-    }
-    return worst;
-}
-
-/** 读订单当前申请单并刷新（写回）订单状态；返回刷新后的订单。 */
-export async function refreshOrderStatus(orderId: string): Promise<OrderEntity | null> {
-    const order = await orderRepo.findOne({ id: orderId });
-    if (!order) return null;
-    const apps = await appRepo.find({ order_id: orderId });
-    const derived = deriveOrderStatus(apps);
-    if (order.status !== derived) {
-        await orderRepo.atomicPatch({ id: orderId }, (row) => {
-            if (!row) return null;
-            return { status: derived, version: row.version + 1 };
-        });
-    }
-    return (await orderRepo.findOne({ id: orderId })) || order;
-}
-
 // ---------- 查询 ----------
 
 export async function findOrders(opts: {
     page: number;
+    /** 只看已取消（"cancelled"）或只看在办（"active"）；省略/ "all" 为全部 */
     status?: string;
     agent_id?: string | null;
     customer?: string | null;
     start?: number | null;
     end?: number | null;
 }): Promise<{ list: OrderEntity[]; total: number }> {
-    const where: Record<string, any> = {};
-    if (opts.status && opts.status !== "all") where.status = opts.status;
-
-    // JSONL 仅支持精确匹配，复杂过滤（参与客服/客户名/时间）在内存中完成。
-    let all = await orderRepo.find(where); // 默认按创建时间倒序
+    let all = await orderRepo.find(); // 默认按创建时间倒序
 
     if (opts.agent_id) all = all.filter((o) => (o.agent_ids || []).includes(opts.agent_id!));
     if (opts.customer) {
@@ -109,23 +61,21 @@ export async function findOrders(opts: {
     if (opts.start) all = all.filter((o) => o.create_time >= opts.start!);
     if (opts.end) all = all.filter((o) => o.create_time <= opts.end!);
 
+    // 只剩「是否已取消」这一个筛选维度：进度看阶段，不看粗粒度状态
+    if (opts.status === "cancelled") all = all.filter((o) => !!o.cancelled_at);
+    else if (opts.status === "active") all = all.filter((o) => !o.cancelled_at);
+
     const total = all.length;
     const offset = (opts.page - 1) * PAGE_SIZE;
     const list = all.slice(offset, offset + PAGE_SIZE);
     return { list, total };
 }
 
+/**
+ * 读取订单。**只读，不回写**。
+ */
 export async function findOne(id: string): Promise<OrderEntity | null> {
-    const order = await orderRepo.findOne({ id });
-    if (!order) return null;
-    // 兜底：读到时若状态偏离申请单实况，顺手纠正（正常路径由 application 模块写回）
-    const apps = await appRepo.find({ order_id: id });
-    const derived = deriveOrderStatus(apps);
-    if (order.status !== derived) {
-        await orderRepo.update({ id }, { status: derived });
-        return orderRepo.findOne({ id });
-    }
-    return order;
+    return orderRepo.findOne({ id });
 }
 
 export async function findByChat(chatId: string): Promise<OrderEntity | null> {
@@ -344,13 +294,13 @@ export async function ensureOrderForChat(chatId: string): Promise<OrderEntity | 
 
     return orderRepo.insert({
         order_name: chat?.name || customerRemark || customerName || "",
+        source: "wecom",
         chat_id: chatId,
         private_chat_id: privateChatId,
         customer_id: customer?.wechat_id || "",
         customer_name: customerName,
         customer_remark: customerRemark,
         agent_ids: agentIds,
-        status: "draft",
         remarks: [],
         data: {},
         version: 1,
@@ -405,13 +355,13 @@ export async function createOrderFromChat(chatId: string, orderName?: string): P
     if (chat.type !== "group") {
         return orderRepo.insert({
             order_name: orderName || customerRemark || customerName || "",
+            source: "wecom",
             chat_id: "",
             private_chat_id: chatId,
             customer_id: customer?.wechat_id || "",
             customer_name: customerName,
             customer_remark: customerRemark,
             agent_ids: agentIds,
-            status: "draft",
             remarks: [],
             data: draftData,
             version: 1,
@@ -426,13 +376,73 @@ export async function createOrderFromChat(chatId: string, orderName?: string): P
 
     return orderRepo.insert({
         order_name: orderName || chat?.name || customerRemark || customerName || "",
+        source: "wecom",
         chat_id: chatId,
         private_chat_id: privateChatId,
         customer_id: customer?.wechat_id || "",
         customer_name: customerName,
         customer_remark: customerRemark,
         agent_ids: agentIds,
-        status: "draft",
+        remarks: [],
+        data: draftData,
+        version: 1,
+    });
+}
+
+// ---------- 无会话建单（手动 / 邮件渠道） ----------
+
+/**
+ * 手动（或邮件渠道）建单：不依赖任何会话，chat_id/private_chat_id 留空。
+ * customer_id 为客户档案（Customer）id；档案缺失时仅凭姓名建单。
+ * 邮件模块建单时传 source="email"，客服手动建单传 "manual"（默认）。
+ */
+export async function createManualOrder(input: {
+    order_name?: string;
+    customer_id?: string | null;
+    customer_name?: string;
+    source?: "email" | "manual";
+}): Promise<OrderEntity> {
+    const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
+    let customerName = (input.customer_name || "").trim();
+    let customerWechatId = "";
+
+    if (input.customer_id) {
+        const profile = await customerRepo.findOne({ id: input.customer_id });
+        if (profile) {
+            customerName = customerName || profile.name || "";
+            customerWechatId = profile.wechat_id || "";
+        }
+    }
+    if (!customerName) throw "customer_name or customer_id is required";
+
+    const draftData = {
+        [STANDARD_PLUGIN_ID]: {
+            draft: {
+                order_name: input.order_name || customerName,
+                price: null,
+                currency: null,
+                customers: [{
+                    id: nanoid(8),
+                    customer_id: input.customer_id || null,
+                    name: customerName,
+                    visa_type: null,
+                    departure: null,
+                    destination: null,
+                }],
+                raw: null,
+            },
+        },
+    };
+
+    return orderRepo.insert({
+        order_name: input.order_name || customerName,
+        source: input.source || "manual",
+        chat_id: "",
+        private_chat_id: "",
+        customer_id: customerWechatId,
+        customer_name: customerName,
+        customer_remark: "",
+        agent_ids: [],
         remarks: [],
         data: draftData,
         version: 1,
@@ -441,27 +451,51 @@ export async function createOrderFromChat(chatId: string, orderName?: string): P
 
 // ---------- 生命周期流转 ----------
 
-export async function transition(id: string, target: OrderStatus, note: string): Promise<OrderEntity | null> {
+/**
+ * 订单级取消 / 恢复。
+ *
+ * 状态已改为「由申请单实况实时推导」，因此不再存在「手工把订单推到某个阶段」这回事：
+ * 阶段进度由证据（订单信息、表单、同意、行程、材料、申请单）决定。
+ * 唯一需要人工直接干预的是**整单取消** —— 它无法从申请单推导（申请单可能仍在进行），
+ * 故以 cancelled_at 作为显式覆盖，投影时优先于推导结果。
+ */
+export async function cancelOrder(id: string, reason: string, by: string): Promise<OrderEntity | null> {
     const cur = await orderRepo.findOne({ id });
     if (!cur) throw "order not found";
-    const curIdx = ORDER_STATUS_FLOW.indexOf(cur.status);
-    const tgtIdx = ORDER_STATUS_FLOW.indexOf(target);
-    if (tgtIdx < 0) throw `invalid status: ${target}`;
-    if (tgtIdx < curIdx) throw `cannot regress ${cur.status} → ${target}`;
-    if (tgtIdx === curIdx) return cur; // 原地不动视为无操作
+    if (cur.cancelled_at) return cur;
+    const trimmed = (reason || "").trim();
+    if (!trimmed) throw "取消订单必须填写原因";
 
     await orderRepo.atomicPatch({ id }, (row) => {
         if (!row) return null;
         const remarks = [...(row.remarks || [])];
-        if (note) {
-            remarks.push({
-                id: nanoid(6),
-                time: Date.now(),
-                content: `【${ORDER_STATUS_LABEL[target]}】${note}`,
-                source: "manual",
-            });
-        }
-        return { status: target, version: row.version + 1, remarks };
+        remarks.push({
+            id: nanoid(6),
+            time: Date.now(),
+            content: `【取消订单】${trimmed}${by ? `（${by}）` : ""}`,
+            source: "manual",
+        });
+        return { cancelled_at: Date.now(), cancel_reason: trimmed, cancelled_by: by || "", remarks, version: row.version + 1 };
+    });
+    return orderRepo.findOne({ id });
+}
+
+/** 恢复被取消的订单（误操作或客户回心转意）。 */
+export async function reopenOrder(id: string, reason: string, by: string): Promise<OrderEntity | null> {
+    const cur = await orderRepo.findOne({ id });
+    if (!cur) throw "order not found";
+    if (!cur.cancelled_at) return cur;
+
+    await orderRepo.atomicPatch({ id }, (row) => {
+        if (!row) return null;
+        const remarks = [...(row.remarks || [])];
+        remarks.push({
+            id: nanoid(6),
+            time: Date.now(),
+            content: `【恢复订单】${(reason || "").trim() || "未填原因"}${by ? `（${by}）` : ""}`,
+            source: "manual",
+        });
+        return { cancelled_at: null, cancel_reason: null, cancelled_by: null, remarks, version: row.version + 1 };
     });
     return orderRepo.findOne({ id });
 }
@@ -481,6 +515,17 @@ export async function setPluginData(orderId: string, pluginId: string, patch: Re
 /** 更新客户备注（订单标题）。 */
 export async function updateCustomerRemark(orderId: string, customerRemark: string): Promise<OrderEntity | null> {
     await orderRepo.update({ id: orderId }, { customer_remark: customerRemark });
+    return orderRepo.findOne({ id: orderId });
+}
+
+/**
+ * 设置订单级签证类型标记。
+ * 校验取值在字典内，避免写入拼错的值导致界面显示空白。
+ */
+export async function setOrderVisaType(orderId: string, visaType: string): Promise<OrderEntity | null> {
+    const value = String(visaType || "").trim();
+    if (value && !getVisaType(value)) throw "未知的签证类型";
+    await orderRepo.update({ id: orderId }, { visa_type: value });
     return orderRepo.findOne({ id: orderId });
 }
 
@@ -515,11 +560,21 @@ export async function dispatchPluginAction(
     const fn = plugin.actions?.[action];
     if (!fn) throw `action not found: ${pluginId}.${action}`;
 
+    // 阶段准入：动作自报所属阶段，内核统一拦截并在拒绝时回报具体缺口。
+    // 放在插件内部各写一遍的好处是不会漏、且规则集中可见。
+    const gate = plugin.actionGates?.[action];
+    if (gate?.at) {
+        const { checkActionGate } = await import("./stage.service");
+        const blocked = await checkActionGate(order, { at: gate.at, require: gate.require });
+        if (blocked) throw blocked;
+    }
+
     const ctx: PluginContext = {
         setPluginData: (pid, patch) => setPluginData(orderId, pid, patch),
         appendRemark: (content, source = "manual") => appendRemark(orderId, content, source).then(() => undefined),
     };
     const result = await fn(order, payload, ctx);
+    // 动作会写插件数据袋，阶段视图随之变化；读回最新订单保证返回与实况一致
     const updated = (await orderRepo.findOne({ id: orderId })) || order;
     return { result, order: updated };
 }
@@ -553,6 +608,10 @@ async function resolveAgentNames(agentIds: string[]): Promise<Map<string, string
     const accounts = await accountRepo.find({ wechat_id: { $in: unique } });
     for (const a of accounts) {
         if (a.wechat_id) map.set(a.wechat_id, a.name || a.wechat_id);
+    }
+    // 内置客服选项不在账号表里，先补上；调用方回落到 wechat_id 时也就能显示中文名
+    for (const id of unique) {
+        if (!map.has(id) && isKnownAgent(id)) map.set(id, agentLabel(id));
     }
     return map;
 }
@@ -603,6 +662,7 @@ export async function resolveApplicantsDetail(
             id: a.id,
             seq: a.seq ?? 0,
             is_lead: !!a.is_lead,
+            customer_id: a.customer_id || null,
             name: a.name || "",
             gender: a.gender ?? null,
             dob: a.dob ?? null,
@@ -622,22 +682,43 @@ export async function toDTO(order: OrderEntity): Promise<OrderDTO> {
     const nameMap = await resolveAgentNames(order.agent_ids || []);
     const sumMap = await resolveApplicantsSummaries([order]);
     const detailMap = await resolveApplicantsDetail([order]);
+    const evaluation = await computeStages(order);
     return new OrderDTO(order, {
         agent_names: (order.agent_ids || []).map((id) => nameMap.get(id) || id),
         applicants_summary: sumMap.get(order.id) || [],
         applicants_detail: detailMap.get(order.id) || [],
+        stages: evaluation.stages,
+        current_stage: evaluation.current,
+        stages_done: evaluation.all_done,
+        duration_ms: evaluation.duration_ms,
     });
 }
 
-export async function toDTOs(orders: OrderEntity[]): Promise<OrderDTO[]> {
+export async function toDTOs(orders: OrderEntity[], withStages = false): Promise<OrderDTO[]> {
     const nameMap = await resolveAgentNames(orders.flatMap((o) => o.agent_ids || []));
     const sumMap = await resolveApplicantsSummaries(orders);
     const detailMap = await resolveApplicantsDetail(orders);
+    // 阶段视图默认不算：列表展示卡片时用不到，算了会凭空多出每单一次材料查询。
+    // 订单管理的阶段/时间视图需要进度条，才显式要求（withStages=true）。
+    const stageMap = new Map<string, Awaited<ReturnType<typeof computeStages>>>();
+    if (withStages) {
+        for (const o of orders) stageMap.set(o.id, await computeStages(o));
+    }
     return orders.map(
         (o) => new OrderDTO(o, {
             agent_names: (o.agent_ids || []).map((id) => nameMap.get(id) || id),
             applicants_summary: sumMap.get(o.id) || [],
             applicants_detail: detailMap.get(o.id) || [],
+            stages: stageMap.get(o.id)?.stages,
+            current_stage: stageMap.get(o.id)?.current ?? null,
+            stages_done: stageMap.get(o.id)?.all_done ?? false,
+            duration_ms: stageMap.get(o.id)?.duration_ms ?? null,
         }),
     );
+}
+
+/** 阶段计算入口（动态 import 避免 order.service ↔ stage.service 的静态循环）。 */
+async function computeStages(order: OrderEntity) {
+    const { evaluateOrderStages } = await import("./stage.service");
+    return evaluateOrderStages(order);
 }

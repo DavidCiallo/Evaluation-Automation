@@ -8,6 +8,8 @@
  *   { msgid, from, tolist, roomid, msgtype, msgtime, text }
  */
 import Repository from "./repository";
+import type { ChatEntity, ChatMemberEntity } from "../../shared/modules/chat/chat.entity";
+import type { AccountEntity } from "../../shared/modules/account/account.entity";
 
 export interface MockEvent {
     msgid: string;
@@ -71,7 +73,7 @@ function pickDelay(): number {
     return 120_000 + Math.floor(Math.random() * 600_000); // 2-12min (anomalies)
 }
 
-async function upsertMember(memberRepo: Repository<any>, chatInternalId: string, wechatId: string, role: "agent" | "customer", name: string) {
+async function upsertMember(memberRepo: Repository<ChatMemberEntity>, chatInternalId: string, wechatId: string, role: "agent" | "customer", name: string) {
     const exist = await memberRepo.findOne({ chat_id: chatInternalId, wechat_id: wechatId });
     if (exist) {
         // If already exists but name is still the raw wechat_id, update it to the proper name
@@ -90,9 +92,9 @@ async function upsertMember(memberRepo: Repository<any>, chatInternalId: string,
 }
 
 export async function ensureSeedData() {
-    const chatRepo: Repository<any> = Repository.instance("Chat");
-    const memberRepo: Repository<any> = Repository.instance("ChatMember");
-    const accountRepo: Repository<any> = Repository.instance("Account");
+    const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
+    const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
+    const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 
     // If real data already exists (from WeCom import), skip mock seeding entirely
     const chatCount = await chatRepo.count();
@@ -118,13 +120,12 @@ export async function ensureSeedData() {
         const chatIdStr = `private_${[c.wechat_id, agent.wechat_id].sort().join("_")}`;
         const exist = await chatRepo.findOne({ chat_id: chatIdStr });
         if (!exist) {
-            await chatRepo.insert({
+            const chat = await chatRepo.insert({
                 chat_id: chatIdStr,
                 name: `${c.name} ↔ ${agent.name}`,
                 type: "single",
                 last_send_time: startedAt,
             });
-            const chat = await chatRepo.findOne({ chat_id: chatIdStr });
             await upsertMember(memberRepo, chat.id, agent.wechat_id, "agent", agent.name);
             await upsertMember(memberRepo, chat.id, c.wechat_id, "customer", c.name);
         }
@@ -136,13 +137,12 @@ export async function ensureSeedData() {
     const groupChatId = "group_demo_visa";
     const existGroup = await chatRepo.findOne({ chat_id: groupChatId });
     if (!existGroup) {
-        await chatRepo.insert({
+        const g = await chatRepo.insert({
             chat_id: groupChatId,
             name: "日本签证咨询群",
             type: "group",
             last_send_time: startedAt,
         });
-        const g = await chatRepo.findOne({ chat_id: groupChatId });
         await upsertMember(memberRepo, g.id, groupAgent.wechat_id, "agent", groupAgent.name);
         for (const c of groupCustomers) {
             await upsertMember(memberRepo, g.id, c.wechat_id, "customer", c.name);

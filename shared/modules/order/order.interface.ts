@@ -1,4 +1,4 @@
-import { OrderDTO, OrderStatus, ORDER_STATUS_FLOW } from "./order.entity";
+import { OrderDTO } from "./order.entity";
 
 export class OrderListRequest {
     public page: number;
@@ -7,6 +7,8 @@ export class OrderListRequest {
     public customer: string | null;
     public start: number | null;
     public end: number | null;
+    /** 是否附带阶段视图（订单管理的阶段/时间视图需要，卡片视图不需要） */
+    public with_stages: boolean;
     public auth?: string;
 
     constructor(data: any) {
@@ -16,6 +18,7 @@ export class OrderListRequest {
         this.customer = data.customer || null;
         this.start = data.start ? Number(data.start) : null;
         this.end = data.end ? Number(data.end) : null;
+        this.with_stages = !!data.with_stages;
         this.auth = data.auth;
     }
 
@@ -63,35 +66,39 @@ export class OrderDetailResponse {
     }
 }
 
-export class OrderTransitionRequest {
+/** 取消整单（note 必填：取消必须记原因）。 */
+export class OrderCancelRequest {
     public id: string;
-    public status: OrderStatus;
     public note: string;
     public auth?: string;
 
     constructor(data: any) {
         if (!data.id) throw new Error("id is required");
-        if (!ORDER_STATUS_FLOW.includes(data.status)) throw new Error("invalid status");
         this.id = data.id;
-        this.status = data.status;
         this.note = data.note || "";
         this.auth = data.auth;
     }
 
     static self(data: any) {
-        return new OrderTransitionRequest(data);
+        return new OrderCancelRequest(data);
     }
 }
 
-export class OrderTransitionResponse {
-    public success: boolean;
-    public data?: { order: OrderDTO };
-    public message?: string;
+/** 恢复被取消的订单（note 选填）。 */
+export class OrderReopenRequest {
+    public id: string;
+    public note: string;
+    public auth?: string;
 
-    constructor(data: { success: boolean; data?: { order: OrderDTO }; message?: string }) {
-        this.success = data.success;
-        this.data = data.data;
-        this.message = data.message;
+    constructor(data: any) {
+        if (!data.id) throw new Error("id is required");
+        this.id = data.id;
+        this.note = data.note || "";
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new OrderReopenRequest(data);
     }
 }
 
@@ -177,6 +184,24 @@ export class OrderRemarkRequest {
 
     static self(data: any) {
         return new OrderRemarkRequest(data);
+    }
+}
+
+export class OrderSetVisaTypeRequest {
+    public id: string;
+    public visa_type: string;
+    public auth?: string;
+
+    constructor(data: any) {
+        if (!data.id) throw new Error("id is required");
+        // 空串是合法值：表示清除标记
+        this.id = data.id;
+        this.visa_type = data.visa_type == null ? "" : String(data.visa_type).trim();
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new OrderSetVisaTypeRequest(data);
     }
 }
 
@@ -266,6 +291,39 @@ export class OrderRelatedChatsResponse {
         };
         message?: string;
     }) {
+        this.success = data.success;
+        this.data = data.data;
+        this.message = data.message;
+    }
+}
+
+/** 无会话建单（手动/邮件渠道）。 */
+export class OrderCreateRequest {
+    public order_name?: string;
+    public customer_id?: string | null;
+    public customer_name?: string;
+    public source: "email" | "manual";
+    public auth?: string;
+
+    constructor(data: any) {
+        this.order_name = data.order_name || undefined;
+        this.customer_id = data.customer_id || null;
+        this.customer_name = data.customer_name || undefined;
+        this.source = data.source === "email" ? "email" : "manual";
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new OrderCreateRequest(data);
+    }
+}
+
+export class OrderCreateResponse {
+    public success: boolean;
+    public data?: { order: OrderDTO };
+    public message?: string;
+
+    constructor(data: { success: boolean; data?: { order: OrderDTO }; message?: string }) {
         this.success = data.success;
         this.data = data.data;
         this.message = data.message;

@@ -1,4 +1,5 @@
 import Repository from "../../lib/repository";
+import type { AccountEntity } from "../../../shared/modules/account/account.entity";
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
@@ -8,7 +9,7 @@ const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
 const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
 const conversationRepo: Repository<ConversationEntity> = Repository.instance("Conversation");
 const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
-const accountRepo: Repository<any> = Repository.instance("Account");
+const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
 
 /**

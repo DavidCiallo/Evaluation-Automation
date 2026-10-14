@@ -7,6 +7,7 @@
  */
 import type { OrderPluginManifest } from "../plugin";
 import type { IntentDraftData } from "../../intent/intent.interface";
+import type { ItineraryConsent, OrderStageId, StageWaiver } from "../stage";
 
 export const STANDARD_PLUGIN_ID = "standard";
 
@@ -72,7 +73,7 @@ export interface OrderInfoConfirmed {
     customers: OrderCustomerInfo[];
 }
 
-// ============ 第二栏：表单收集（Typeform 占位） ============
+// ============ 第二栏：表单收集 ============
 
 /** 表单分配记录。 */
 export interface FormAssignment {
@@ -81,14 +82,28 @@ export interface FormAssignment {
     form_url: string | null;
     customer_id: string;
     status: "pending" | "sent" | "completed";
-    /** 简表系统中的记录 ID */
+    /** 表单来源：survey=简表（默认，兼容旧数据）；mike=麦客捕获（站外表单） */
+    provider?: "survey" | "mike";
+    /** survey：简表系统中的记录 ID；mike：匹配到的提交 key（formId|姓名|时间） */
     item_id?: string;
-    /** 简表鉴权 code */
+    /** survey 鉴权 code */
     code?: string;
-    /** 用于构造 URL 的 field_id */
+    /** survey：用于构造 URL 的 field_id */
     field_id?: string;
-    /** 完成时间戳 */
+    /**
+     * 客户提交这份表单的时间（来源系统给的原始时间）。
+     * 可能早于订单创建——客户常在拉群之前就自己填过表了。
+     */
     completed_time?: number;
+    /**
+     * 系统把它认定为已完成、绑定到本客户的时刻。
+     *
+     * 阶段耗时以此为准而非 completed_time：客户可能在建单前很久就填了表，
+     * 用提交时间会算出负耗时，也不反映「这一步在本单里是什么时候做完的」。
+     */
+    bound_time?: number;
+    /** mike 匹配到的提交人姓名 */
+    matched_name?: string | null;
 }
 
 /** 占位表单选项（已废弃，改为从简表 API 动态获取）。 */
@@ -172,6 +187,65 @@ export interface ItineraryGenerateInput {
     requirements?: string | null;
 }
 
+// ============ 机票任务（ctrip 系统） ============
+
+/** 乘客信息：护照等以申请单为预填真相，拼音姓/名与联系方式由客服确认。 */
+export interface TripPax {
+    /** 关联申请单 id */
+    application_id: string | null;
+    /** 中文姓名（展示用） */
+    name: string;
+    /** 拼音姓（大写，如 LIU） */
+    surname: string;
+    /** 拼音名（大写，如 CHONGGUANG） */
+    givenname: string;
+    /** "男" | "女" */
+    gender: string | null;
+    /** YYYY-MM-DD */
+    birthday: string | null;
+    /** 中文国籍名，默认 "中国" */
+    nationality: string | null;
+    passport_no: string | null;
+    /** YYYY-MM-DD，须晚于当年 12-31（ctrip 校验规则） */
+    passport_expiry: string | null;
+    /** 仅首位乘客（联系人）必填 */
+    phone: string | null;
+    /** 如 "+86" */
+    phone_area: string | null;
+    email: string | null;
+}
+
+/** 已挂到申请单材料的产物文件。 */
+export interface TripTaskAttachment {
+    name: string;
+    file_id: string;
+    application_id: string | null;
+    attached_time: number;
+}
+
+/** 一笔 ctrip 机票任务。存于 data["standard"].tripTasks。 */
+export interface TripTask {
+    id: string;
+    /** ctrip 系统任务 id（t-YYYYMMDD-HHMMSS-xxxx） */
+    task_id: string | null;
+    /** IATA 码 */
+    from: string;
+    to: string;
+    from_name: string | null;
+    to_name: string | null;
+    /** YYYY-MM-DD */
+    date: string;
+    return_date: string | null;
+    /** ctrip 任务状态（done 等）与阶段（finished 等） */
+    state: string;
+    stage: string;
+    attempts: number;
+    pax: TripPax[];
+    attachments: TripTaskAttachment[];
+    create_time: number;
+    update_time: number | null;
+}
+
 // ============ 插件数据袋 ============
 
 /** data["standard"] 的分片形状。 */
@@ -181,6 +255,11 @@ export interface StandardPluginData {
     forms?: FormAssignment[];
     materials?: MaterialEntry[];
     itineraries?: ItineraryEntry[];
+    tripTasks?: TripTask[];
+    /** 客户同意行程方案（方案 C：模型从对话识别为提示，客服确认为权威依据） */
+    itineraryConsent?: ItineraryConsent | null;
+    /** 阶段豁免：某可选阶段不适用于本单时由客服显式跳过，留痕可审计 */
+    stageWaivers?: Partial<Record<OrderStageId, StageWaiver>>;
 }
 
 export const standardManifest: OrderPluginManifest = {

@@ -15,7 +15,10 @@ import { DashboardPage } from "./pages/dashboard/DashboardPage";
 import { WorkbenchPage } from "./pages/workbench/WorkbenchPage";
 import { OrdersPage } from "./pages/orders/OrdersPage";
 import { OrderDetailPage } from "./pages/orders/OrderDetailPage";
+import { CasesPage } from "./pages/cases/CasesPage";
+import { CaseDetailPage } from "./pages/cases/CaseDetailPage";
 import { CustomerPage } from "./pages/customers/CustomerPage";
+import { EmailsPage } from "./pages/emails/EmailsPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
 import { StatisticsPage } from "./pages/settings/StatisticsPage";
 import { AgentConfigPage } from "./pages/settings/AgentConfigPage";
@@ -41,9 +44,12 @@ export default function App() {
                             <Route path="/dashboard" element={<DashboardPage />} />
                             <Route path="/workbench" element={<WorkbenchPage />} />
                             <Route path="/workbench/:chatId" element={<WorkbenchPage />} />
+                            <Route path="/cases" element={<CasesPage />} />
+                            <Route path="/cases/:id" element={<CaseDetailPage />} />
                             <Route path="/orders" element={<OrdersPage />} />
                             <Route path="/orders/:id" element={<OrderDetailPage />} />
                             <Route path="/customers" element={<CustomerPage />} />
+                            <Route path="/emails" element={<EmailsPage />} />
                             <Route path="/account" element={<AccountPage />} />
                             <Route path="/statistics" element={<StatisticsPage />} />
                             <Route path="/agent-config" element={<AgentConfigPage />} />

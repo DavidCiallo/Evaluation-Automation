@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, MessageSquare, Users, MessageCircle } from "lucide-react"
+import { ArrowLeft, MessageSquare, Users, MessageCircle, Send } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -17,15 +17,17 @@ import { ConversationDTO } from "../../../shared/modules/conversation/conversati
 import { conversationApi, orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
-import type { ApplicationDTO } from "../../../shared/modules/application/application.entity"
 import type { FormAssignment } from "../../../shared/modules/order/plugins/standard.manifest"
 import { ensureClientPluginsRegistered } from "./plugins/index"
 import { getEnabledClientOrderPlugins } from "./plugin-registry"
-import { ApplicationSection } from "./ApplicationSection"
-import { ApplicationDetailCard } from "./ApplicationDetailCard"
 import { FormDetailCard } from "./FormDetailCard"
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest"
-import { OrderInfoCard, FormCollectionCard, ItineraryCard, MaterialCard } from "./plugins/standard/DetailSection"
+import { VISA_TYPES } from "../../../shared/modules/order/visa"
+import { OrderInfoCard, FormCollectionCard, ItineraryCard } from "./plugins/standard/DetailSection"
+import { OrderStageBar } from "./StageBar"
+import { SendMaterialsDialog } from "./SendMaterialsDialog"
+import { ConfirmationCard } from "./ConfirmationCard"
+import { AccountPoolCard } from "./AccountPoolCard"
 
 ensureClientPluginsRegistered()
 
@@ -50,11 +52,9 @@ export function OrderDetailPage() {
     const [remark, setRemark] = useState("")
     const [busy, setBusy] = useState(false)
     // 主从联动：左侧选中 → 右侧详情查看
-    const [selApp, setSelApp] = useState<ApplicationDTO | null>(null)
     const [selForm, setSelForm] = useState<FormAssignment | null>(null)
-    // 右侧详情卡操作后刷新左侧申请单列表（重新拉取并联动更新选中）
-    const appSectionRef = useRef<{ reload: () => Promise<void> } | null>(null)
-    const handleAppChanged = () => { appSectionRef.current?.reload() }
+    // 发材料邮件
+    const [sendMailOpen, setSendMailOpen] = useState(false)
 
     const load = async () => {
         if (!params.id) return
@@ -143,51 +143,112 @@ export function OrderDetailPage() {
                         #{order.id.slice(0, 8)} · v{order.version}
                     </p>
                 </div>
-                <Badge>{order.status_label}</Badge>
+                {/* 取消是订单唯一的粗粒度标志：进度看阶段卡片，这里只区分在办/已取消 */}
+                {order.cancelled_at ? <Badge variant="destructive">已取消</Badge> : null}
+                {/* 签证类型是整单标记，用于辨认这单办哪个国家 */}
+                <select
+                    className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+                    value={order.visa_type || ""}
+                    disabled={busy}
+                    onChange={async (e) => {
+                        setBusy(true)
+                        try {
+                            await orderApi.setVisaType({ id: order.id, visa_type: e.target.value, auth })
+                            toast.success("签证类型已更新")
+                            await load()
+                        } catch (err: any) {
+                            toast.error(err?.message || "更新失败")
+                        } finally {
+                            setBusy(false)
+                        }
+                    }}
+                >
+                    <option value="">未标记签证类型</option>
+                    {VISA_TYPES.map((v) => (
+                        <option key={v.value} value={v.value}>
+                            {v.label}
+                        </option>
+                    ))}
+                </select>
+                {order.cancelled_at ? (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={async () => {
+                            const reason = window.prompt("恢复该订单的原因（可留空）") 
+                            if (reason === null) return
+                            setBusy(true)
+                            try {
+                                await orderApi.reopen({ id: order.id, note: reason, auth })
+                                toast.success("订单已恢复")
+                                load()
+                            } catch (e: any) {
+                                toast.error(`恢复失败: ${e?.message || ""}`)
+                            } finally {
+                                setBusy(false)
+                            }
+                        }}
+                    >
+                        恢复订单
+                    </Button>
+                ) : (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        disabled={busy}
+                        onClick={async () => {
+                            const reason = window.prompt("取消该订单的原因（必填）")
+                            if (reason === null) return
+                            if (!reason.trim()) {
+                                toast.error("必须填写取消原因")
+                                return
+                            }
+                            setBusy(true)
+                            try {
+                                await orderApi.cancel({ id: order.id, note: reason.trim(), auth })
+                                toast.success("订单已取消")
+                                load()
+                            } catch (e: any) {
+                                toast.error(`取消失败: ${e?.message || ""}`)
+                            } finally {
+                                setBusy(false)
+                            }
+                        }}
+                    >
+                        取消订单
+                    </Button>
+                )}
             </div>
 
-            {/* 订单信息 + 订单状态（最上方） */}
+            {/* 订单信息 + 订单阶段（最上方） */}
             <OrderInfoCard order={order} auth={auth} reload={load} />
 
             {/* 按行配对：左侧（span 2）操作 / 右侧（span 1）查看，items-stretch 保证同一行两边等高 */}
             <div className="space-y-4">
-                {/* 行1：申请单列表（只读，窄）↔ 申请单详情（每列一条，宽） */}
-                <div className="grid items-stretch gap-4 lg:grid-cols-3">
+                {/* 行1：表单收集（点选）↔ 表单详情（左右各半） */}
+                <div className="grid items-stretch gap-4 lg:grid-cols-2">
                     <Card className="lg:col-span-1">
                         <CardHeader>
-                            <CardTitle>申请单</CardTitle>
-                            <CardDescription>点击某位申请人，右侧查看详情与材料</CardDescription>
+                            <CardTitle>表单收集</CardTitle>
+                            <CardDescription>分配表单链接给客户填写</CardDescription>
                         </CardHeader>
-                        <CardContent>
-                            <ApplicationSection
-                                ref={appSectionRef}
-                                orderId={order.id}
+                        <CardContent className="flex h-full flex-col">
+                            <FormCollectionCard
+                                order={order}
                                 auth={auth}
-                                selectedId={selApp?.id || null}
-                                onSelect={setSelApp}
+                                reload={load}
+                                selectedId={selForm?.id || null}
+                                onSelectForm={setSelForm}
+                                bare
                             />
                         </CardContent>
                     </Card>
-                    <Card className="lg:col-span-2">
-                        <CardContent className="flex h-full flex-col pt-6">
-                            <ApplicationDetailCard app={selApp} auth={auth} onChanged={handleAppChanged} />
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* 行2：表单收集（点选）↔ 表单详情（左右各半） */}
-                <div className="grid items-stretch gap-4 lg:grid-cols-2">
-                    <FormCollectionCard
-                        order={order}
-                        auth={auth}
-                        reload={load}
-                        selectedId={selForm?.id || null}
-                        onSelectForm={setSelForm}
-                    />
-                    <Card>
+                    <Card className="lg:col-span-1">
                         <CardHeader>
                             <CardTitle>表单详情</CardTitle>
-                            <CardDescription>已分配表单的填写内容 · 查看</CardDescription>
+                            <CardDescription>已分配表单的填写内容</CardDescription>
                         </CardHeader>
                         <CardContent className="flex h-full flex-col">
                             <FormDetailCard order={order} form={selForm} auth={auth} />
@@ -195,11 +256,20 @@ export function OrderDetailPage() {
                     </Card>
                 </div>
 
-                {/* 行3：行程单 + 材料存档 ↔ 核心信息 */}
+                {/* 行2.5：信息确认（表单回收后、行程安排前） */}
+                <ConfirmationCard orderId={order.id} />
+
+                {/* 行2.6：办签账号（信息确认后、注册填表前） */}
+                <AccountPoolCard
+                    orderId={order.id}
+                    applications={(order.applicants_detail || []).map((a) => ({ id: a.id, name: a.name }))}
+                    reload={load}
+                />
+
+                {/* 行3：行程单（宽）↔ 核心信息 */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-3">
-                    <div className="space-y-4 lg:col-span-2">
+                    <div className="lg:col-span-2">
                         <ItineraryCard order={order} auth={auth} reload={load} />
-                        <MaterialCard order={order} auth={auth} reload={load} />
                     </div>
                     <Card>
                         <CardHeader>
@@ -234,6 +304,9 @@ export function OrderDetailPage() {
                                     </Link>
                                 </Button>
                             )}
+                            <Button variant="outline" size="sm" className="w-full" onClick={() => setSendMailOpen(true)}>
+                                <Send className="mr-1 size-3" /> 发材料邮件
+                            </Button>
                         </CardContent>
                     </Card>
                 </div>
@@ -251,6 +324,9 @@ export function OrderDetailPage() {
                     </Card>
                 ))}
             </div>
+
+            {/* 发材料邮件 */}
+            <SendMaterialsDialog open={sendMailOpen} onClose={() => setSendMailOpen(false)} order={order} auth={auth} />
 
             {/* 备注时间线 */}
             <Card>

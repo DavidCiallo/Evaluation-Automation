@@ -1,8 +1,8 @@
 /**
  * 标准订单插件（客户端）详情区块 — 三栏内联布局。
  * 第一栏：订单信息（草稿/确认），多客户签证信息，内联编辑
- * 第二栏：表单收集（info_collection 解锁），Typeform 占位
- * 第三栏：材料存档（material_preparation 解锁），文件上传
+ * 第二栏：表单收集（简表表单分配与完成状态）
+ * 第三栏：行程单（AI 生成）
  */
 import { useState, useEffect } from "react"
 import { nanoid } from "nanoid"
@@ -19,90 +19,32 @@ import {
     CardHeader,
     CardTitle,
 } from "@/client/components/ui/card"
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
+} from "@/client/components/ui/dialog"
 import { orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { PluginSectionProps } from "../../plugin-registry"
-import type { OrderStatus } from "../../../../../shared/modules/order/order.entity"
 import type { OrderDTO } from "../../../../../shared/modules/order/order.entity"
-import { ORDER_STATUS_FLOW, ORDER_STATUS_LABEL } from "../../../../../shared/modules/order/order.entity"
+import { OrderStageBar, stageBlockReason } from "../../StageBar"
 import {
     STANDARD_PLUGIN_ID,
     CURRENCY_OPTIONS,
-    MATERIAL_CATEGORIES,
     type OrderCustomerInfo,
     type FormAssignment,
-    type MaterialEntry,
     type StandardPluginData,
 } from "../../../../../shared/modules/order/plugins/standard.manifest"
 import { ItinerarySection } from "./ItinerarySection"
 
-// ---------- 工具函数 ----------
+// ---------- 订单阶段条（内嵌于订单信息卡片） ----------
 
-function statusIndex(s: OrderStatus): number {
-    return ORDER_STATUS_FLOW.indexOf(s)
-}
-
-function isUnlocked(orderStatus: OrderStatus, required: OrderStatus): boolean {
-    return statusIndex(orderStatus) >= statusIndex(required)
-}
-
-// ---------- 订单状态流转（内嵌于订单信息卡片） ----------
-
-/** 状态 stepper：横向圆点 + 连线 + 标签。过去步已完成色，当前步 primary 高亮，下一步可前进。 */
-function OrderStatusFlow({ order, reload }: PluginSectionProps) {
-    const [busy, setBusy] = useState(false)
-    const curIdx = ORDER_STATUS_FLOW.indexOf(order.status)
-
-    const onTransition = async (target: OrderStatus) => {
-        setBusy(true)
-        try {
-            await orderApi.transition({ id: order.id, status: target, note: "", auth: getAuth() })
-            toast.success(`已推进到「${ORDER_STATUS_LABEL[target]}」`)
-            reload()
-        } catch (e: any) {
-            toast.error(`状态变更失败: ${e?.message || ""}`)
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    return (
-        <div className="flex flex-wrap items-center">
-            {ORDER_STATUS_FLOW.map((s, idx) => {
-                const isCurrent = s === order.status
-                const isPast = idx < curIdx
-                const isNext = idx === curIdx + 1
-                const dotClass = isCurrent
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : isPast
-                    ? "border-transparent bg-emerald-500 text-white"
-                    : isNext
-                    ? "border-primary/60 bg-background text-primary"
-                    : "border-border bg-muted text-muted-foreground"
-                return (
-                    <div key={s} className="flex items-center">
-                        <button
-                            type="button"
-                            className="group flex items-center gap-1.5"
-                            disabled={!isNext || busy}
-                            title={isNext ? `推进到「${ORDER_STATUS_LABEL[s]}」` : undefined}
-                            onClick={() => onTransition(s)}
-                        >
-                            <span className={`flex size-5 items-center justify-center rounded-full border text-[10px] font-medium transition ${dotClass}`}>
-                                {isPast ? "✓" : idx + 1}
-                            </span>
-                            <span className={`text-xs transition ${isCurrent ? "text-foreground font-medium" : isPast ? "text-emerald-600" : "text-muted-foreground"}`}>
-                                {ORDER_STATUS_LABEL[s]}
-                            </span>
-                        </button>
-                        {idx < ORDER_STATUS_FLOW.length - 1 && (
-                            <span className={`mx-2 h-px w-4 ${idx < curIdx ? "bg-emerald-400" : "bg-border"}`} />
-                        )}
-                    </div>
-                )
-            })}
-        </div>
-    )
+/**
+ * 阶段条：只读展示服务端计算的阶段视图与缺口，不再提供手工推进按钮。
+ * 阶段靠完成对应业务动作推进（确认信息 / 分配表单 / 确认同意 / 生成行程…），
+ * 手工改状态已不再支持 —— 旧实现里点击「下一步」写库后会被推导覆盖。
+ */
+function OrderStatusFlow({ order }: PluginSectionProps) {
+    return <OrderStageBar stages={order.stages || []} current={order.current_stage ?? null} />
 }
 
 // ---------- 第一栏：订单信息 ----------
@@ -110,7 +52,6 @@ function OrderStatusFlow({ order, reload }: PluginSectionProps) {
 function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { std: StandardPluginData }) {
     const draft = std.draft || null
     const confirmed = std.confirmed || null
-    const isConfirmed = !!confirmed
 
     const [editing, setEditing] = useState(false)
     const [busy, setBusy] = useState(false)
@@ -151,7 +92,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
     }, [order.id])
 
     const startEdit = () => {
-        const src = confirmed || draft
+        const src = draft || confirmed
         setEditName(src?.order_name ?? order.order_name ?? "")
         setEditPrice(src?.price ?? null)
         setEditCurrency(src?.currency ?? null)
@@ -165,7 +106,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
 
     const cancelEdit = () => setEditing(false)
 
-    const doConfirm = async () => {
+    const doSave = async () => {
         setBusy(true)
         try {
             const newName = editName.trim()
@@ -175,7 +116,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
             await orderApi.pluginAction({
                 id: order.id,
                 plugin_id: STANDARD_PLUGIN_ID,
-                action: "confirm",
+                action: "edit-order-info",
                 payload: {
                     order_name: newName,
                     price: editPrice,
@@ -185,11 +126,11 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                 },
                 auth,
             })
-            toast.success("已确认订单信息")
+            toast.success("订单信息已保存")
             setEditing(false)
             reload()
         } catch (e: any) {
-            toast.error(`确认失败: ${e?.message || ""}`)
+            toast.error(`保存失败: ${e?.message || ""}`)
         } finally {
             setBusy(false)
         }
@@ -225,95 +166,84 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
         }
     }
 
-    const src = confirmed || draft
+    const src = draft || confirmed
     const customers = src?.customers || []
 
     return (
         <div className="space-y-3">
             {/* 展示区：名称标题 + 图标信息项 + 客户 chips + 操作（有数据且非编辑态） */}
             {src && !editing && (
-            <div className="rounded-lg border bg-muted/20 p-3">
-                {/* 名称行 */}
-                <div className="mb-2.5 flex items-center gap-2">
-                    <span className="min-w-0 truncate text-[15px] font-semibold">
-                        {src?.order_name || order.order_name || "未命名订单"}
-                    </span>
-                    {isConfirmed && <Badge className="shrink-0 text-[10px]">已确认</Badge>}
-                    {!isConfirmed && src && <Badge variant="secondary" className="shrink-0 text-[10px]">草稿</Badge>}
-                </div>
-
-                {/* 图标信息项 2×2 */}
-                <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 text-sm">
-                    {/* 价格 */}
-                    <div className="flex items-center gap-2">
-                        <Wallet className="text-muted-foreground size-4 shrink-0" />
-                        {src?.price != null ? (
-                            <span className="text-primary font-semibold">
-                                {src.currency === "CNY" ? "¥" : (src.currency || "CNY") + " "}{src.price.toLocaleString("zh-CN")}
-                            </span>
-                        ) : (
-                            <span className="text-muted-foreground">价格未定</span>
-                        )}
-                    </div>
-                    {/* 客服 */}
-                    <div className="flex items-center gap-2">
-                        <User className="text-muted-foreground size-4 shrink-0" />
-                        <span className="font-medium">
-                            {order.agent_names && order.agent_names.length > 0
-                                ? order.agent_names.join("、")
-                                : <span className="text-muted-foreground">暂无客服</span>}
+                <div className="rounded-lg border bg-muted/20 p-3">
+                    {/* 名称行 */}
+                    <div className="mb-2.5 flex items-center gap-2">
+                        <span className="min-w-0 truncate text-[15px] font-semibold">
+                            {src?.order_name || order.order_name || "未命名订单"}
                         </span>
                     </div>
-                    {/* 客户 */}
-                    <div className="flex items-start gap-2">
-                        <Users className="text-muted-foreground mt-0.5 size-4 shrink-0" />
-                        <div className="flex flex-wrap items-center gap-1">
-                            {customers.length > 0 ? (
-                                customers.map((c, i) => {
-                                    // customer_id 为主关联：显示时实时取档案名；查不到（档案被删）回退快照名
-                                    const live = c.customer_id
-                                        ? customerPool.find((x) => x.id === c.customer_id)?.name
-                                        : null
-                                    const shown = live ?? c.name ?? "未命名"
-                                    return (
-                                        <span key={c.id || i} className="inline-flex items-center gap-1">
-                                            <span className="font-medium">{shown}</span>
-                                            {i < customers.length - 1 && <span className="text-muted-foreground">、</span>}
-                                        </span>
-                                    )
-                                })
+
+                    {/* 图标信息项 2×2 */}
+                    <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 text-sm">
+                        {/* 价格 */}
+                        <div className="flex items-center gap-2">
+                            <Wallet className="text-muted-foreground size-4 shrink-0" />
+                            {src?.price != null ? (
+                                <span className="text-primary font-semibold">
+                                    {src.currency === "CNY" ? "¥" : (src.currency || "CNY") + " "}{src.price.toLocaleString("zh-CN")}
+                                </span>
                             ) : (
-                                <span className="text-muted-foreground">未选择</span>
+                                <span className="text-muted-foreground">价格未定</span>
                             )}
                         </div>
+                        {/* 客服 */}
+                        <div className="flex items-center gap-2">
+                            <User className="text-muted-foreground size-4 shrink-0" />
+                            <span className="font-medium">
+                                {order.agent_names && order.agent_names.length > 0
+                                    ? order.agent_names.join("、")
+                                    : <span className="text-muted-foreground">暂无客服</span>}
+                            </span>
+                        </div>
+                        {/* 客户 */}
+                        <div className="flex items-start gap-2">
+                            <Users className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                            <div className="flex flex-wrap items-center gap-1">
+                                {customers.length > 0 ? (
+                                    customers.map((c, i) => {
+                                        // customer_id 为主关联：显示时实时取档案名；查不到（档案被删）回退快照名
+                                        const live = c.customer_id
+                                            ? customerPool.find((x) => x.id === c.customer_id)?.name
+                                            : null
+                                        const shown = live ?? c.name ?? "未命名"
+                                        return (
+                                            <span key={c.id || i} className="inline-flex items-center gap-1">
+                                                <span className="font-medium">{shown}</span>
+                                                {i < customers.length - 1 && <span className="text-muted-foreground">、</span>}
+                                            </span>
+                                        )
+                                    })
+                                ) : (
+                                    <span className="text-muted-foreground">未选择</span>
+                                )}
+                            </div>
+                        </div>
+                        {/* 时间 */}
+                        <div className="flex items-center gap-2">
+                            <CalendarDays className="text-muted-foreground size-4 shrink-0" />
+                            <span className="text-muted-foreground">
+                                创建于 {new Date(order.create_time).toLocaleDateString("zh-CN")}
+                            </span>
+                        </div>
                     </div>
-                    {/* 时间 */}
-                    <div className="flex items-center gap-2">
-                        <CalendarDays className="text-muted-foreground size-4 shrink-0" />
-                        <span className="text-muted-foreground">
-                            创建于 {new Date(order.create_time).toLocaleDateString("zh-CN")}
-                        </span>
-                    </div>
-                </div>
 
-                {/* 操作栏 */}
-                {!editing && (
-                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-2.5">
-                        {!isConfirmed ? (
+                    {/* 操作栏 */}
+                    {!editing && (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-2.5">
                             <Button size="sm" onClick={startEdit} disabled={busy}>
-                                <Pencil className="mr-1 size-3" /> 编辑并确认
+                                <Pencil className="mr-1 size-3" /> 编辑
                             </Button>
-                        ) : (
-                            <Button size="sm" variant="outline" onClick={startEdit} disabled={busy}>
-                                <Pencil className="mr-1 size-3" /> 修改
-                            </Button>
-                        )}
-                        <Button size="sm" variant="secondary" onClick={generateContract} disabled={busy}>
-                            <FileText className="mr-1 size-3" /> 生成合同
-                        </Button>
-                    </div>
-                )}
-            </div>
+                        </div>
+                    )}
+                </div>
             )}
 
             {!src && !editing && (
@@ -380,7 +310,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                                 ? customerPool.filter((c) =>
                                     (c.name || "").toLowerCase().includes(q) ||
                                     (c.passport_no || "").toLowerCase().includes(q)
-                                  )
+                                )
                                 : customerPool
                             ).filter((c) => !unselectedIds.has(c.id)).slice(0, 8)
                             const showList = searchFocused && custSearch.trim() !== ""
@@ -465,8 +395,8 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                         <Button size="sm" variant="outline" onClick={cancelEdit}>
                             <X className="mr-1 size-3" /> 取消
                         </Button>
-                        <Button size="sm" onClick={doConfirm} disabled={busy}>
-                            <Check className="mr-1 size-3" /> 确认
+                        <Button size="sm" onClick={doSave} disabled={busy}>
+                            <Check className="mr-1 size-3" /> 保存
                         </Button>
                     </div>
                 </div>
@@ -477,9 +407,15 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
 
 // ---------- 第二栏：表单收集 ----------
 
-type TypeformFormInfo = { form_name: string; records_num: number; last_submit: number };
+/** 表单提供方（survey=简表 · 发链接；mike=麦客 · 匹配站外已填提交）。 */
+const PROVIDER_TABS: Array<{ id: "survey" | "mike"; label: string; action: string }> = [
+    { id: "survey", label: "简表", action: "生成表单链接" },
+    { id: "mike", label: "麦客", action: "匹配已有提交" },
+]
 
-/** 左侧表单项：显示已填多少项（对已有 item_id/code 的表单拉取填写数据条数）。 */
+type ProviderFormInfo = { key: string; name: string; provider: "survey" | "mike"; records_num?: number };
+
+/** 左侧表单项：显示已填多少项（拉取填写数据条数）。 */
 function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssignment; auth: string }) {
     const [count, setCount] = useState<number | null>(null)
     const [error, setError] = useState(false)
@@ -487,7 +423,7 @@ function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssig
     useEffect(() => {
         setCount(null)
         setError(false)
-        if (!form.item_id || !form.code) { setError(true); return }
+        if (!form.item_id) { setError(true); return }
         let alive = true
         orderApi.pluginAction({
             id: order.id,
@@ -497,7 +433,7 @@ function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssig
             auth,
         })
             .then((res: any) => {
-                if (alive) setCount((res?.data?.result?.data as any[])?.length ?? 0)
+                if (alive) setCount((res?.data?.result?.data as any[])?.filter((d: any) => d.field_type !== "meta")?.length ?? 0)
             })
             .catch(() => { if (alive) setError(true) })
             .finally(() => { alive = false })
@@ -514,39 +450,180 @@ function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssig
     )
 }
 
+/** 麦客提交挑选弹窗：列出该客户在该表单下的全部提交，默认选「与订单时间最接近」的一份。 */
+function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, customerName, onAssigned }: {
+    open: boolean
+    onClose: () => void
+    order: any
+    auth: string
+    formKey: string
+    customerId: string
+    customerName: string
+    onAssigned: () => void
+}) {
+    const [loading, setLoading] = useState(true)
+    const [matches, setMatches] = useState<Array<{ key: string; submitter_name: string; submit_time: number; form_name: string }>>([])
+    const [selected, setSelected] = useState<string>("")
+    const [busy, setBusy] = useState(false)
+
+    useEffect(() => {
+        if (!open) return
+        setLoading(true)
+        setMatches([])
+        setSelected("")
+        orderApi.pluginAction({
+            id: order.id,
+            plugin_id: STANDARD_PLUGIN_ID,
+            action: "search-form-submissions",
+            payload: { form_name: formKey, customer_id: customerId, provider: "mike" },
+            auth,
+        })
+            .then((res: any) => {
+                const r = res?.data?.result || {}
+                setMatches(r.matches || [])
+                setSelected(r.suggested || r.matches?.[0]?.key || "")
+            })
+            .catch(() => { /* 拉取失败时仍可直接关闭走手动 */ })
+            .finally(() => setLoading(false))
+    }, [open, formKey, customerId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    const confirm = async () => {
+        setBusy(true)
+        try {
+            await orderApi.pluginAction({
+                id: order.id,
+                plugin_id: STANDARD_PLUGIN_ID,
+                action: "assign-form",
+                payload: { form_name: formKey, customer_id: customerId, provider: "mike", submission_key: selected || null },
+                auth,
+            })
+            toast.success(selected ? "已关联所选提交" : "已创建分配（暂无匹配提交）")
+            onAssigned()
+            onClose()
+        } catch (e: any) {
+            toast.error(`分配失败: ${e?.message || ""}`)
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const fmt = (ts: number) => new Date(ts).toLocaleString("zh-CN", { hour12: false })
+    const rel = (ts: number) => {
+        const d = Math.floor((Date.now() - ts) / 86400_000)
+        return d <= 0 ? "今天" : `${d} 天前`
+    }
+
+    return (
+        <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+            <DialogContent className="max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>选择麦客提交</DialogTitle>
+                    <DialogDescription>
+                        {customerName} 在「{formKey.length > 20 ? formKey.slice(0, 20) + "…" : formKey}」下的全部提交，默认推荐与订单时间最接近的一份。
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="max-h-72 space-y-1.5 overflow-y-auto">
+                    {loading && <p className="text-muted-foreground p-2 text-xs">搜索站外提交中…</p>}
+                    {!loading && matches.length === 0 && (
+                        <p className="text-muted-foreground p-2 text-xs">
+                            未找到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。
+                        </p>
+                    )}
+                    {matches.map((m) => (
+                        <label key={m.key} className="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs hover:bg-muted/40">
+                            <input
+                                type="checkbox"
+                                className="accent-primary size-3.5"
+                                checked={selected === m.key}
+                                onChange={() => setSelected(m.key)}
+                            />
+                            <span className="font-medium">{m.submitter_name}</span>
+                            <span className="text-muted-foreground ml-auto">
+                                填写于 {fmt(m.submit_time)}（{rel(m.submit_time)}）
+                            </span>
+                        </label>
+                    ))}
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button size="sm" variant="outline">取消</Button>
+                    </DialogClose>
+                    <Button size="sm" onClick={confirm} disabled={busy || loading}>
+                        {selected ? "关联所选提交" : "仍要创建分配"}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
 function FormCollectionSection({
     order, std, auth, reload,
-    selectedId, onSelectForm,
-}: PluginSectionProps & { std: StandardPluginData; selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void }) {
+    selectedId, onSelectForm, bare,
+}: PluginSectionProps & { std: StandardPluginData; selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const forms = std.forms || []
-    const confirmed = std.confirmed
-    const customers = confirmed?.customers || std.draft?.customers || []
-    const unlocked = isUnlocked(order.status, "info_collection")
+    const customers = std.draft?.customers || std.confirmed?.customers || []
+    /** 表单阶段未就绪的原因（如订单里一个客户都没有）；null 表示可执行 */
+    const assignBlocked = customers.length === 0 ? "订单信息中没有客户" : null
 
     const [busy, setBusy] = useState(false)
     const [selForm, setSelForm] = useState("")
     const [selCustomer, setSelCustomer] = useState("")
-    const [typeformForms, setTypeformForms] = useState<TypeformFormInfo[]>([])
+    const [provider, setProvider] = useState<"survey" | "mike">("survey")
+    const [providerForms, setProviderForms] = useState<ProviderFormInfo[]>([])
+    const [formErrors, setFormErrors] = useState<Array<{ provider: string; message: string }>>([])
     const [loadingForms, setLoadingForms] = useState(false)
+    /** 麦客提交挑选弹窗 */
+    const [picker, setPicker] = useState<{ formKey: string; customerId: string; customerName: string } | null>(null)
 
-    // 动态加载简表表单列表
-    useEffect(() => {
-        if (!unlocked) return
+    // 动态加载全部提供方的表单列表（简表 + 麦客）
+    const loadForms = () => {
         setLoadingForms(true)
-        fetch("/api/order/typeform-forms", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...(auth ? { Authorization: auth } : {}) },
-            body: JSON.stringify({}),
+        orderApi.pluginAction({
+            id: order.id,
+            plugin_id: STANDARD_PLUGIN_ID,
+            action: "list-forms",
+            payload: {},
+            auth,
         })
-            .then((r) => r.json())
-            .then((d) => setTypeformForms(d?.data?.list || []))
-            .catch(() => {})
+            .then((res: any) => {
+                setProviderForms((res?.data?.result?.forms as ProviderFormInfo[]) || [])
+                setFormErrors((res?.data?.result?.errors as any[]) || [])
+            })
+            .catch(() => { })
             .finally(() => setLoadingForms(false))
-    }, [unlocked, auth])
+    }
+
+    useEffect(() => {
+        loadForms()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [order.id, auth])
+
+    // 已绑定表单里选一份作为默认：优先麦客（自动绑定产出的就是它），
+    // 否则取第一份。同理把 provider 切到对应的标签页——否则「表单收集」
+    // 打开时停在简表页，刚自动绑好的麦客记录要再点一下才看得见。
+    useEffect(() => {
+        if (forms.length === 0) return
+        if (selectedId && forms.some((f) => f.id === selectedId)) return
+        const first = forms.find((f) => f.provider === "mike") || forms[0]
+        if (first) {
+            onSelectForm?.(first)
+            setProvider(first.provider === "mike" ? "mike" : "survey")
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [forms.length, selectedId])
+
+    const visibleForms = providerForms.filter((f) => f.provider === provider)
 
     const assignForm = async () => {
         if (!selForm || !selCustomer) {
             toast.error("请选择表单和客户")
+            return
+        }
+        // 麦客：先拉该客户的站外提交列表供挑选（自动推荐与订单时间最接近的一份）
+        if (provider === "mike") {
+            const cust = customers.find((c) => c.id === selCustomer)
+            setPicker({ formKey: selForm, customerId: selCustomer, customerName: cust?.name || "" })
             return
         }
         setBusy(true)
@@ -555,7 +632,7 @@ function FormCollectionSection({
                 id: order.id,
                 plugin_id: STANDARD_PLUGIN_ID,
                 action: "assign-form",
-                payload: { form_name: selForm, customer_id: selCustomer },
+                payload: { form_name: selForm, customer_id: selCustomer, provider },
                 auth,
             })
             toast.success("表单链接已生成")
@@ -563,6 +640,25 @@ function FormCollectionSection({
             reload()
         } catch (e: any) {
             toast.error(`分配失败: ${e?.message || ""}`)
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const checkCompletion = async (formId: string) => {
+        setBusy(true)
+        try {
+            await orderApi.pluginAction({
+                id: order.id,
+                plugin_id: STANDARD_PLUGIN_ID,
+                action: "check-form-completion",
+                payload: { form_id: formId },
+                auth,
+            })
+            toast.success("已刷新完成状态")
+            reload()
+        } catch (e: any) {
+            toast.error(`刷新失败: ${e?.message || ""}`)
         } finally {
             setBusy(false)
         }
@@ -592,43 +688,46 @@ function FormCollectionSection({
         toast.success("链接已复制")
     }
 
-    if (!unlocked) {
-        return (
-            <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                    <Lock className="text-muted-foreground size-3" />
-                    <span className="text-muted-foreground text-sm">表单收集</span>
-                </div>
-                <p className="text-muted-foreground text-xs">推进到「信息收集」阶段后解锁</p>
-            </div>
-        )
-    }
+    const providerErr = formErrors.find((e) => e.provider === provider)
 
     return (
         <div className="space-y-3">
             <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">表单收集</span>
-                <Badge variant="outline" className="text-[10px]">简表</Badge>
+                {!bare && <span className="text-sm font-medium">表单收集</span>}
+                <div className="flex overflow-hidden rounded-md border">
+                    {PROVIDER_TABS.map((t) => (
+                        <button
+                            key={t.id}
+                            type="button"
+                            className={`px-2 py-0.5 text-[14px] transition ${provider === t.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                            onClick={() => { setProvider(t.id); setSelForm("") }}
+                        >
+                            {t.label}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* 分配新表单 */}
             <div className="space-y-2 rounded-md border p-2">
                 <div className="grid grid-cols-2 gap-2">
                     <select
-                        className="border-input bg-background rounded-md border px-2 py-1.5 text-xs outline-none disabled:opacity-50"
+                        className="border-input bg-background rounded-md border px-2 py-1.5 text-sm outline-none disabled:opacity-50"
                         value={selForm}
                         onChange={(e) => setSelForm(e.target.value)}
                         disabled={loadingForms}
                     >
-                        <option value="">{loadingForms ? "加载中…" : "选择表单"}</option>
-                        {typeformForms.map((f) => (
-                            <option key={f.form_name} value={f.form_name}>
-                                {f.form_name} ({f.records_num})
+                        <option value="">
+                            {loadingForms ? "加载中…" : providerErr ? `${PROVIDER_TABS.find((t) => t.id === provider)?.label}不可用` : "选择表单"}
+                        </option>
+                        {visibleForms.map((f) => (
+                            <option key={`${f.provider}:${f.key}`} value={f.key}>
+                                {f.name}{f.records_num != null ? ` (${f.records_num})` : ""}
                             </option>
                         ))}
                     </select>
                     <select
-                        className="border-input bg-background rounded-md border px-2 py-1.5 text-xs outline-none"
+                        className="border-input bg-background rounded-md border px-2 py-1.5 text-sm outline-none"
                         value={selCustomer}
                         onChange={(e) => setSelCustomer(e.target.value)}
                     >
@@ -638,51 +737,86 @@ function FormCollectionSection({
                         ))}
                     </select>
                 </div>
-                <Button size="sm" className="w-full" onClick={assignForm} disabled={busy || !selForm || !selCustomer}>
-                    <LinkIcon className="mr-1 size-3" /> 生成表单链接
+                <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={assignForm}
+                    disabled={busy || !selForm || !selCustomer || !!assignBlocked}
+                    title={assignBlocked || undefined}
+                >
+                    <LinkIcon className="mr-1 size-3" /> {PROVIDER_TABS.find((t) => t.id === provider)?.action}
                 </Button>
+                {assignBlocked && (
+                    <p className="text-muted-foreground text-[10px]">{assignBlocked}</p>
+                )}
+                {providerErr && (
+                    <p className="text-destructive text-[10px]">{providerErr.message}</p>
+                )}
             </div>
 
             {/* 已分配表单列表 */}
             {forms.length === 0 ? (
-                <p className="text-muted-foreground text-xs">暂未分配表单</p>
+                <p className="text-muted-foreground text-sm">暂未分配表单</p>
             ) : (
                 <div className="space-y-2">
                     {forms.map((f) => {
                         const cust = customers.find((c) => c.id === f.customer_id)
                         const isSelected = selectedId === f.id
+                        const isMike = f.provider === "mike"
                         return (
                             <div
                                 key={f.id}
                                 onClick={() => onSelectForm?.(f)}
-                                className={`cursor-pointer space-y-1.5 rounded-md border p-2 text-xs transition ${
-                                    isSelected
-                                        ? "border-primary ring-primary/30 bg-primary/5 ring-1"
-                                        : "border-border hover:bg-muted/40"
-                                }`}
+                                className={`cursor-pointer space-y-1.5 rounded-md border p-2 text-xs transition ${isSelected
+                                    ? "border-primary ring-primary/30 bg-primary/5 ring-1"
+                                    : "border-border hover:bg-muted/40"
+                                    }`}
                             >
                                 <div className="flex items-center justify-between">
-                                    <span className="font-medium">{f.form_name}</span>
-                                    <div className="flex items-center gap-1">
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                        <span className="truncate font-medium">{f.form_name}</span>
+                                        <Badge variant="outline" className="shrink-0 px-1 text-[9px]">{isMike ? "麦客" : "简表"}</Badge>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1">
                                         <FormFillCount order={order} form={f} auth={auth} />
                                         <Button
                                             size="sm"
                                             variant="ghost"
+                                            className="size-6 p-0"
+                                            title={isMike ? "重新匹配提交" : "刷新完成状态"}
+                                            onClick={(e) => { e.stopPropagation(); checkCompletion(f.id) }}
+                                            disabled={busy}
+                                        >
+                                            <RefreshCw className="size-3" />
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
                                             className="text-destructive size-6 p-0"
-                                            onClick={() => removeForm(f.id)}
+                                            onClick={(e) => { e.stopPropagation(); removeForm(f.id) }}
                                             disabled={busy}
                                         >
                                             <Trash2 className="size-3" />
                                         </Button>
                                     </div>
                                 </div>
-                                <div className="text-muted-foreground">客户：{cust?.name || "—"}</div>
-                                {f.form_url && (
+                                <div className="text-muted-foreground">
+                                    客户：{cust?.name || "—"}
+                                    {isMike && f.matched_name && f.matched_name !== cust?.name && `（匹配到：${f.matched_name}）`}
+                                </div>
+                                {!!f.form_url && (
                                     <div className="flex items-center gap-1">
                                         <code className="text-muted-foreground flex-1 truncate">{f.form_url}</code>
-                                        <Button size="sm" variant="ghost" className="size-6 p-0" onClick={() => copyLink(f.form_url!)}>
+                                        <Button size="sm" variant="ghost" className="size-6 p-0" onClick={(e) => { e.stopPropagation(); copyLink(f.form_url!) }}>
                                             <Copy className="size-3" />
                                         </Button>
+                                    </div>
+                                )}
+                                {isMike && f.completed_time && !f.form_url && (
+                                    <div className="flex items-center gap-1 py-1">
+                                        <span className="text-muted-foreground flex-1 truncate text-xs">
+                                            填写于 {new Date(f.completed_time).toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                                        </span>
                                     </div>
                                 )}
                             </div>
@@ -690,150 +824,19 @@ function FormCollectionSection({
                     })}
                 </div>
             )}
-        </div>
-    )
-}
 
-// ---------- 第三栏：材料存档 ----------
-
-function MaterialSection({ order, std, auth, reload }: PluginSectionProps & { std: StandardPluginData }) {
-    const materials = std.materials || []
-    const unlocked = isUnlocked(order.status, "material_preparation")
-
-    const [busy, setBusy] = useState(false)
-    const [selCategory, setSelCategory] = useState("")
-    const [fileInputRef, setFileInputRef] = useState<HTMLInputElement | null>(null)
-
-    const uploadFile = async (file: File) => {
-        if (!selCategory) {
-            toast.error("请先选择材料分类")
-            return
-        }
-        setBusy(true)
-        try {
-            const formData = new FormData()
-            formData.append("file", file)
-            const authObj = getAuth()
-            const uploadRes = await fetch("/api/file/upload", {
-                method: "POST",
-                headers: authObj ? { Authorization: authObj } : {},
-                body: formData,
-            })
-            const uploadData = await uploadRes.json()
-            const fileDto = uploadData?.data?.file
-            if (!uploadData?.success || !fileDto?.id) {
-                throw new Error(uploadData?.message || "文件上传失败")
-            }
-
-            await orderApi.pluginAction({
-                id: order.id,
-                plugin_id: STANDARD_PLUGIN_ID,
-                action: "upload-material",
-                payload: {
-                    file_id: fileDto.id,
-                    category: selCategory,
-                    uploaded_by: "",
-                },
-                auth,
-            })
-            toast.success(`已上传：${fileDto.filename}`)
-            setSelCategory("")
-            reload()
-        } catch (e: any) {
-            toast.error(`上传失败: ${e?.message || ""}`)
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    const deleteMaterial = async (id: string) => {
-        setBusy(true)
-        try {
-            await orderApi.pluginAction({
-                id: order.id,
-                plugin_id: STANDARD_PLUGIN_ID,
-                action: "delete-material",
-                payload: { material_id: id },
-                auth,
-            })
-            toast.success("已删除")
-            reload()
-        } catch (e: any) {
-            toast.error(`删除失败: ${e?.message || ""}`)
-        } finally {
-            setBusy(false)
-        }
-    }
-
-    if (!unlocked) {
-        return (
-            <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                    <Lock className="text-muted-foreground size-3" />
-                    <span className="text-muted-foreground text-sm">材料存档</span>
-                </div>
-                <p className="text-muted-foreground text-xs">推进到「材料制作」阶段后解锁</p>
-            </div>
-        )
-    }
-
-    return (
-        <div className="space-y-3">
-            <span className="text-sm font-medium">材料存档</span>
-
-            {/* 上传区 */}
-            <div className="space-y-2 rounded-md border p-2">
-                <select
-                    className="border-input bg-background rounded-md border px-2 py-1.5 text-xs outline-none"
-                    value={selCategory}
-                    onChange={(e) => setSelCategory(e.target.value)}
-                >
-                    <option value="">选择材料分类</option>
-                    {MATERIAL_CATEGORIES.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                    ))}
-                </select>
-                <input
-                    ref={setFileInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={(e) => {
-                        const f = e.target.files?.[0]
-                        if (f) uploadFile(f)
-                        e.target.value = ""
-                    }}
+            {/* 麦客提交挑选 */}
+            {picker && (
+                <MikeSubmitPicker
+                    open
+                    onClose={() => setPicker(null)}
+                    order={order}
+                    auth={auth}
+                    formKey={picker.formKey}
+                    customerId={picker.customerId}
+                    customerName={picker.customerName}
+                    onAssigned={() => { setSelForm(""); reload() }}
                 />
-                <Button
-                    size="sm"
-                    className="w-full"
-                    variant="outline"
-                    disabled={busy || !selCategory}
-                    onClick={() => fileInputRef?.click()}
-                >
-                    <Upload className="mr-1 size-3" /> 上传材料文件
-                </Button>
-            </div>
-
-            {/* 材料列表 */}
-            {materials.length === 0 ? (
-                <p className="text-muted-foreground text-xs">暂无已上传材料</p>
-            ) : (
-                <div className="space-y-1">
-                    {materials.map((m: MaterialEntry) => (
-                        <div key={m.id} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs">
-                            <Badge variant="outline" className="text-[10px]">{m.category}</Badge>
-                            <a href={m.file?.url} target="_blank" rel="noreferrer" className="flex-1 truncate underline">
-                                {m.file?.filename || "文件"}
-                            </a>
-                            <span className="text-muted-foreground">
-                                {new Date(m.upload_time).toLocaleDateString("zh-CN")}
-                            </span>
-                            <Button size="sm" variant="ghost" className="text-destructive size-6 p-0" onClick={() => deleteMaterial(m.id)} disabled={busy}>
-                                <Trash2 className="size-3" />
-                            </Button>
-                        </div>
-                    ))}
-                </div>
             )}
         </div>
     )
@@ -865,7 +868,6 @@ export function OrderInfoCard(props: PluginSectionProps) {
  * 标准订单详情区块 —— 拆成多张独立卡片（页面顶部「订单信息」卡由 OrderDetailPage 单独渲染）：
  *   ① 表单收集（简表）
  *   ② 行程单（AI 生成）
- *   ③ 材料存档（文件上传）
  */
 export function StandardDetailSection(props: PluginSectionProps) {
     const { order } = props
@@ -875,19 +877,19 @@ export function StandardDetailSection(props: PluginSectionProps) {
         <div className="space-y-4">
             <FormCollectionCard {...props} />
             <ItineraryCard {...props} />
-            <MaterialCard {...props} />
         </div>
     )
 }
 
-/** 表单收集卡（独立导出，供详情页按行配对渲染）。 */
-export function FormCollectionCard(props: PluginSectionProps & { selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void }) {
+/** 表单收集卡（独立导出，供详情页按行配对渲染）。bare=true 时不自带 Card 外壳（由页面提供）。 */
+export function FormCollectionCard(props: PluginSectionProps & { selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const std: StandardPluginData = (props.order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
+    if (props.bare) return <FormCollectionSection {...props} std={std} />
     return (
         <Card>
             <CardHeader>
                 <CardTitle>表单收集</CardTitle>
-                <CardDescription>简表 · 推进到「信息收集」后解锁</CardDescription>
+                <CardDescription>分配表单链接给客户填写</CardDescription>
             </CardHeader>
             <CardContent>
                 <FormCollectionSection {...props} std={std} />
@@ -896,13 +898,13 @@ export function FormCollectionCard(props: PluginSectionProps & { selectedId?: st
     )
 }
 
-/** 行程单卡（独立导出）。 */
+/** 行程单卡（独立导出）：ctrip 机票任务为主流程 + 手动行程单兜底。 */
 export function ItineraryCard(props: PluginSectionProps) {
     return (
         <Card>
             <CardHeader>
-                <CardTitle>行程单</CardTitle>
-                <CardDescription>AI 生成 · 每位客户一份</CardDescription>
+                <CardTitle>机票 / 行程</CardTitle>
+                <CardDescription>ctrip 机票任务 · 产物自动挂材料 · 手动行程单兜底</CardDescription>
             </CardHeader>
             <CardContent>
                 <ItinerarySection {...props} />
@@ -911,25 +913,9 @@ export function ItineraryCard(props: PluginSectionProps) {
     )
 }
 
-/** 材料存档卡（独立导出）。 */
-export function MaterialCard(props: PluginSectionProps) {
-    const std: StandardPluginData = (props.order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
-    return (
-        <Card>
-            <CardHeader>
-                <CardTitle>材料存档</CardTitle>
-                <CardDescription>推进到「材料制作」后解锁</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <MaterialSection {...props} std={std} />
-            </CardContent>
-        </Card>
-    )
-}
-
 export function StandardCardBadge({ order }: { order: any }) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
-    const src = std.confirmed || std.draft
+    const src = std.draft || std.confirmed
     if (!src) return null
     const parts: string[] = []
     if (src.order_name) parts.push(src.order_name)

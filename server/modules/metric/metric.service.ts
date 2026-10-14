@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import Repository from "../../lib/repository";
+import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { getConfigValue, setConfigValue } from "../config/config.service";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import type { ChatEntity } from "../../../shared/modules/chat/chat.entity";
@@ -18,7 +19,7 @@ import { loadBusinessConfig, loadAgentBusinessConfigs, toBusinessTime, crossesNo
 const conversationRepo: Repository<ConversationEntity> = Repository.instance("Conversation");
 const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
 const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
-const orderRepo: Repository<any> = Repository.instance("Order");
+const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -334,7 +335,17 @@ export async function computeOverview(): Promise<OverviewResult> {
             && !shouldSkipCustomerMessage(ex, row.chat_id, row.from_id, row.content)) todayVolume++;
     });
 
-    const pendingOrders = await orderRepo.count({ status: "draft" });
+    // 待处理 = 没取消、也还没走完所有阶段的订单。
+    // 进度只有阶段一个口径（order.service 里已无粗粒度状态），所以判据是
+    // cancelled_at + 阶段是否全部完成，而不是某个状态值。
+    const allOrders = await orderRepo.find();
+    const { evaluateOrderStages } = await import("../order/stage.service");
+    let pendingOrders = 0;
+    for (const o of allOrders) {
+        if (o.cancelled_at) continue;
+        const evaln = await evaluateOrderStages(o);
+        if (!evaln.all_done) pendingOrders++;
+    }
 
     return {
         today_volume: todayVolume,

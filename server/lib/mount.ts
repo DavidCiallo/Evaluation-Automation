@@ -1,15 +1,58 @@
 // @ts-nocheck
 import path from "path";
+import { verifyToken } from "./auth-guard";
 
 export interface RouteMount {
     routes: { base: string; prefix: string; [key: string]: any };
     handlers: Record<string, Function>;
 }
 
+/**
+ * 公开端点白名单：无需登录即可访问。其余 /api 路由一律要求有效 token
+ * （统一在此拦截，避免各 handler 自愿鉴权导致漏网）。
+ * - login  登录本身必须公开
+ * - alive  登录态探测（设计上允许无 token 调用并返回 Unauthorized）
+ * - confirmation/fetch|submit  客户回签入口：客户持 token 而非客服会话，
+ *   鉴权由 token 本身承担（不可猜、可撤销），见 confirmation.service
+ * - robot-task/callback  机器人回调：机器人没有客服会话，鉴权由
+ *   任务 id（不可猜）+ ROBOT_CALLBACK_TOKEN 承担，见 robot-task.controller
+ */
+const PUBLIC_PATHS = new Set<string>([
+    "/api/auth/login",
+    "/api/auth/alive",
+    "/api/confirmation/fetch",
+    "/api/confirmation/submit",
+    "/api/robot-task/callback",
+]);
+
+function unauthorized(): Response {
+    // 文案与前端 webhttp.ts 的重定向约定一致（message === "Authorization failed"）
+    return new Response(JSON.stringify({ success: false, message: "Authorization failed", data: null }), {
+        status: 401,
+        headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type, token, Authorization, x-api-key",
+        },
+    });
+}
+
 export async function mounthttp(req: Request, mounts: RouteMount[]): Promise<Response | null> {
     const url = new URL(req.url);
     const pathName = url.pathname;
     const method = req.method.toLowerCase();
+
+    // CORS 预检在鉴权与 handler 之前统一处理：避免 OPTIONS 触发业务 handler，
+    // 也避免被鉴权门禁误拦导致浏览器预检失败。
+    if (method === "options") {
+        return new Response(null, {
+            headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, token, Authorization, x-api-key",
+            },
+        });
+    }
 
     for (const mount of mounts) {
         const { routes, handlers } = mount;
@@ -53,6 +96,16 @@ export async function mounthttp(req: Request, mounts: RouteMount[]): Promise<Res
             } catch {
                 requertQuery = {};
             }
+
+            // 统一鉴权门禁：白名单外一律要求有效 token。
+            // token 来源：请求体 auth 字段（前端 create-client 统一注入）或请求头。
+            if (!PUBLIC_PATHS.has(fullPath)) {
+                const token = (requestBody && (requestBody as any).auth) || auth;
+                if (!verifyToken(token)) {
+                    return unauthorized();
+                }
+            }
+
             try {
                 const result = handler && (await handler({ ...requertQuery, auth, ...requestBody }));
 
@@ -102,16 +155,6 @@ export async function mounthttp(req: Request, mounts: RouteMount[]): Promise<Res
                 });
             }
         }
-    }
-
-    if (method === "options") {
-        return new Response(null, {
-            headers: {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, token, Authorization, x-api-key",
-            },
-        });
     }
 
     return null;

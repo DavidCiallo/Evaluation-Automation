@@ -36,9 +36,45 @@ const VISA_TYPE_PATTERNS: Array<[RegExp, string]> = [
 
 const INTENT_KEYWORDS = /(办|签证|申请|办理|加急|面签|材料|护照|出签|出签率|多少钱|费用)/i;
 
-/** 廉价的意图信号预判，用于在调用 LLM 前过滤掉"谢谢/好的"之类的消息。 */
+/**
+ * 客户同意办理行程/购票的表达（规则兜底用）。
+ * 只匹配明确的肯定答复，「考虑一下」「太贵了」「想改一下」这类不在此列。
+ *
+ * 注意否定/待定语境优先排除：中文里「行」既是肯定词又出现在「行程」中，
+ * 「确认」也常出现在「要确认一下」里，因此先判否再判肯。
+ */
+const CONSENT_PATTERNS: RegExp[] = [
+    // 明确指向方案的肯定：「就按这个办」「照这个来」
+    /(就|按|照)\s*(这|那)(个|样|么)\s*(办|做|来|定|走)/,
+    // 委托动作：帮我/麻烦/那就 + 订/买/出票
+    /(帮我|麻烦|那就|请)\s*(订|定|买|出)\s*(票|机票|行程)?/,
+    // 「同意/接受」+ 方案类名词
+    /(同意|接受)\s*(这个|该|此)?\s*(方案|报价|价格|行程|安排)/,
+    // 独立成句的肯定答复（要求前后无否定与待定词）
+    /(没问题|可以|好的|同意|赞成)\s*[，,。！!]?\s*$/,
+];
+
+/** 待定/否定/想改动的语境：命中则一律不视为同意。 */
+const CONSENT_NEGATIVE = /(考虑|想想|再看|再说|商量|犹豫|贵|便宜|改一下|改改|换一个|换下|不行|不要|不用|先不|暂时不|等一下|稍等|但是|不过|可是)/;
+
+/** 从文本中提取「客户疑似同意」信号：返回命中原文，未命中返回 null。 */
+export function detectConsentEvidence(text: string): string | null {
+    const t = (text || "").trim();
+    if (!t) return null;
+    if (CONSENT_NEGATIVE.test(t)) return null;
+    for (const re of CONSENT_PATTERNS) {
+        const m = t.match(re);
+        if (m) return m[0].slice(0, 30);
+    }
+    return null;
+}
+
+/** 廉价的意图信号预判，用于在调用 LLM 前过滤掉"谢谢/好的"之类的消息。
+ *  同意表达也算信号：客户对行程方案的肯定答复通常不含办签关键词，
+ *  若在此被过滤掉，同意信号将永远无法被识别。 */
 export function hasIntentSignal(text: string): boolean {
-    return INTENT_KEYWORDS.test(text || "");
+    const t = text || "";
+    return INTENT_KEYWORDS.test(t) || detectConsentEvidence(t) !== null;
 }
 
 function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentDraftData | null } {
@@ -114,6 +150,7 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentD
     if (!phone) missing.push("customer_phone");
     if (!departure) missing.push("departure");
 
+    const consentEvidence = detectConsentEvidence(text);
     return {
         hasIntent: true,
         draft: {
@@ -125,6 +162,8 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentD
             applicant_count: count ?? null,
             customer_phone: phone || null,
             missing_fields: missing,
+            itinerary_consent: consentEvidence !== null,
+            itinerary_consent_evidence: consentEvidence,
         },
     };
 }
@@ -158,7 +197,24 @@ async function extractDraftByLLM(messages: ConversationEntity[]): Promise<{ raw:
         customer_phone: parsed.customer_phone ?? null,
         customer_name: parsed.customer_name ?? null,
         missing_fields: Array.isArray(parsed.missing_fields) ? parsed.missing_fields : [],
+        itinerary_consent: parsed.itinerary_consent === true,
+        itinerary_consent_evidence:
+            typeof parsed.itinerary_consent_evidence === "string" ? parsed.itinerary_consent_evidence : null,
     };
+    // 模型给了证据但漏了布尔位（或反之）时取并集，避免因单字段缺失丢掉同意信号
+    if (!draft.itinerary_consent && draft.itinerary_consent_evidence) draft.itinerary_consent = true;
+    if (!draft.itinerary_consent_evidence) {
+        const evidence = detectConsentEvidence(
+            messages
+                .filter((m) => m.from_role === "customer")
+                .map((m) => m.content || "")
+                .join("\n"),
+        );
+        if (evidence) {
+            draft.itinerary_consent = true;
+            draft.itinerary_consent_evidence = evidence;
+        }
+    }
     return { raw, draft, hasIntent };
 }
 
@@ -179,12 +235,24 @@ export async function extractDraft(messages: ConversationEntity[]): Promise<{ dr
             return { draft: r.hasIntent ? r.draft : null, raw: r.raw };
         } catch (e) {
             console.error("[intent] LLM extract failed, fallback to rules:", e);
-            const r = extractDraftByRules(lastText);
-            return { draft: r.hasIntent ? r.draft : null, raw: "(rule-fallback)" };
+            return { draft: extractDraftByRules(lastText).draft, raw: "(rule-fallback)" };
         }
     }
-    const r = extractDraftByRules(lastText);
-    return { draft: r.hasIntent ? r.draft : null, raw: "(rule-fallback)" };
+    return { draft: extractDraftByRules(lastText).draft, raw: "(rule-fallback)" };
+}
+
+/**
+ * 独立的同意信号提取（不依赖办签意图是否成立）。
+ * 「好的，就按这个办」这类消息通常不含办签关键词，走意图提取会在入口被过滤掉；
+ * 因此本函数单独扫客户消息，供订单阶段推进时拾取同意信号。
+ */
+export function extractConsentSignal(messages: ConversationEntity[]): { detected: boolean; evidence: string | null } {
+    const customerText = messages
+        .filter((m) => m.from_role === "customer")
+        .map((m) => m.content || "")
+        .join("\n");
+    const evidence = detectConsentEvidence(customerText);
+    return { detected: evidence !== null, evidence };
 }
 
 /** 供 /intent/draft 端点使用：加载近期消息并提取草稿（纯提取，不建单）。 */

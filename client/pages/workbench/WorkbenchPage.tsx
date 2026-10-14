@@ -19,7 +19,6 @@ import {
     STANDARD_PLUGIN_ID,
     type StandardPluginData,
 } from "../../../shared/modules/order/plugins/standard.manifest"
-import { ORDER_STATUS_LABEL, type OrderStatus } from "../../../shared/modules/order/order.entity"
 
 type Chat = {
     id: string
@@ -59,8 +58,7 @@ type Order = {
     chat_id: string
     customer_name: string
     customer_remark: string
-    status: OrderStatus
-    status_label: string
+    cancelled_at: number | null
     agent_names: string[]
     data: Record<string, any>
     version: number
@@ -97,7 +95,6 @@ export function WorkbenchPage() {
     const [drafts, setDrafts] = useState<Order[]>([])
     const [summary, setSummary] = useState<string>("")
     const [loadingChat, setLoadingChat] = useState(false)
-    const [busyDraft, setBusyDraft] = useState(false)
     const [busySummary, setBusySummary] = useState(false)
     const [busyCreate, setBusyCreate] = useState(false)
     const [exempt, setExempt] = useState(false)
@@ -250,26 +247,6 @@ export function WorkbenchPage() {
             toast.error(`操作失败: ${e?.message || ""}`)
         } finally {
             setBusyExempt(false)
-        }
-    }
-
-    // 客服确认订单内容：将标准插件草稿固化为正式值
-    const confirmOrder = async (order: Order) => {
-        setBusyDraft(true)
-        try {
-            await orderApi.pluginAction({
-                id: order.id,
-                plugin_id: STANDARD_PLUGIN_ID,
-                action: "confirm",
-                payload: {},
-                auth,
-            })
-            toast.success("已确认订单内容")
-            await loadChat(selectedId!)
-        } catch (e: any) {
-            toast.error(`确认失败: ${e?.message || ""}`)
-        } finally {
-            setBusyDraft(false)
         }
     }
 
@@ -459,9 +436,9 @@ export function WorkbenchPage() {
                             <div className="flex items-center gap-2 text-sm font-medium">
                                 <Sparkles className="text-primary size-4" /> 订单与助手
                             </div>
-                            {activeOrder && (
-                                <Badge variant="outline">{activeOrder.status_label}</Badge>
-                            )}
+                            {activeOrder?.cancelled_at ? (
+                                <Badge variant="destructive">已取消</Badge>
+                            ) : null}
                         </div>
 
                         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
@@ -484,11 +461,7 @@ export function WorkbenchPage() {
                                     </div>
                                 )}
                                 {activeOrder && (
-                                    <OrderStandardCard
-                                        order={activeOrder}
-                                        busy={busyDraft}
-                                        onConfirm={() => confirmOrder(activeOrder)}
-                                    />
+                                    <OrderStandardCard order={activeOrder} />
                                 )}
                             </div>
 
@@ -543,10 +516,10 @@ export function WorkbenchPage() {
 }
 
 /** 工作台右侧标准订单卡片：展示摘要 + 跳转详情。 */
-function OrderStandardCard({ order, busy, onConfirm }: { order: Order; busy: boolean; onConfirm: () => void }) {
+function OrderStandardCard({ order }: { order: Order }) {
     const navigate = useNavigate()
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
-    const src = std.confirmed || std.draft
+    const src = std.draft || std.confirmed
     const orderName = src?.order_name || order.customer_remark || order.customer_name || "未命名订单"
     const price = src?.price
     const customers = src?.customers || []
@@ -583,11 +556,7 @@ function OrderStandardCard({ order, busy, onConfirm }: { order: Order; busy: boo
                 </div>
             )}
             <div className="flex gap-2">
-                <Button size="sm" className="flex-1" onClick={onConfirm} disabled={busy || !hasContent}>
-                    {busy ? <RefreshCw className="mr-1 size-3 animate-spin" /> : <Check className="mr-1 size-3" />}
-                    确认订单内容
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => navigate(`/orders/${order.id}`)}>
+                <Button size="sm" className="flex-1" onClick={() => navigate(`/orders/${order.id}`)}>
                     <ExternalLink className="mr-1 size-3" /> 查看详情
                 </Button>
             </div>
