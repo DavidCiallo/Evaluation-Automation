@@ -21,9 +21,6 @@ const COUNTRY_PATTERNS: Array<[RegExp, string]> = [
     [/澳洲|澳大利亚|悉尼|墨尔本|布里斯班/i, "澳洲"],
     [/韩国|首尔|济州/i, "韩国"],
     [/加拿大|多伦多|温哥华/i, "加拿大"],
-    [/新加坡|狮城/i, "新加坡"],
-    [/泰国|曼谷|普吉/i, "泰国"],
-    [/马来西亚|吉隆坡/i, "马来西亚"],
 ];
 
 const VISA_TYPE_PATTERNS: Array<[RegExp, string]> = [

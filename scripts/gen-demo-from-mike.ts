@@ -58,7 +58,7 @@ const COUNTRY_EN: Record<string, string> = {
     "西班牙": "Spain", "法国": "France", "德国": "Germany", "意大利": "Italy", "英国": "United Kingdom",
     "瑞士": "Switzerland", "葡萄牙": "Portugal", "希腊": "Greece", "荷兰": "Netherlands", "奥地利": "Austria",
     "日本": "Japan", "韩国": "South Korea", "美国": "United States", "加拿大": "Canada", "澳大利亚": "Australia",
-    "新西兰": "New Zealand", "泰国": "Thailand", "新加坡": "Singapore", "马来西亚": "Malaysia", "挪威": "Norway",
+    "新西兰": "New Zealand", "新加坡": "Singapore", "马来西亚": "Malaysia", "挪威": "Norway",
     "瑞典": "Sweden", "丹麦": "Denmark", "芬兰": "Finland", "冰岛": "Iceland", "土耳其": "Turkey",
 };
 

@@ -32,8 +32,6 @@ export const VISA_TYPES: VisaTypeOption[] = [
     { value: "au", label: "澳签", prefix: "澳签", aliases: ["澳签", "澳洲签", "澳大利亚签", "au"] },
     { value: "ca", label: "加签", prefix: "加签", aliases: ["加签", "加拿大签", "ca"] },
     { value: "kr", label: "韩签", prefix: "韩签", aliases: ["韩签", "韩国签", "韩国签证", "kr"] },
-    { value: "sg", label: "新加坡签", prefix: "新加坡签", aliases: ["新加坡签", "新加坡签证", "sg"] },
-    { value: "th", label: "泰签", prefix: "泰签", aliases: ["泰签", "泰国签", "泰国签证", "th"] },
     { value: "schengen", label: "申根签", prefix: "申根签", aliases: ["申根", "申根签", "schengen"] },
 ];
 
