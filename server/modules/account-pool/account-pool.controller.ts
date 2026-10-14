@@ -27,7 +27,7 @@ async function upsert(request: AccountPoolUpsertRequest) {
         email: req.email,
         password: req.password,
         label: req.label,
-        platform: req.platform,
+        platforms: req.platforms,
         outputs: req.outputs,
         remark: req.remark,
     });

@@ -115,7 +115,6 @@ export function AccountPoolCard({
     const poolProgress = stageBlockReason(stages, "account_allocation")
     /** 本单需要哪些平台：法签 → FV + TLS，申根 → VFS */
     const needed = requiredPlatforms(order?.visa_type)
-    const missingPlatforms = needed.filter((p) => !accounts.some((a) => a.platform === p))
 
     return (
         <Card>
@@ -133,14 +132,14 @@ export function AccountPoolCard({
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {poolBlocked ||
-                                `${order?.visa_type_label || "本单"}需要 ${
+                                `每位客户一个办签邮箱，勾上这个邮箱要注册的平台（${
                                     needed.map((p) => platformLabel(p)).join(" + ")
-                                } 平台；每个平台各注册一个号，客户在每个号上都要登记一次`}
+                                }），确定后派发`}
                         </CardDescription>
                         {!poolBlocked && poolProgress && (
                             <p className="text-muted-foreground mt-1 text-xs">
                                 {accounts.length === 0
-                                    ? `还没有账号，点右上角「拟定账号」按平台建号`
+                                    ? `还没有办签邮箱，点右上角「拟定账号」按客户名单建`
                                     : `还差：${poolProgress.replace(/^需先满足「[^」]*」：?/, "")}`}
                             </p>
                         )}
@@ -149,14 +148,14 @@ export function AccountPoolCard({
                         <Button
                             size="sm"
                             variant="outline"
-                            disabled={busy || !!poolBlocked || missingPlatforms.length === 0}
+                            disabled={busy || !!poolBlocked || unassigned.length === 0}
                             title={
                                 poolBlocked ||
-                                (missingPlatforms.length === 0
-                                    ? "所需平台都已建号"
-                                    : `将建立：${missingPlatforms.map((p) => platformLabel(p)).join("、")}`)
+                                (unassigned.length === 0
+                                    ? "每位客户都已有办签邮箱"
+                                    : `将为 ${unassigned.map((c) => c.name).join("、")} 各建一个邮箱`)
                             }
-                            onClick={() => run(() => accountPoolApi.plan({ order_id: orderId, auth }), "已按平台建号")}
+                            onClick={() => run(() => accountPoolApi.plan({ order_id: orderId, auth }), "已按客户名单建号")}
                         >
                             <Plus className="size-4" />
                             拟定账号
@@ -171,15 +170,13 @@ export function AccountPoolCard({
                     <p className="text-muted-foreground text-sm">
                         {poolBlocked
                             ? `还不能建号：${poolBlocked}。`
-                            : `尚未建号。点「拟定账号」会按本单所需的 ${needed
-                                  .map((p) => platformLabel(p))
-                                  .join(" + ")} 各建一个号。`}
+                            : "尚未建号。点「拟定账号」会按客户名单每人建一个邮箱，并预勾本单所需的平台。"}
                     </p>
                 )}
 
                 {unassigned.length > 0 && accounts.length > 0 && (
                     <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
-                        还有 {unassigned.length} 位客户没在全部平台上登记：{unassigned.map((c) => c.name).join("、")}
+                        还有 {unassigned.length} 位客户没有办签邮箱：{unassigned.map((c) => c.name).join("、")}
                     </div>
                 )}
 
@@ -189,20 +186,36 @@ export function AccountPoolCard({
                             <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${STATUS_CLASS[a.status] || ""}`}>
                                 {a.status_label}
                             </span>
-                            <select
-                                className="bg-background h-7 rounded-md border px-1 text-[11px]"
-                                disabled={busy || !!poolBlocked}
-                                value={a.platform}
-                                onChange={(e) =>
-                                    run(() => accountPoolApi.upsert({ id: a.id, platform: e.target.value as PoolPlatform, auth }))
-                                }
-                            >
-                                {POOL_PLATFORMS.map((p) => (
-                                    <option key={p.value} value={p.value}>
-                                        {p.label}
-                                    </option>
-                                ))}
-                            </select>
+                            {/* 平台是邮箱上的标签：勾上的都会用这个邮箱去注册 */}
+                            <div className="flex items-center gap-1">
+                                {POOL_PLATFORMS.map((p) => {
+                                    const on = a.platforms.includes(p.value)
+                                    return (
+                                        <button
+                                            key={p.value}
+                                            disabled={busy || !!poolBlocked}
+                                            title={poolBlocked || (on ? `取消注册 ${p.label}` : `这个邮箱也去注册 ${p.label}`)}
+                                            className={`rounded-md border px-1.5 py-0.5 text-[11px] disabled:opacity-50 ${
+                                                on ? "border-primary text-primary" : "text-muted-foreground"
+                                            }`}
+                                            onClick={() =>
+                                                run(() =>
+                                                    accountPoolApi.upsert({
+                                                        id: a.id,
+                                                        platforms: on
+                                                            ? a.platforms.filter((x) => x !== p.value)
+                                                            : [...a.platforms, p.value],
+                                                        auth,
+                                                    }),
+                                                )
+                                            }
+                                        >
+                                            {on ? "✓ " : ""}
+                                            {p.label}
+                                        </button>
+                                    )
+                                })}
+                            </div>
                             <Input
                                 defaultValue={a.email}
                                 placeholder="注册邮箱"
@@ -258,9 +271,9 @@ export function AccountPoolCard({
 
                         {a.error && <p className="text-destructive text-xs">{a.error}</p>}
 
-                        {/* 客户分配：同一平台内一位客户只属于一个账号，跨平台各登记一次 */}
+                        {/* 一位客户只有一个邮箱，所以这里通常就一个人 */}
                         <div className="flex flex-wrap items-center gap-2 pl-1">
-                            <span className="text-muted-foreground text-xs">登记客户：</span>
+                            <span className="text-muted-foreground text-xs">客户：</span>
                             {a.customer_ids.length === 0 && (
                                 <span className="text-muted-foreground text-xs">（无）</span>
                             )}
@@ -270,7 +283,7 @@ export function AccountPoolCard({
                                     <button
                                         key={x.id}
                                         disabled={busy || !!poolBlocked}
-                                        title={poolBlocked || "点击移出该账号"}
+                                        title={poolBlocked || "点击移出，回到未分配"}
                                         className="hover:border-destructive rounded-md border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
                                         onClick={() =>
                                             run(() => accountPoolApi.assign({ order_id: orderId, account_id: "", customer_ids: [x.id], auth }))
@@ -279,7 +292,7 @@ export function AccountPoolCard({
                                         {x.name} ×
                                     </button>
                                 ))}
-                            {customers.some((c) => !a.customer_ids.includes(c.id)) && (
+                            {unassigned.length > 0 && (
                                 <select
                                     className="bg-background h-7 rounded-md border px-1 text-[11px]"
                                     disabled={busy || !!poolBlocked}
@@ -292,14 +305,12 @@ export function AccountPoolCard({
                                         e.target.value = ""
                                     }}
                                 >
-                                    <option value="">+ 分配客户</option>
-                                    {customers
-                                        .filter((c) => !a.customer_ids.includes(c.id))
-                                        .map((x) => (
-                                            <option key={x.id} value={x.id}>
-                                                {x.name}
-                                            </option>
-                                        ))}
+                                    <option value="">+ 挂到本邮箱</option>
+                                    {unassigned.map((x) => (
+                                        <option key={x.id} value={x.id}>
+                                            {x.name}
+                                        </option>
+                                    ))}
                                 </select>
                             )}
                         </div>

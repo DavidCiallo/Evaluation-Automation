@@ -64,7 +64,8 @@ interface Row {
 
 function parseRow(r: Row): Record<string, any> {
     try {
-        return JSON.parse(r.data);
+        // id 是主键列，正常写入时也在 data 里；以列为准，手工写入的行才不会丢 id
+        return { ...JSON.parse(r.data), id: r.id };
     } catch {
         return { id: r.id };
     }

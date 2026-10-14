@@ -75,14 +75,14 @@ export async function findByEmail(email: string, excludeId?: string): Promise<Po
 }
 
 /**
- * 拟定账号：按订单签证类型所需的平台，每个平台建一个号，客户挂到每个号上。
+ * 拟定账号：订单每位客户各建一条邮箱记录，并按签证类型预勾要注册的平台。
  *
- * 为什么不再是「填个数、均分」：一个客户本来就要在多个平台各注册一次
- * （法签走 fv + tls），按人数拆号是另一个维度的事，跟平台无关。
+ * 为什么是「一人一行」而不是「一平台一行」：分配的单位是邮箱，不是平台。
+ * 一个客户拿一个邮箱去所有需要的平台注册（法签的邮箱同时挂 fv 和 tls），
+ * 平台只是这个邮箱身上的标签。按平台建行会让两个客户抢同一个号的位置，
+ * 那是不存在的约束。
  *
- * 幂等策略：已有该平台的号就保留，只补缺的平台；
- * 每个平台的号都承载订单的全部客户（客户是「都要填」，不是「分给谁」），
- * 已存在账号上客服手工摘掉的客户不再自动加回来。
+ * 幂等策略：已经挂了客户的邮箱行保留，只为还没有邮箱的客户补建。
  */
 export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]> {
     await assertAllocatable(orderId);
@@ -91,8 +91,9 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
     const customers = await customersOf(orderId);
     const existing = await listByOrder(orderId);
 
-    for (const platform of platforms) {
-        if (existing.some((a) => a.platform === platform)) continue;
+    const claimed = new Set(existing.flatMap((a) => a.customer_ids || []));
+    for (const customer of customers) {
+        if (claimed.has(customer.id)) continue;
         const now = Date.now();
         const row: PoolAccountEntity = {
             id: nanoid(8),
@@ -101,13 +102,13 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
             delete_time: null,
             order_id: orderId,
             seq: existing.length + 1,
-            label: `${platformLabel(platform)} 账号`,
-            platform,
+            label: customer.name || `客户 ${existing.length + 1}`,
             // 邮箱留空由客服/机器人补：系统不编造邮箱，避免生成无法注册的假地址
             email: "",
             password: "",
             status: "planned",
-            customer_ids: [],
+            customer_ids: [customer.id],
+            platforms: [...platforms],
             outputs: [],
             remark: null,
             error: null,
@@ -119,27 +120,13 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
         existing.push(row);
     }
 
-    // 每位客户都要在每个平台的号上各登记一次，所以是全量挂过去而不是均分
-    const customerIds = customers.map((c) => c.id);
-    for (const acct of existing) {
-        if (!platforms.includes(acct.platform)) continue;
-        const before = acct.customer_ids || [];
-        const merged = [...before];
-        for (const id of customerIds) {
-            if (!merged.includes(id)) merged.push(id);
-        }
-        if (JSON.stringify(before) !== JSON.stringify(merged)) {
-            await repo.update({ id: acct.id }, { customer_ids: merged, version: (acct.version || 1) + 1 });
-        }
-    }
-
     return listByOrder(orderId);
 }
 
 /** 手动填写或修改账号。 */
 export async function upsertAccount(
     id: string,
-    patch: { email?: string; password?: string; label?: string; platform?: PoolPlatform; outputs?: string[]; remark?: string },
+    patch: { email?: string; password?: string; label?: string; platforms?: PoolPlatform[]; outputs?: string[]; remark?: string },
 ): Promise<PoolAccountEntity> {
     const row = await findOne(id);
     if (!row) throw new Error("账号不存在");
@@ -150,7 +137,7 @@ export async function upsertAccount(
         // 有邮箱即视为方案已定，但注册状态要等机器人/人工回填
         await repo.update({ id }, { email: patch.email });
     }
-    if (patch.platform !== undefined) await repo.update({ id }, { platform: patch.platform });
+    if (patch.platforms !== undefined) await repo.update({ id }, { platforms: patch.platforms });
     if (patch.outputs !== undefined) await repo.update({ id }, { outputs: patch.outputs });
     if (patch.password !== undefined) await repo.update({ id }, { password: patch.password });
     if (patch.label !== undefined) await repo.update({ id }, { label: patch.label });
@@ -179,16 +166,10 @@ export async function assignCustomers(
     for (const id of ids) {
         if (!ownIds.has(id)) throw new Error(`客户 ${id} 不属于本订单`);
     }
-    const target = accountId ? all.find((a) => a.id === accountId) : null;
-    if (accountId && !target) throw new Error("目标账号不属于本订单");
+    if (accountId && !all.some((a) => a.id === accountId)) throw new Error("目标账号不属于本订单");
 
-    // 摘除时以被摘账号的平台为准（传空 account_id 时按第一个持有该客户的账号判断）
-    const platform = target
-        ? target.platform
-        : all.find((a) => (a.customer_ids || []).some((x) => ids.has(x)))?.platform;
-
+    // 一位客户只有一个邮箱，所以挂到目标行时必须先从别的行摘掉
     for (const acct of all) {
-        if (platform && acct.platform !== platform) continue;
         const isTarget = acct.id === accountId;
         const kept = (acct.customer_ids || []).filter((x) => !ids.has(x));
         const next = isTarget ? [...kept, ...ids] : kept;
@@ -232,7 +213,7 @@ export async function markAccountResult(
 }
 
 /**
- * 组装机器人的填表计划：一个账号 + 它承载的申请人资料。
+ * 组装机器人的填表计划：一个邮箱 + 它要去注册的平台 + 该客户的资料。
  *
  * 资料优先级：客户回签过的确认单快照 > 订单客户条目 + 客户档案。
  * 回签过的才是客户认可的版本，机器人应照此填表。
@@ -268,7 +249,7 @@ export async function buildFillPlan(account: PoolAccountEntity): Promise<Account
 
     return {
         account_id: account.id,
-        platform: account.platform || "fv",
+        platforms: account.platforms || [],
         email: account.email || "",
         password: account.password || "",
         applicants,

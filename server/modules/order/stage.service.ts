@@ -176,19 +176,28 @@ async function evalRequirement(
             if (customers.length === 0) return done(false, "尚无客户名单，先确认客户");
             if (accounts.length === 0) return done(false, "尚未建立办签账号");
 
-            // 每位客户都要在本单所需的**每个平台**上各登记一次，
-            // 所以判的是「客户 × 平台」这个组合都有人承载，而不是客户归属唯一账号。
-            const missing: string[] = [];
-            for (const platform of requiredPlatforms(order.visa_type)) {
-                const onPlatform = accounts.filter((a) => (a.platform || "fv") === platform);
-                if (onPlatform.length === 0) {
-                    missing.push(`${platformLabel(platform)} 平台还没有账号`);
-                    continue;
+            // 一位客户一个邮箱，所以先看客户是否都分到了邮箱，
+            // 再看这些邮箱有没有把本单需要的平台都勾上（法签要 fv + tls）。
+            const needed = requiredPlatforms(order.visa_type);
+            const byCustomer = new Map<string, PoolAccountEntity>();
+            for (const a of accounts) {
+                for (const cid of a.customer_ids || []) {
+                    if (!byCustomer.has(cid)) byCustomer.set(cid, a);
                 }
-                const claimed = new Set(onPlatform.flatMap((a) => a.customer_ids || []));
-                const gap = customers.filter((c) => !claimed.has(c.id));
+            }
+            const missing: string[] = [];
+            const noBox = customers.filter((c) => !byCustomer.has(c.id));
+            if (noBox.length > 0) {
+                missing.push(`${noBox.length} 位客户没有办签邮箱：${noBox.map((c) => c.name || "未命名").join("、")}`);
+            }
+            for (const customer of customers) {
+                const acct = byCustomer.get(customer.id);
+                if (!acct) continue;
+                const gap = needed.filter((p) => !(acct.platforms || []).includes(p));
                 if (gap.length > 0) {
-                    missing.push(`${platformLabel(platform)} 未分配：${gap.map((c) => c.name || "未命名").join("、")}`);
+                    missing.push(
+                        `${customer.name || "未命名"} 的邮箱还没选 ${gap.map((p) => platformLabel(p)).join("、")} 平台`,
+                    );
                 }
             }
             if (missing.length === 0) return done(true);

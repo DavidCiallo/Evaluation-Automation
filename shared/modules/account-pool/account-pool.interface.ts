@@ -68,7 +68,7 @@ export class AccountPoolUpsertRequest {
     public email?: string;
     public password?: string;
     public label?: string;
-    public platform?: PoolPlatform;
+    public platforms?: PoolPlatform[];
     public outputs?: string[];
     public remark?: string;
     public auth?: string;
@@ -76,14 +76,17 @@ export class AccountPoolUpsertRequest {
     constructor(data: any) {
         if (!data.id) throw new Error("id is required");
         if (data.email !== undefined && !String(data.email).trim()) throw new Error("邮箱不能为空");
-        if (data.platform !== undefined && !POOL_PLATFORMS.some((p) => p.value === data.platform)) {
-            throw new Error(`未知平台：${data.platform}`);
+        if (data.platforms !== undefined) {
+            if (!Array.isArray(data.platforms)) throw new Error("platforms 必须是数组");
+            for (const p of data.platforms) {
+                if (!POOL_PLATFORMS.some((x) => x.value === p)) throw new Error(`未知平台：${p}`);
+            }
         }
         this.id = data.id;
         this.email = data.email !== undefined ? String(data.email).trim() : undefined;
         this.password = data.password !== undefined ? String(data.password) : undefined;
         this.label = data.label !== undefined ? String(data.label) : undefined;
-        this.platform = data.platform;
+        this.platforms = data.platforms;
         this.outputs = Array.isArray(data.outputs) ? data.outputs.map(String) : undefined;
         this.remark = data.remark !== undefined ? String(data.remark) : undefined;
         this.auth = data.auth;

@@ -30,7 +30,7 @@ export const accountPoolRoutes = {
             email?: string;
             password?: string;
             label?: string;
-            platform?: PoolPlatform;
+            platforms?: PoolPlatform[];
             outputs?: string[];
             remark?: string;
             auth?: string;

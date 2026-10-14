@@ -1,18 +1,17 @@
 /**
- * 账号池（AccountPool）：订单下的「办签账号」。
+ * 账号池（AccountPool）：订单下每位客户的「办签邮箱」。
  *
- * 为什么独立于订单插件数据袋：账号需要**跨订单查重**——
+ * 为什么独立于订单插件数据袋：邮箱需要**跨订单查重**——
  * 同一个邮箱不能在两个订单里各注册一次（tls/fv 只认唯一账号）。
  * 放在订单的 data 分片里就查不了全局。
  *
- * 账号按**平台**区分：一次办签要在多个平台各注册一个号
- * （法签走 fv + tls，申根走 vfs），平台不同就是两个独立账号，
- * 邮箱密码也各填各的。所以一个客户会同时挂在多个平台的账号上。
- * 账号承载的是**订单客户名单里的条目**（OrderCustomerInfo.id），
- * 不是全局客户档案——同一个人在两个订单里是两条记录。
+ * 一条记录 = 一个邮箱，对应订单客户名单里的**一位客户**
+ * （OrderCustomerInfo.id，不是全局客户档案；同一个人在两个订单里是两条记录）。
+ * 这个邮箱去哪些平台注册，记在 platforms 里——平台是邮箱上的**标签**，
+ * 不是一个邮箱只能干一件事：法签的邮箱通常同时挂 fv 和 tls。
  *
  * 注意与 Account 的区别：Account 是客服登录账号（account.module），
- * 这里是客户的办签账号，两者不可混用，故集合名取 AccountPool。
+ * 这里是客户的办签邮箱，两者不可混用，故集合名取 AccountPool。
  */
 
 /** 账号状态。planned=客服已定方案待注册；registering=机器人处理中；registered=已注册；failed=注册失败。 */
@@ -40,11 +39,11 @@ export function platformLabel(value: string | null | undefined): string {
 }
 
 /**
- * 订单签证类型 → 需要注册的平台。
+ * 订单签证类型 → 这个邮箱要去注册的平台（建号时预勾，客服可改）。
  *
  * 规则固定写在这里（和 VISA_TYPES 一样的取舍）：法签要在 fv 拿号、
  * 再去 tls 组单，所以两个平台都要；申根走 vfs。
- * 没配的类型先给 fv，客服可以在卡片上手动加平台——猜错等于漏注册一个号。
+ * 没配的类型先给 fv——猜错等于漏注册一个平台。
  */
 const PLATFORMS_BY_VISA: Record<string, PoolPlatform[]> = {
     fr: ["fv", "tls"],
@@ -67,8 +66,6 @@ export interface PoolAccountEntity {
     seq: number;
     /** 账号用途标记，便于客服区分（如「主账号」「补充账号」） */
     label: string;
-    /** 所属办签平台。同一订单同一平台可以只有一个号。 */
-    platform: PoolPlatform;
     /** 注册邮箱（登录名）。跨订单唯一，查重用。 */
     email: string;
     /**
@@ -77,11 +74,16 @@ export interface PoolAccountEntity {
      */
     password: string;
     status: PoolAccountStatus;
-    /** 该账号承载的客户条目 id（订单客户名单 OrderCustomerInfo.id） */
-    customer_ids: string[];
     /**
-     * 成品：这个账号下已经拿到的号（fv 号、application 号等）。
-     * 目前由客服手工登记，机器人填表回填是后续的事。
+     * 这个邮箱负责的客户条目 id（订单客户名单 OrderCustomerInfo.id）。
+     * 一条记录对应一位客户，故正常是长度 1 的数组。
+     */
+    customer_ids: string[];
+    /** 要去注册的平台标签，建号时按签证类型预勾，客服可勾选修改 */
+    platforms: PoolPlatform[];
+    /**
+     * 产物：这个邮箱注册出来的号（fv 号、application 号等）。
+     * 暂时由客服手工登记，之后由注册器回调写入。
      */
     outputs: string[];
     /** 人工补录或回调回来的备注 */
@@ -100,8 +102,8 @@ export interface PoolAccountDTO {
     order_id: string;
     seq: number;
     label: string;
-    platform: PoolPlatform;
-    platform_label: string;
+    platforms: PoolPlatform[];
+    platforms_label: string;
     email: string;
     /** 密码是否已填（列表不默认回传明文，与接入设置口令的处理口径一致） */
     has_password: boolean;
@@ -123,13 +125,14 @@ export interface PoolAccountDTO {
  * 界面默认不显示，需要时客服显式点「查看密码」再取。
  */
 export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false): PoolAccountDTO {
+    const platforms = e.platforms || [];
     const dto: PoolAccountDTO = {
         id: e.id,
         order_id: e.order_id,
         seq: e.seq,
         label: e.label || "",
-        platform: e.platform || "fv",
-        platform_label: platformLabel(e.platform),
+        platforms,
+        platforms_label: platforms.map((p) => platformLabel(p)).join(" + "),
         email: e.email || "",
         has_password: !!e.password,
         status: e.status,
@@ -166,10 +169,11 @@ export interface ApplicantPayload {
     customer_id: string;
 }
 
-/** 账号的填表计划：机器人照此为某个账号填若干位客户。 */
+/** 账号的填表计划：机器人照此为某个邮箱在若干平台上注册填表。 */
 export interface AccountFillPlan {
     account_id: string;
-    platform: PoolPlatform;
+    /** 这个邮箱要去注册的平台 */
+    platforms: PoolPlatform[];
     email: string;
     password: string;
     applicants: ApplicantPayload[];
