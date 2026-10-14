@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { ChevronDown, ChevronRight, Copy, FileCheck2, RotateCcw, Send } from "lucide-react"
+import { Copy, FileCheck2, RotateCcw, Send } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/client/components/ui/card"
@@ -19,11 +19,18 @@ const STATUS_CLASS: Record<string, string> = {
 const SIGNER_RESULT: Record<string, { label: string; className: string }> = {
     ok: { label: "已签", className: "text-emerald-600" },
     wrong: { label: "有异议", className: "text-destructive" },
-    pending: { label: "未签", className: "text-muted-foreground" },
+    pending: { label: "暂未签署", className: "text-muted-foreground" },
 }
 
-/** 签署人明细：展开时现问服务端，因为内部签署人签了我们收不到任何通知。 */
-function SignerList({ id }: { id: string }) {
+function fmtSignTime(ms: number | null) {
+    return ms ? new Date(ms).toLocaleString("zh-CN", { hour12: false }) : ""
+}
+
+/**
+ * 签署情况：内部一行、客户一行。
+ * 已签的显示姓名 + 时间（绿色），未签的显示姓名 + 「暂未签署」（灰色）。
+ */
+function SignerLines({ id }: { id: string }) {
     const auth = getAuth()
     const [signers, setSigners] = useState<ConfirmationSignerView[] | null>(null)
     const [error, setError] = useState("")
@@ -44,27 +51,33 @@ function SignerList({ id }: { id: string }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id])
 
-    if (error) return <p className="text-destructive px-3 pb-2 text-xs">读取签署人失败：{error}</p>
-    if (!signers) return <p className="text-muted-foreground px-3 pb-2 text-xs">读取中…</p>
-    if (signers.length === 0) return <p className="text-muted-foreground px-3 pb-2 text-xs">这张确认单没有签署人。</p>
+    if (error) return <p className="text-destructive pb-2 pl-8 text-xs">读取签署情况失败：{error}</p>
+    if (!signers) return <p className="text-muted-foreground pb-2 pl-8 text-xs">读取中…</p>
 
-    return (
-        <ul className="space-y-1 px-3 pb-2">
-            {signers.map((s, i) => {
+    const internals = signers.filter((s) => s.signer_type === "internal")
+    const externals = signers.filter((s) => s.signer_type !== "internal")
+    const line = (tag: string, group: ConfirmationSignerView[]) => (
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-1 pl-8 text-xs">
+            <span className="text-muted-foreground">{tag}</span>
+            {group.length === 0 && <span className="text-muted-foreground">无</span>}
+            {group.map((s, i) => {
                 const r = SIGNER_RESULT[s.result] || SIGNER_RESULT.pending
+                const extra = s.reason ? `（${s.reason}）` : ""
                 return (
-                    <li key={`${s.name}-${i}`} className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className={r.className}>{r.label}</span>
-                        <span className="font-medium">{s.name}</span>
-                        <span className="text-muted-foreground">{s.signer_type === "internal" ? "内部" : "客户"}</span>
-                        <span className="text-muted-foreground">
-                            {s.signed_at ? new Date(s.signed_at).toLocaleString("zh-CN", { hour12: false }) : "尚未签署"}
-                        </span>
-                        {s.reason && <span className="text-destructive">理由：{s.reason}</span>}
-                    </li>
+                    <span key={`${s.name}-${i}`} className={r.className}>
+                        {s.name} {s.result === "ok" ? fmtSignTime(s.signed_at) : r.label}
+                        {extra}
+                    </span>
                 )
             })}
-        </ul>
+        </p>
+    )
+
+    return (
+        <div className="pb-1">
+            {line("[员工]", internals)}
+            {line("[客户]", externals)}
+        </div>
     )
 }
 
@@ -77,7 +90,6 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
     const [list, setList] = useState<ConfirmationDTO[]>([])
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
-    const [expanded, setExpanded] = useState<string | null>(null)
 
     const load = async () => {
         setLoading(true)
@@ -170,15 +182,6 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
                 {list.map((c) => (
                     <div key={c.id} className="rounded-md border">
                         <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-muted-foreground h-6 w-6 p-0"
-                                title="看每位签署人的时间"
-                                onClick={() => setExpanded(expanded === c.id ? null : c.id)}
-                            >
-                                {expanded === c.id ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-                            </Button>
                             <span
                                 className={`rounded-md border px-1.5 py-0.5 text-[11px] ${STATUS_CLASS[c.status] || "border-border text-muted-foreground"}`}
                             >
@@ -214,7 +217,7 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
                                 )}
                             </div>
                         </div>
-                        {expanded === c.id && <SignerList id={c.id} />}
+                        <SignerLines id={c.id} />
                     </div>
                 ))}
             </CardContent>

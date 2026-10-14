@@ -31,6 +31,9 @@ const submissionRepo: Repository<SubmissionEntity> = Repository.instance("Submis
 /** 确认单有效期（天）。与麦客建单保持同一口径。 */
 const DEADLINE_DAYS = 7;
 
+/** 确认单要求的最少内部签署人数。契约服务也校验，这里保持一致。 */
+const INTERNAL_MIN = 2;
+
 function toDTO(e: ConfirmationEntity, withUrl = true): ConfirmationDTO {
     return {
         id: e.id,
@@ -197,6 +200,15 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
         throw "确认单服务未配置（API Key），请在「系统配置 → 外围系统接入」中补全";
     }
 
+    // 确认单要求至少两位内部成员签字。契约服务在发出建单请求时才校验，
+    // 报错是它那边的文案；这里先拦一道，把「缺谁、缺几个」说清楚。
+    const internals = internalSigners();
+    if (internals.length < INTERNAL_MIN) {
+        throw `内部签署人不足：需要 ${INTERNAL_MIN} 位，当前配置为 ${internals.length} 位${
+            internals.length ? `（${internals.join("、")}）` : ""
+        }。请在「系统配置 → 外围系统接入 → 确认单 → 内部签署人」中补全。`;
+    }
+
     const deadline = Date.now() + DEADLINE_DAYS * 86400000;
     const submissions = await submissionRepo.find({}, { limit: 500 });
 
@@ -215,10 +227,11 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
             content,
             deadline,
             external_names: [name || "申请人"],
-            internal_ids: internalSigners(),
+            internal_ids: internals,
             external_min: 1,
-            // 内部签署人只是留痕，不要求每个客服都签，否则单子永远签不完
-            internal_min: 0,
+            // 两位内部成员签字是硬要求。即使这张单只邀了一位客户，内部也要签满，
+            // 否则单子停在 pending、卡住「信息确认」阶段。
+            internal_min: INTERNAL_MIN,
         });
 
         await repo.insert({
