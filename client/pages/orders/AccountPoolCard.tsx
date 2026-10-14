@@ -10,7 +10,6 @@ import { getAuth } from "@/client/methods/auth"
 import { stageBlockReason, stageNotStartedReason } from "@/client/pages/orders/StageBar"
 import type { PoolAccountDTO, PoolPlatform } from "../../../shared/modules/account-pool/account-pool.entity"
 import { POOL_PLATFORMS, platformLabel } from "../../../shared/modules/account-pool/account-pool.entity"
-import type { RobotTaskDTO } from "../../../shared/modules/robot-task/robot-task.entity"
 import type { OrderStageView } from "../../../shared/modules/order/stage"
 
 /**
@@ -37,7 +36,6 @@ export function AccountPoolCard({
 }) {
     const auth = getAuth()
     const [accounts, setAccounts] = useState<PoolAccountDTO[]>([])
-    const [tasks, setTasks] = useState<RobotTaskDTO[]>([])
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
     const [revealed, setRevealed] = useState<Record<string, string>>({})
@@ -45,12 +43,8 @@ export function AccountPoolCard({
     const load = async () => {
         setLoading(true)
         try {
-            const [a, t]: any[] = await Promise.all([
-                accountPoolApi.list({ order_id: orderId, auth }),
-                robotTaskApi.list({ order_id: orderId, status: "all", auth }),
-            ])
+            const a: any = await accountPoolApi.list({ order_id: orderId, auth })
             setAccounts((a?.data?.list as PoolAccountDTO[]) || [])
-            setTasks((t?.data?.list as RobotTaskDTO[]) || [])
         } catch (e: any) {
             toast.error(`加载账号失败: ${e?.message || ""}`)
         } finally {
@@ -218,7 +212,7 @@ export function AccountPoolCard({
                                     type="text"
                                     value={revealed[a.id] ?? (a.has_password ? "••••••••" : "")}
                                     placeholder="密码"
-                                    className="h-8 w-40"
+                                    className="h-8 w-64"
                                     disabled={busy || !!poolBlocked || a.status === "registered"}
                                     onChange={(e) => setRevealed((s) => ({ ...s, [a.id]: e.target.value }))}
                                     onBlur={(e) => {
@@ -354,27 +348,6 @@ export function AccountPoolCard({
                         </div>
                     </div>
                 ))}
-
-                {tasks.length > 0 && (
-                    <div className="space-y-1 border-t pt-3">
-                        <p className="text-muted-foreground text-xs">机器人任务</p>
-                        {tasks.map((t) => (
-                            <div key={t.id} className="flex flex-wrap items-center gap-2 text-xs">
-                                <span className="text-muted-foreground">#{t.id}</span>
-                                <span>{t.status_label}</span>
-                                {t.results.length > 0 && (
-                                    <span className="text-muted-foreground">
-                                        填表 {t.results.filter((r) => r.success).length}/{t.results.length}
-                                    </span>
-                                )}
-                                {t.error && <span className="text-destructive">{t.error}</span>}
-                                <span className="text-muted-foreground">
-                                    {new Date(t.create_time).toLocaleString("zh-CN", { hour12: false })}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                )}
             </CardContent>
         </Card>
     )
