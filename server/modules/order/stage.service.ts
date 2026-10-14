@@ -337,7 +337,9 @@ export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStag
     const waivers = getStageWaivers(order);
     const confs = await confirmationRepo.find({ order_id: order.id });
     const stageTimes = deriveStageTimes(order, apps, materials, confs, waivers);
-    const now = Date.now();
+    // 已取消的单不再计时：取消那一刻就是它的终点。
+    // 若继续按当前时间算，一张上个月取消的单会一路涨下去，看起来像还在推进。
+    const clockEnd = order.cancelled_at ?? Date.now();
 
     // 逐阶段算准入项（并行无意义：同一进程内 IO 已串行，且项数很少）
     const stageResults: Array<{ id: OrderStageId; reqs: OrderRequirementView[] }> = [];
@@ -384,7 +386,7 @@ export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStag
         // 起点晚、没证据的单退回创建时间，于是都停在「信息确认」的两单长度却不一样，
         // 看着像进度不同。代价是这段时间包含了前面几步，但**同一阶段必然等长**，
         // 横向可比——这正是时间视图要的。
-        const running = state === "ready" ? Math.max(0, now - order.create_time) : null;
+        const running = state === "ready" ? Math.max(0, clockEnd - order.create_time) : null;
         stages.push({
             id: meta.id,
             label: meta.label,
@@ -410,13 +412,14 @@ export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStag
     const currentStage = stages.find((s) => s.state === "ready") || stages[stages.length - 1];
     const allDone = stages.every((s) => s.state === "done" || s.state === "skipped");
     // 整单用时：已完结的定格在最后一步完成的时刻，没完结的算到「现在」——
-    // 两种口径混在一张图里比较，才看得出谁快谁慢
+    // 两种口径混在一张图里比较，才看得出谁快谁慢。
+    // 已取消的单同样定格（clockEnd 即取消时刻），否则它会永远排在最慢的第一位。
     const lastDone = allDone
         ? Math.max(
               order.create_time,
               ...stages.map((s) => s.completed_time || 0),
           )
-        : now;
+        : clockEnd;
     return {
         stages,
         current: currentStage.id,
