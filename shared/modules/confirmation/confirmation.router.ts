@@ -3,6 +3,7 @@ import {
     ConfirmationIssueResponse,
     ConfirmationListResponse,
     ConfirmationRevokeResponse,
+    ConfirmationSignersResponse,
     ConfirmationSubmitResponse,
 } from "./confirmation.interface";
 
@@ -26,6 +27,12 @@ export const confirmationRoutes = {
         path: "/revoke",
         request: {} as { id: string; reason: string; auth?: string },
         response: {} as ConfirmationRevokeResponse,
+    },
+    /** 某张确认单的签署人明细，每次现问确认单服务 */
+    signers: {
+        path: "/signers",
+        request: {} as { id: string; auth?: string },
+        response: {} as ConfirmationSignersResponse,
     },
     /**
      * 客户侧免鉴权入口：凭 token 读取待确认资料。

@@ -14,6 +14,7 @@ import type {
     ConfirmationSnapshot,
 } from "../../../shared/modules/confirmation/confirmation.entity";
 import { CONFIRMATION_STATUS_LABEL } from "../../../shared/modules/confirmation/confirmation.entity";
+import type { ConfirmationSignerView } from "../../../shared/modules/confirmation/confirmation.interface";
 import { createContractSheet, isContractConfigured, internalSigners, fetchContractSigners } from "../../lib/contract-client";
 import { buildContent, buildContentFromProfile } from "../form/content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
@@ -144,6 +145,28 @@ export async function refreshSignedFromService(rows: ConfirmationEntity[]): Prom
         refreshed++;
     }
     return refreshed;
+}
+
+/**
+ * 某张确认单的签署人明细（含内部签署人）。
+ *
+ * 不读本地库：内部签署人签字我们收不到通知，本地只存了「客户签了没」这一个结论。
+ * 现问服务端才能看到每个人的真实状态与签署时刻。
+ */
+export async function listSigners(id: string): Promise<ConfirmationSignerView[]> {
+    const e = await repo.findOne({ id });
+    if (!e) throw "confirmation not found";
+    const contractId = e.token || e.external_ref;
+    if (!contractId) return [];
+
+    const signers = await fetchContractSigners(contractId);
+    return signers.map((s) => ({
+        name: s.name,
+        signer_type: s.signer_type === "internal" ? "internal" : "external",
+        result: s.result === "ok" ? "ok" : s.result === "wrong" ? "wrong" : "pending",
+        reason: s.reason || "",
+        signed_at: s.signed_at || null,
+    }));
 }
 
 /**

@@ -3,6 +3,7 @@ import {
     ConfirmationIssueRequest,
     ConfirmationListRequest,
     ConfirmationRevokeRequest,
+    ConfirmationSignersRequest,
     ConfirmationSubmitRequest,
 } from "../../../shared/modules/confirmation/confirmation.interface";
 import { confirmationRoutes } from "../../../shared/modules/confirmation/confirmation.router";
@@ -25,8 +26,12 @@ async function revoke(request: ConfirmationRevokeRequest) {
     return { confirmation: await svc.revoke(req.id, req.reason, by) };
 }
 
-/** 客户侧免鉴权：凭 token 读资料 */
-async function fetch_(request: ConfirmationFetchRequest) {
+async function signers(request: ConfirmationSignersRequest) {
+    const req = ConfirmationSignersRequest.self(request);
+    return { list: await svc.listSigners(req.id) };
+}
+
+/** 客户侧免鉴权：凭 token 读资料 */async function fetch_(request: ConfirmationFetchRequest) {
     const req = ConfirmationFetchRequest.self(request);
     return await svc.fetchByToken(req.token);
 }
@@ -39,5 +44,5 @@ async function submit(request: ConfirmationSubmitRequest) {
 
 export const confirmationMount = {
     routes: confirmationRoutes,
-    handlers: { list, issue, revoke, fetch: fetch_, submit },
+    handlers: { list, issue, revoke, signers, fetch: fetch_, submit },
 };
