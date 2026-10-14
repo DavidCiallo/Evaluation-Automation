@@ -11,7 +11,7 @@ import * as svc from "./account-pool.service";
 async function list(request: AccountPoolListRequest) {
     const req = AccountPoolListRequest.self(request);
     const rows = await svc.listByOrder(req.order_id);
-    const list = rows.map((r) => svc.toDTO(r, req.with_secret));
+    const list = await svc.attachMailboxLabels(rows.map((r) => svc.toDTO(r, req.with_secret)));
     return { list, total: list.length };
 }
 

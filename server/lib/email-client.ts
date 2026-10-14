@@ -50,6 +50,9 @@ export interface MailboxInfo {
     provider: string;
     forward_enabled: boolean;
     last_sync_time: number | null;
+    /** 邮箱系统里打的标签，原样带出 */
+    labels: string[];
+    domain: string;
 }
 
 class EmailClient {
@@ -205,7 +208,42 @@ class EmailClient {
             provider: String(x.provider || ""),
             forward_enabled: !!x.forward_enabled,
             last_sync_time: x.last_sync_time != null ? Number(x.last_sync_time) : null,
+            labels: Array.isArray(x.labels) ? x.labels.map((l: any) => String(l)) : [],
+            domain: String(x.domain || ""),
         }));
+    }
+
+    /**
+     * 取一个还没被占用的信箱：指定域名、没标签、且没有生效中的授权。
+     *
+     * 「没标签」单独用不够——有的信箱已经发过授权却没打标签，
+     * 只按标签筛会把别人的号抢过来。
+     */
+    async pickFreeMailbox(domain: string): Promise<MailboxInfo | null> {
+        const boxes = await this.listMailboxes();
+        const grants = await this.listGrants();
+        const now = Date.now();
+        const busy = new Set(grants.filter((g: any) => !g.delete_time && Number(g.end_time) > now).map((g: any) => String(g.mailbox_id)));
+        const free = boxes.filter((b) => b.domain === domain && b.labels.length === 0 && !busy.has(b.id));
+        if (free.length === 0) return null;
+        return free[Math.floor(Math.random() * free.length)];
+    }
+
+    /** 授权列表。 */
+    async listGrants(): Promise<any[]> {
+        const d = await this.post<any>("/api/mailbox/grant-list", {});
+        return d?.list || [];
+    }
+
+    /** 给信箱发一张限时访问授权，返回授权链接用的原始 token。 */
+    async createGrant(input: { mailbox_id: string; days: number; note?: string; can_send?: boolean }): Promise<{ token: string; grant: any }> {
+        const d = await this.post<any>("/api/mailbox/grant-create", {
+            mailbox_id: input.mailbox_id,
+            days: input.days,
+            note: input.note || "",
+            can_send: input.can_send === true,
+        });
+        return { token: String(d?.token || ""), grant: d?.grant || null };
     }
 
     /** 发件历史。 */

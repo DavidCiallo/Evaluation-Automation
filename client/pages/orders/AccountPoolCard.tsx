@@ -216,6 +216,20 @@ export function AccountPoolCard({
                                     }
                                 }}
                             />
+                            {/* 邮箱系统里给这个信箱打的标签，本系统只读不改 */}
+                            {a.mailbox_labels.map((l) => (
+                                <span
+                                    key={l}
+                                    className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[11px]"
+                                >
+                                    {l}
+                                </span>
+                            ))}
+                            {a.grant_end_time && (
+                                <span className="text-muted-foreground text-[11px]" title="邮箱授权到期时间">
+                                    授权至 {new Date(a.grant_end_time).toLocaleDateString("zh-CN")}
+                                </span>
+                            )}
                             <div className="flex items-center gap-1">
                                 {/* 密码可以手工录，也可以点眼睛看已存的明文 */}
                                 <Input
@@ -314,29 +328,27 @@ export function AccountPoolCard({
 
                         {/* 成品：这个号下已经拿到的号，客服手工登记 */}
                         <div className="flex flex-wrap items-center gap-2 pl-1">
-                            <span className="text-muted-foreground text-xs">成品：</span>
+                            <span className="text-muted-foreground text-xs">产出：</span>
                             {a.outputs.length === 0 && <span className="text-muted-foreground text-xs">（无）</span>}
                             {a.outputs.map((o, i) => (
-                                <button
+                                <Input
                                     key={`${o}-${i}`}
+                                    defaultValue={o}
                                     disabled={busy || !!poolBlocked}
-                                    title={poolBlocked || "点击删除"}
-                                    className="hover:border-destructive rounded-md border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
-                                    onClick={() =>
-                                        run(() =>
-                                            accountPoolApi.upsert({
-                                                id: a.id,
-                                                outputs: a.outputs.filter((_, j) => j !== i),
-                                                auth,
-                                            }),
-                                        )
-                                    }
-                                >
-                                    {o} ×
-                                </button>
+                                    className="h-7 w-40"
+                                    onBlur={(e) => {
+                                        const v = e.target.value.trim()
+                                        if (v === o) return
+                                        const next = [...a.outputs]
+                                        // 清空即删除这一条
+                                        if (!v) next.splice(i, 1)
+                                        else next[i] = v
+                                        run(() => accountPoolApi.upsert({ id: a.id, outputs: next, auth }))
+                                    }}
+                                />
                             ))}
                             <Input
-                                placeholder="+ 录入成品号"
+                                placeholder="+ 加入产出号"
                                 className="h-7 w-40"
                                 disabled={busy || !!poolBlocked}
                                 onKeyDown={(e) => {
@@ -347,6 +359,16 @@ export function AccountPoolCard({
                                     run(() => accountPoolApi.upsert({ id: a.id, outputs: [...a.outputs, v], auth }))
                                 }}
                             />
+                            {a.outputs.length > 0 && (
+                                <button
+                                    disabled={busy || !!poolBlocked}
+                                    title={poolBlocked || "清空全部产出"}
+                                    className="text-muted-foreground hover:text-destructive text-[11px] disabled:opacity-50"
+                                    onClick={() => run(() => accountPoolApi.upsert({ id: a.id, outputs: [], auth }))}
+                                >
+                                    清空
+                                </button>
+                            )}
                         </div>
                     </div>
                 ))}

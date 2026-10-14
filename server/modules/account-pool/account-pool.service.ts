@@ -13,6 +13,7 @@ import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
 import type { OrderCustomerInfo } from "../../../shared/modules/order/plugins/standard.manifest";
 import { buildSnapshot } from "../confirmation/confirmation.service";
+import { emailClient } from "../../lib/email-client";
 
 const repo: Repository<PoolAccountEntity> = Repository.instance("AccountPool");
 const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
@@ -52,6 +53,31 @@ export async function listDTO(orderId: string, withSecret = false): Promise<Pool
     return rows.map((r) => toPoolAccountDTO(r, withSecret));
 }
 
+/**
+ * 给列表补上邮箱系统里的标签。
+ *
+ * 存量行的邮箱是客服手填的字符串，没有 mailbox_id，标签就无从显示；
+ * 这里按地址回查一次邮箱系统，把 id 和标签补回去。
+ * 邮箱系统不可用时只记日志，不影响列表本身。
+ */
+export async function attachMailboxLabels(rows: PoolAccountDTO[]): Promise<PoolAccountDTO[]> {
+    const need = rows.filter((r) => r.email && !r.mailbox_id);
+    if (need.length === 0) return rows;
+    try {
+        const boxes = await emailClient.listMailboxes();
+        const byAddress = new Map(boxes.map((b) => [b.address.toLowerCase(), b]));
+        for (const r of need) {
+            const box = byAddress.get(r.email.toLowerCase());
+            if (!box) continue;
+            r.mailbox_id = box.id;
+            r.mailbox_labels = box.labels;
+        }
+    } catch (e: any) {
+        console.error("[account-pool] 取邮箱标签失败:", e?.message || e);
+    }
+    return rows;
+}
+
 export async function findOne(id: string): Promise<PoolAccountEntity | null> {
     return (await repo.findOne({ id })) as PoolAccountEntity | null;
 }
@@ -75,12 +101,13 @@ export async function findByEmail(email: string, excludeId?: string): Promise<Po
 }
 
 /**
- * 拟定账号：**每次加一个**，平台留空由客服自己勾。
+ * 拟定账号：**每次加一个**，平台留空由客服自己勾，邮箱从邮箱系统随机取一个空的。
  *
  * 为什么不按客户名单批量建、也不预勾平台：账号数量是客服的判断
  * （一个号能带几个人，取决于怎么和官方平台组单），系统替他们定死
  * 反而要手工删；平台同理，预勾错了比空着更危险。
  *
+ * 取邮箱只是**占位显示**，不授权；真正占用是派发时的事。
  * 幂等策略：只补一个「还没挂客户」的空位；没有空位就新加一条。
  */
 export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]> {
@@ -89,6 +116,14 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
 
     const spare = existing.find((a) => (a.customer_ids || []).length === 0);
     if (spare) return existing;
+
+    // 取邮箱失败不该挡住建号：邮箱系统挂了客服还能手填
+    let mailbox: Awaited<ReturnType<typeof emailClient.pickFreeMailbox>> = null;
+    try {
+        mailbox = await emailClient.pickFreeMailbox("163.com");
+    } catch (e: any) {
+        console.error("[account-pool] 取邮箱失败，留空由客服手填:", e?.message || e);
+    }
 
     const now = Date.now();
     const row: PoolAccountEntity = {
@@ -99,8 +134,10 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
         order_id: orderId,
         seq: existing.length + 1,
         label: `账号 ${existing.length + 1}`,
-        // 邮箱留空由客服/机器人补：系统不编造邮箱，避免生成无法注册的假地址
-        email: "",
+        email: mailbox?.address || "",
+        mailbox_id: mailbox?.id || null,
+        mailbox_labels: mailbox?.labels || [],
+        grant_end_time: null,
         password: "",
         status: "planned",
         customer_ids: [],
@@ -128,8 +165,13 @@ export async function upsertAccount(
     if (patch.email !== undefined) {
         const dup = await findByEmail(patch.email, id);
         if (dup) throw new Error(`邮箱 ${patch.email} 已被订单 ${dup.order_id} 的账号占用`);
-        // 有邮箱即视为方案已定，但注册状态要等机器人/人工回填
-        await repo.update({ id }, { email: patch.email });
+        // 手改邮箱意味着不再指向原来那个信箱，标签要跟着清掉，
+        // 否则界面上会显示一个跟当前邮箱无关的标签
+        const same = patch.email && patch.email === row.email;
+        await repo.update(
+            { id },
+            same ? { email: patch.email } : { email: patch.email, mailbox_id: null, mailbox_labels: [] },
+        );
     }
     if (patch.platforms !== undefined) await repo.update({ id }, { platforms: patch.platforms });
     if (patch.outputs !== undefined) await repo.update({ id }, { outputs: patch.outputs });
@@ -141,10 +183,32 @@ export async function upsertAccount(
 }
 
 /**
+ * 给账号的邮箱开一张 60 天授权（派发注册时调用）。
+ *
+ * 从派发这一刻起算：邮箱系统的授权窗口同时是可见性边界，
+ * start_time 之前的邮件对该链接不可见，客户看不到更早的历史邮件。
+ * 已经授权过的不重复开——续期会让链接换一张，客服手上那张就废了。
+ *
+ * 手填的邮箱（没有 mailbox_id）不授权，也不报错：那种号本来就在邮箱系统之外。
+ */
+export async function grantMailbox(account: PoolAccountEntity, note?: string): Promise<PoolAccountEntity> {
+    if (!account.mailbox_id) return account;
+    if (account.grant_end_time && account.grant_end_time > Date.now()) return account;
+
+    const { grant } = await emailClient.createGrant({
+        mailbox_id: account.mailbox_id,
+        days: 60,
+        note: note || account.label || "",
+        can_send: false,
+    });
+    await repo.update({ id: account.id }, { grant_end_time: Number(grant?.end_time) || null });
+    return (await findOne(account.id))!;
+}
+
+/**
  * 把客户分配到账号。accountId 传空串表示摘除（回到未分配池）。
  *
- * 一个客户在**每个平台**各有一个号，所以「同一客户只能属于一个账号」
- * 只在同平台内成立：摘除时只动同平台的账号。
+ * 一位客户只有一个邮箱，所以一个客户同时只能属于一个账号。
  */
 export async function assignCustomers(
     orderId: string,

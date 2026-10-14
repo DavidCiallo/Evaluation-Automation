@@ -66,8 +66,17 @@ export interface PoolAccountEntity {
     seq: number;
     /** 账号用途标记，便于客服区分（如「主账号」「补充账号」） */
     label: string;
-    /** 注册邮箱（登录名）。跨订单唯一，查重用。 */
+    /**
+     * 注册邮箱（登录名）。跨订单唯一，查重用。
+     * 「拟定账号」时从邮箱系统随机取一个空邮箱填进来，客服也可以手改。
+     */
     email: string;
+    /** 邮箱系统里的信箱 id。手填的邮箱没有这个值，此时只当字符串用。 */
+    mailbox_id: string | null;
+    /** 该信箱在邮箱系统里的标签，显示用（原样带出，不由本系统维护） */
+    mailbox_labels: string[];
+    /** 派发时开的授权到期时间（ms）。null=还没授权。 */
+    grant_end_time: number | null;
     /**
      * 账号密码。当前明文存储，与项目既有 Account.password 口径一致；
      * 若后续要加密，应连同 Account 一起改（见 lib 中的加密约定另一处）。
@@ -105,6 +114,12 @@ export interface PoolAccountDTO {
     platforms: PoolPlatform[];
     platforms_label: string;
     email: string;
+    /** 所属信箱（邮箱系统 id）；手填邮箱为 null */
+    mailbox_id: string | null;
+    /** 该信箱在邮箱系统里的标签 */
+    mailbox_labels: string[];
+    /** 派发后开的授权到期时间；null=还没授权 */
+    grant_end_time: number | null;
     /** 密码是否已填（列表不默认回传明文，与接入设置口令的处理口径一致） */
     has_password: boolean;
     password?: string;
@@ -134,6 +149,9 @@ export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false): Pool
         platforms,
         platforms_label: platforms.map((p) => platformLabel(p)).join(" + "),
         email: e.email || "",
+        mailbox_id: e.mailbox_id ?? null,
+        mailbox_labels: e.mailbox_labels || [],
+        grant_end_time: e.grant_end_time ?? null,
         has_password: !!e.password,
         status: e.status,
         status_label: POOL_ACCOUNT_STATUS_LABEL[e.status] || e.status,
