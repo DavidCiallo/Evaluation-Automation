@@ -318,7 +318,7 @@ export function OrdersPage() {
                                                     : " · 尚未开始")}
                                         </span>
                                     </div>
-                                    <OrderStageBar stages={o.stages} current={o.current_stage} compact />
+                                    <OrderStageBar stages={o.stages} current={o.current_stage} compact stoppedAt={o.cancelled_at ? o.current_stage : null} />
                                 </Link>
                             ))}
                         </div>
@@ -346,6 +346,7 @@ export function OrdersPage() {
                                         current={o.current_stage}
                                         compact
                                         showTime
+                                        stoppedAt={o.cancelled_at ? o.current_stage : null}
                                         timeScale={timeScale}
                                     />
                                 </Link>

@@ -7,7 +7,7 @@
  *
  * 列表页的「时间」视图复用同一组件：showTime 时连接线长度代表耗时。
  */
-import { Check, Circle, CircleSlash, AlertCircle } from "lucide-react"
+import { Check, Circle, CircleSlash, AlertCircle, X } from "lucide-react"
 import { Fragment, useEffect, useRef, useState } from "react"
 import {
     Tooltip,
@@ -25,7 +25,10 @@ const STATE_LABEL: Record<OrderStageView["state"], string> = {
 }
 
 /** 阶段圆点样式：已完成绿、进行中主色、被卡住灰、已跳过虚线。 */
-function dotClass(state: OrderStageView["state"]): string {
+function dotClass(state: OrderStageView["state"], cancelledHere = false): string {
+    // 已取消的单：只把「取消时停住的那一步」标红。
+    // 整条染色会让已完成的绿点也变红，看不出这单已经走过哪些步。
+    if (cancelledHere) return "border-transparent bg-destructive text-white"
     switch (state) {
         case "done":
             return "border-transparent bg-emerald-500 text-white"
@@ -38,7 +41,8 @@ function dotClass(state: OrderStageView["state"]): string {
     }
 }
 
-function StageIcon({ state }: { state: OrderStageView["state"] }) {
+function StageIcon({ state, cancelledHere = false }: { state: OrderStageView["state"]; cancelledHere?: boolean }) {
+    if (cancelledHere) return <X className="size-3" />
     switch (state) {
         case "done":
             return <Check className="size-3" />
@@ -220,10 +224,12 @@ export function fmtRunning(ms: number): string {
     return `${(hours / 24).toFixed(1)}d`
 }
 
-function StageNode({ stage, compact = false, showTime = false }: {
+function StageNode({ stage, compact = false, showTime = false, cancelledHere = false }: {
     stage: OrderStageView
     compact?: boolean
     showTime?: boolean
+    /** 本阶段就是这张取消单停住的那一步：圆点标红 */
+    cancelledHere?: boolean
 }) {
     const gaps = stage.requirements.filter((r) => !r.met)
     const blockedStage = stage.blocked_by
@@ -246,8 +252,8 @@ function StageNode({ stage, compact = false, showTime = false }: {
                                 {stage.label}
                             </span>
                         )}
-                        <span className={`flex size-5 shrink-0 items-center justify-center rounded-full border transition ${dotClass(stage.state)}`}>
-                            <StageIcon state={stage.state} />
+                        <span className={`flex size-5 shrink-0 items-center justify-center rounded-full border transition ${dotClass(stage.state, cancelledHere)}`}>
+                            <StageIcon state={stage.state} cancelledHere={cancelledHere} />
                         </span>
                         {/* 时间视图横排 9 个圆点，标签写不下会互相压，靠悬停提示看名字 */}
                         {stage.optional && !compact && (
@@ -294,7 +300,7 @@ function StageNode({ stage, compact = false, showTime = false }: {
     )
 }
 
-export function OrderStageBar({ stages, current, className = "", compact = false, showTime = false, timeScale = { scaleMs: 60000, stageIndex: 0, total: 1 } }: {
+export function OrderStageBar({ stages, current, className = "", compact = false, showTime = false, stoppedAt = null, timeScale = { scaleMs: 60000, stageIndex: 0, total: 1 } }: {
     stages: OrderStageView[]
     current: string | null
     className?: string
@@ -302,9 +308,13 @@ export function OrderStageBar({ stages, current, className = "", compact = false
     compact?: boolean
     /** 时间模式：圆点位置代表累计耗时 */
     showTime?: boolean
+    /** 取消单停住的那一步：该阶段圆点标红。null=未取消 */
+    stoppedAt?: string | null
     /** 整页时间标尺：最长那单的累计用时 + 它走到第几个阶段（决定全页长度上限） */
     timeScale?: { scaleMs: number; stageIndex: number; total: number }
 }) {
+    /** 只有停住的那一步标红——已完成的绿点照旧，才看得出这单走到过哪里。 */
+    const isStopped = (s: OrderStageView) => stoppedAt != null && s.id === stoppedAt
     if (!stages || stages.length === 0) return null
 
     const currentStage = stages.find((s) => s.id === current)
@@ -359,7 +369,7 @@ export function OrderStageBar({ stages, current, className = "", compact = false
                             className="absolute top-3.5 -translate-x-1/2 -translate-y-1/2"
                             style={{ left: `${dotPct(i)}%` }}
                         >
-                            <StageNode stage={s} compact={compact} showTime />
+                            <StageNode stage={s} compact={compact} showTime cancelledHere={isStopped(s)} />
                         </div>
                         {/* 阶段名标在圆点下方，配色跟阶段视图一致
                             （已完成绿、进行中前景色、其余灰），两个视图看起来才是一回事。
@@ -398,7 +408,7 @@ export function OrderStageBar({ stages, current, className = "", compact = false
                             className="absolute top-3.5 -translate-x-1/2 -translate-y-1/2"
                             style={{ left: `${nextPct}%` }}
                         >
-                            <StageNode stage={next} compact={compact} showTime />
+                            <StageNode stage={next} compact={compact} showTime cancelledHere={isStopped(next)} />
                         </div>
                         <span
                             className={`absolute top-6 text-xs whitespace-nowrap text-muted-foreground -translate-x-1/2`}
@@ -445,7 +455,7 @@ export function OrderStageBar({ stages, current, className = "", compact = false
                             className="absolute top-3.5 -translate-x-1/2 -translate-y-1/2"
                             style={{ left: `${pctOf(i)}%` }}
                         >
-                            <StageNode stage={s} compact={compact} showTime />
+                            <StageNode stage={s} compact={compact} showTime cancelledHere={isStopped(s)} />
                         </div>
                         <span
                             className={`absolute top-6 -translate-x-1/2 text-xs whitespace-nowrap ${timeLabelClass(s)}`}
