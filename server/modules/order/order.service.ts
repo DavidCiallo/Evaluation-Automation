@@ -43,13 +43,21 @@ export async function findOrders(opts: {
     /** 只看已取消（"cancelled"）或只看在办（"active"）；省略/ "all" 为全部 */
     status?: string;
     agent_id?: string | null;
+    /** 客服多选，与 agent_id 取并集（任一命中即可） */
+    agent_ids?: string[] | null;
+    /** 签证类型多选，任一命中 */
+    visa_types?: string[] | null;
     customer?: string | null;
     start?: number | null;
     end?: number | null;
 }): Promise<{ list: OrderEntity[]; total: number }> {
     let all = await orderRepo.find(); // 默认按创建时间倒序
 
-    if (opts.agent_id) all = all.filter((o) => (o.agent_ids || []).includes(opts.agent_id!));
+    const agents = [...new Set([...(opts.agent_ids || []), ...(opts.agent_id ? [opts.agent_id] : [])])];
+    if (agents.length > 0) all = all.filter((o) => (o.agent_ids || []).some((id) => agents.includes(id)));
+    if (opts.visa_types && opts.visa_types.length > 0) {
+        all = all.filter((o) => !!o.visa_type && opts.visa_types!.includes(o.visa_type));
+    }
     if (opts.customer) {
         const q = opts.customer.toLowerCase();
         all = all.filter((o) =>

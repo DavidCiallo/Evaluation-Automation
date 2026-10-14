@@ -4,6 +4,10 @@ export class OrderListRequest {
     public page: number;
     public status: string;
     public agent_id: string | null;
+    /** 客服多选；与 agent_id 是「任一命中」的并集 */
+    public agent_ids: string[] | null;
+    /** 签证类型多选（订单级标记） */
+    public visa_types: string[] | null;
     public customer: string | null;
     public start: number | null;
     public end: number | null;
@@ -15,6 +19,8 @@ export class OrderListRequest {
         this.page = Number(data.page || 1);
         this.status = data.status || "all";
         this.agent_id = data.agent_id || null;
+        this.agent_ids = toArray(data.agent_ids);
+        this.visa_types = toArray(data.visa_types);
         this.customer = data.customer || null;
         this.start = data.start ? Number(data.start) : null;
         this.end = data.end ? Number(data.end) : null;
@@ -25,6 +31,13 @@ export class OrderListRequest {
     static self(data: any) {
         return new OrderListRequest(data);
     }
+}
+
+/** 多选参数空数组与 null 同义（都表示不筛），避免「选了 0 个」把结果清空。 */
+function toArray(v: any): string[] | null {
+    if (!Array.isArray(v)) return null;
+    const arr = v.map((x) => String(x)).filter(Boolean);
+    return arr.length > 0 ? arr : null;
 }
 
 export class OrderListResponse {

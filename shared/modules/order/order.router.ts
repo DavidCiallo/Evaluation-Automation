@@ -18,6 +18,10 @@ export const orderRoutes = {
             page?: number;
             status?: string;
             agent_id?: string;
+            /** 客服多选（任一命中） */
+            agent_ids?: string[];
+            /** 签证类型多选（订单级标记，任一命中） */
+            visa_types?: string[];
             customer?: string;
             start?: number;
             end?: number;

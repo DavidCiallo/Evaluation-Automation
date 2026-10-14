@@ -15,6 +15,8 @@ import { Skeleton } from "@/client/components/ui/skeleton"
 import { orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
+import { AGENT_OPTIONS } from "../../../shared/modules/case/case.entity"
+import { VISA_TYPES } from "../../../shared/modules/order/visa"
 import { OrderStageBar, fmtDuration, fmtStamp, timeScaleMsPerPercent } from "./StageBar"
 import { ensureClientPluginsRegistered } from "./plugins/index"
 import { getEnabledClientOrderPlugins } from "./plugin-registry"
@@ -22,14 +24,13 @@ import { getEnabledClientOrderPlugins } from "./plugin-registry"
 ensureClientPluginsRegistered()
 
 /**
- * 只有「是否已取消」值得筛。原来的草稿/信息收集/材料制作/… 一排页签全删了：
- * 那套粗粒度状态由申请单推导，而申请单要到「注册填表」才产生，
- * 所以订单一律显示为草稿，页签既筛不出东西也不反映真实进度 —— 进度看阶段。
+ * 默认视图：默认只看在办。以前默认「全部」，取消掉的单混在里面，
+ * 客服每次都要先点一下「在办」。取消的单没删，切到「已取消」仍能查。
  */
 const STATUS_TABS: Array<{ key: string; label: string }> = [
-    { key: "all", label: "全部" },
     { key: "active", label: "在办" },
     { key: "cancelled", label: "已取消" },
+    { key: "all", label: "全部" },
 ]
 
 type ViewMode = "card" | "stage" | "time"
@@ -39,6 +40,43 @@ const VIEW_TABS: Array<{ key: ViewMode; label: string; hint: string }> = [
     { key: "stage", label: "阶段", hint: "每单一一行，横向对比各单进度与卡点" },
     { key: "time", label: "时间", hint: "每单一一行，看各阶段花了多久（最慢的一步铺满）" },
 ]
+
+/** 会被记住的筛选条件。视图模式也存——切换视图属于同一类使用偏好。 */
+interface SavedFilters {
+    status: string
+    agents: string[]
+    visaTypes: string[]
+    view: ViewMode
+}
+
+const FILTER_STORAGE_KEY = "orders.filters.v1"
+
+const DEFAULT_FILTERS: SavedFilters = { status: "active", agents: [], visaTypes: [], view: "card" }
+
+/** 读取上次的筛选；内容坏了就退回默认，不让一条脏记录把页面卡死。 */
+function loadFilters(): SavedFilters {
+    try {
+        const raw = localStorage.getItem(FILTER_STORAGE_KEY)
+        if (!raw) return DEFAULT_FILTERS
+        const p = JSON.parse(raw)
+        return {
+            status: STATUS_TABS.some((t) => t.key === p?.status) ? p.status : DEFAULT_FILTERS.status,
+            agents: Array.isArray(p?.agents) ? p.agents.filter((x: any) => typeof x === "string") : [],
+            visaTypes: Array.isArray(p?.visaTypes) ? p.visaTypes.filter((x: any) => typeof x === "string") : [],
+            view: VIEW_TABS.some((t) => t.key === p?.view) ? p.view : DEFAULT_FILTERS.view,
+        }
+    } catch {
+        return DEFAULT_FILTERS
+    }
+}
+
+function saveFilters(f: SavedFilters) {
+    try {
+        localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(f))
+    } catch {
+        /* 隐私模式等场景写入会抛，忽略即可，不影响本次筛选 */
+    }
+}
 
 /** 订单当前聚焦的阶段名（第一个 ready）；没有 ready 时返回 null，由调用方决定怎么说。 */
 function stageLabelOf(o: OrderDTO): string | null {
@@ -53,26 +91,107 @@ const APP_BADGE_CLASS: Record<string, string> = {
     withdrawn: "border-amber-500/60 bg-amber-500/10 text-amber-600",
 }
 
+/** 多选筛选：收起时只显示已选内容，避免一排 14 个类型把筛选栏撑成两行。 */
+function MultiSelect({
+    label,
+    options,
+    selected,
+    onChange,
+    width = "w-56",
+}: {
+    label: string
+    options: Array<{ value: string; label: string }>
+    selected: string[]
+    onChange: (next: string[]) => void
+    width?: string
+}) {
+    const [open, setOpen] = useState(false)
+    const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v])
+    // 选 1~2 个直接列名字，比「客服 · 2」有用；多了才退回数量
+    const names = options.filter((o) => selected.includes(o.value)).map((o) => o.label)
+    const summary = selected.length === 0 ? "全部" : names.length <= 2 ? names.join("、") : `已选 ${names.length} 项`
+
+    return (
+        <div className="relative">
+            <Button variant="outline" size="sm" className={width} onClick={() => setOpen((o) => !o)}>
+                <span className="truncate">
+                    {label}：{summary}
+                </span>
+            </Button>
+            {open && (
+                <>
+                    {/* 点击外部收起 */}
+                    <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+                    <div className="bg-popover absolute right-0 z-50 mt-1 max-h-72 w-56 overflow-auto rounded-md border p-2 shadow-md">
+                        <div className="mb-1 flex items-center justify-between px-1">
+                            <span className="text-muted-foreground text-xs">{label}</span>
+                            {selected.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="text-muted-foreground hover:text-foreground text-xs"
+                                    onClick={() => onChange([])}
+                                >
+                                    清空
+                                </button>
+                            )}
+                        </div>
+                        {options.map((o) => (
+                            <label
+                                key={o.value}
+                                className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm"
+                            >
+                                <input
+                                    type="checkbox"
+                                    className="accent-primary size-3.5"
+                                    checked={selected.includes(o.value)}
+                                    onChange={() => toggle(o.value)}
+                                />
+                                <span className="truncate">{o.label}</span>
+                            </label>
+                        ))}
+                    </div>
+                </>
+            )}
+        </div>
+    )
+}
+
 export function OrdersPage() {
     const auth = getAuth()
-    const [status, setStatus] = useState("all")
+    const saved = useMemo(loadFilters, [])
+    const [status, setStatus] = useState(saved.status)
+    const [agents, setAgents] = useState<string[]>(saved.agents)
+    const [visaTypes, setVisaTypes] = useState<string[]>(saved.visaTypes)
     const [customer, setCustomer] = useState("")
     const [page, setPage] = useState(1)
     const [orders, setOrders] = useState<OrderDTO[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
-    const [view, setView] = useState<ViewMode>("card")
+    const [view, setView] = useState<ViewMode>(saved.view)
     // 卡片视图不需要阶段数据（服务端算阶段要按单查材料），只有阶段/时间视图才要
     const needsStages = view !== "card"
+
+    // 筛选变化即记住，不必等点「查询」
+    useEffect(() => {
+        saveFilters({ status, agents, visaTypes, view })
+    }, [status, agents, visaTypes, view])
 
     const load = async () => {
         setLoading(true)
         try {
-            const res: any = await orderApi.list({ page, status, customer, with_stages: needsStages, auth })
+            const res: any = await orderApi.list({
+                page,
+                status,
+                customer,
+                agent_ids: agents,
+                visa_types: visaTypes,
+                with_stages: needsStages,
+                auth,
+            })
             setOrders((res?.data?.list as OrderDTO[]) || [])
             setTotal(res?.data?.total || 0)
         } catch (e: any) {
-            toast.error(`鍔犺浇澶辫触: ${e?.message || ""}`)
+            toast.error(`加载失败: ${e?.message || ""}`)
         } finally {
             setLoading(false)
         }
@@ -81,7 +200,7 @@ export function OrdersPage() {
     useEffect(() => {
         load()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page, status, view])
+    }, [page, status, view, agents, visaTypes])
 
     const totalPages = useMemo(() => Math.max(1, Math.ceil(total / 20)), [total])
     const clientPlugins = useMemo(() => getEnabledClientOrderPlugins(), [])
@@ -124,6 +243,24 @@ export function OrdersPage() {
                         <Button variant="secondary" size="sm" onClick={() => { setPage(1); load() }}>
                             查询
                         </Button>
+                        <MultiSelect
+                            label="客服"
+                            options={AGENT_OPTIONS}
+                            selected={agents}
+                            onChange={(v) => {
+                                setAgents(v)
+                                setPage(1)
+                            }}
+                        />
+                        <MultiSelect
+                            label="订单类型"
+                            options={VISA_TYPES}
+                            selected={visaTypes}
+                            onChange={(v) => {
+                                setVisaTypes(v)
+                                setPage(1)
+                            }}
+                        />
                         {/* 视图切换：卡片=看单子本身；阶段=横向对比每单卡在哪；
                             时间=看每单各步花了多久 */}
                         <div className="flex overflow-hidden rounded-md border">

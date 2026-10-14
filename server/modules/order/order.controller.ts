@@ -22,6 +22,8 @@ async function list(request: OrderListRequest) {
         page: req.page,
         status: req.status,
         agent_id: req.agent_id,
+        agent_ids: req.agent_ids,
+        visa_types: req.visa_types,
         customer: req.customer,
         start: req.start,
         end: req.end,
