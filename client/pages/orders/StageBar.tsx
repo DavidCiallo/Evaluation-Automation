@@ -497,7 +497,11 @@ export function stageBlockReason(stages: OrderStageView[] | undefined, stageId: 
     if (!stages) return null
     const target = stages.find((s) => s.id === stageId)
     if (!target) return null
-    if (target.state === "blocked") return "需先完成前序阶段"
+    // 卡在前序阶段时指名道姓，否则用户只看到「需先完成前序阶段」却不知道该做什么
+    if (target.state === "blocked") {
+        const blocker = stages.find((s) => s.id === target.blocked_by)
+        return blocker ? `需先完成「${blocker.label}」` : "需先完成前序阶段"
+    }
     const gap = target.requirements.find((r) => !r.met)
     if (!gap) return null
     return `需先满足「${gap.label}」${gap.detail ? `：${gap.detail}` : ""}`

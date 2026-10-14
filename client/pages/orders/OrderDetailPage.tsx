@@ -263,6 +263,7 @@ export function OrderDetailPage() {
                 <AccountPoolCard
                     orderId={order.id}
                     customers={(order.applicants_detail || []).map((a) => ({ id: a.id, name: a.name }))}
+                    stages={order.stages}
                     reload={load}
                 />
 

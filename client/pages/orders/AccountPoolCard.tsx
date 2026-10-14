@@ -8,8 +8,10 @@ import { Button } from "@/client/components/ui/button"
 import { Input } from "@/client/components/ui/input"
 import { accountPoolApi, robotTaskApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
+import { stageBlockReason } from "@/client/pages/orders/StageBar"
 import type { PoolAccountDTO } from "../../../shared/modules/account-pool/account-pool.entity"
 import type { RobotTaskDTO } from "../../../shared/modules/robot-task/robot-task.entity"
+import type { OrderStageView } from "../../../shared/modules/order/stage"
 
 const STATUS_CLASS: Record<string, string> = {
     registered: "border-emerald-500/60 bg-emerald-500/10 text-emerald-600",
@@ -27,11 +29,14 @@ const STATUS_CLASS: Record<string, string> = {
 export function AccountPoolCard({
     orderId,
     customers,
+    stages,
     reload,
 }: {
     orderId: string
     /** 订单的客户名单，用于分配下拉 */
     customers: Array<{ id: string; name: string }>
+    /** 阶段视图：信息确认没过时整块卡片只读 */
+    stages?: OrderStageView[]
     reload?: () => void
 }) {
     const auth = getAuth()
@@ -98,6 +103,8 @@ export function AccountPoolCard({
 
     const assigned = new Set(accounts.flatMap((a) => a.customer_ids))
     const unassigned = customers.filter((c) => !assigned.has(c.id))
+    /** 账号分配阶段未就绪的原因（通常是确认单还没签）：null 表示可执行 */
+    const poolBlocked = stageBlockReason(stages, "account_allocation")
 
     return (
         <Card>
@@ -114,7 +121,7 @@ export function AccountPoolCard({
                             )}
                         </CardTitle>
                         <CardDescription className="mt-1">
-                            决定用几个账号，并指定每位客户填在哪个账号；机器人据此注册填表
+                            {poolBlocked || "决定用几个账号，并指定每位客户填在哪个账号；机器人据此注册填表"}
                         </CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
@@ -125,11 +132,13 @@ export function AccountPoolCard({
                             value={planCount}
                             onChange={(e) => setPlanCount(Number(e.target.value) || 1)}
                             className="h-8 w-16"
+                            disabled={!!poolBlocked}
                         />
                         <Button
                             size="sm"
                             variant="outline"
-                            disabled={busy}
+                            disabled={busy || !!poolBlocked}
+                            title={poolBlocked || undefined}
                             onClick={() => run(() => accountPoolApi.plan({ order_id: orderId, count: planCount, auth }), "已按方案建号")}
                         >
                             <Plus className="size-4" />
@@ -143,7 +152,9 @@ export function AccountPoolCard({
 
                 {!loading && accounts.length === 0 && (
                     <p className="text-muted-foreground text-sm">
-                        尚未建号。一个账号可以同时登记多人，需要拆号时把数量调大再点「拟定账号」。
+                        {poolBlocked
+                            ? `还不能建号：${poolBlocked}。`
+                            : "尚未建号。一个账号可以同时登记多人，需要拆号时把数量调大再点「拟定账号」。"}
                     </p>
                 )}
 
@@ -164,7 +175,7 @@ export function AccountPoolCard({
                                 defaultValue={a.email}
                                 placeholder="注册邮箱"
                                 className="h-7 w-56"
-                                disabled={busy || a.status === "registered"}
+                                disabled={busy || !!poolBlocked || a.status === "registered"}
                                 onBlur={(e) => {
                                     if (e.target.value !== a.email) {
                                         run(() => accountPoolApi.upsert({ id: a.id, email: e.target.value, auth }))
@@ -188,8 +199,8 @@ export function AccountPoolCard({
                                     variant="outline"
                                     size="sm"
                                     className="h-7"
-                                    disabled={busy || a.status === "registered" || !a.email || !a.has_password || a.customer_ids.length === 0}
-                                    title="交给机器人注册并填表"
+                                    disabled={busy || !!poolBlocked || a.status === "registered" || !a.email || !a.has_password || a.customer_ids.length === 0}
+                                    title={poolBlocked || "交给机器人注册并填表"}
                                     onClick={() =>
                                         run(
                                             () => robotTaskApi.dispatch({ order_id: orderId, account_id: a.id, auth }),
@@ -204,7 +215,8 @@ export function AccountPoolCard({
                                     variant="ghost"
                                     size="sm"
                                     className="text-muted-foreground h-7 px-2"
-                                    disabled={busy}
+                                    disabled={busy || !!poolBlocked}
+                                    title={poolBlocked || undefined}
                                     onClick={() => run(() => accountPoolApi.remove({ id: a.id, auth }), "已删除账号")}
                                 >
                                     <Trash2 className="size-3" />
@@ -225,8 +237,8 @@ export function AccountPoolCard({
                                 .map((x) => (
                                     <button
                                         key={x.id}
-                                        disabled={busy}
-                                        title="点击移出该账号"
+                                        disabled={busy || !!poolBlocked}
+                                        title={poolBlocked || "点击移出该账号"}
                                         className="hover:border-destructive rounded-md border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
                                         onClick={() =>
                                             run(() => accountPoolApi.assign({ order_id: orderId, account_id: "", customer_ids: [x.id], auth }))
@@ -238,7 +250,8 @@ export function AccountPoolCard({
                             {unassigned.length > 0 && (
                                 <select
                                     className="bg-background h-7 rounded-md border px-1 text-[11px]"
-                                    disabled={busy}
+                                    disabled={busy || !!poolBlocked}
+                                    title={poolBlocked || undefined}
                                     value=""
                                     onChange={(e) => {
                                         const id = e.target.value

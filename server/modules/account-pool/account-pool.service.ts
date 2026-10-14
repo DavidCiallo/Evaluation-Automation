@@ -24,6 +24,22 @@ async function customersOf(orderId: string): Promise<OrderCustomerInfo[]> {
     return order ? effectiveCustomers(order) : [];
 }
 
+/**
+ * 分配账号的前置门槛：信息确认（确认单签署）没过就不该建号、更不该派机器人。
+ *
+ * 阶段视图已经把这个顺序表达成 account_allocation 的 blocked，
+ * 这里再挡一次是因为接口可以被直接调用 —— 前端灰掉按钮挡不住脚本。
+ * 阶段视图要动态 import，避免 order.service ↔ account-pool 的静态循环。
+ */
+export async function assertAllocatable(orderId: string): Promise<void> {
+    const order = await orderRepo.findOne({ id: orderId });
+    if (!order) throw new Error("订单不存在");
+    const { evaluateOrderStages } = await import("../order/stage.service");
+    const { stages } = await evaluateOrderStages(order);
+    const stage = stages.find((s) => s.id === "account_allocation");
+    if (stage && stage.state === "blocked") throw new Error("需先完成信息确认，再分配办签账号");
+}
+
 /** 找订单下的账号，按 seq 升序。 */
 export async function listByOrder(orderId: string): Promise<PoolAccountEntity[]> {
     const rows = await repo.find({ order_id: orderId }, { limit: 200 });
@@ -66,6 +82,7 @@ export async function findByEmail(email: string, excludeId?: string): Promise<Po
  * 一人一单时 count 取 1，轮转分配自然把唯一的客户放到唯一的账号上。
  */
 export async function planAccounts(orderId: string, count: number): Promise<PoolAccountEntity[]> {
+    await assertAllocatable(orderId);
     const existing = await listByOrder(orderId);
     const customers = await customersOf(orderId);
 

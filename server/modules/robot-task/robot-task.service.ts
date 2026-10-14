@@ -43,6 +43,7 @@ export async function findOne(id: string): Promise<RobotTaskEntity | null> {
  * 系统里要保留手动填写已分配的邮箱、账号密码）。
  */
 export async function dispatch(orderId: string, accountId: string): Promise<RobotTaskEntity> {
+    await accountService.assertAllocatable(orderId);
     const account = await accountService.findOne(accountId);
     if (!account) throw new Error("账号不存在");
     if (account.order_id !== orderId) throw new Error("账号不属于该订单");
