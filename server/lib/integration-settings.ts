@@ -106,7 +106,7 @@ const META: Record<IntegrationProviderId, {
     },
     ctrip: {
         label: "ctrip 机票任务",
-        hint: "提交乘客护照建机票搜索任务，任务产物 PDF 一键挂申请单材料（需系统密码鉴权）",
+        hint: "提交乘客护照建机票搜索任务，任务产物 PDF 一键挂客户材料（需系统密码鉴权）",
         accountLabel: null,
         secretLabel: "系统密码",
         defaultIntervalMs: null,

@@ -76,7 +76,7 @@ export const emailRoutes = {
             success: boolean
             data?: {
                 groups: Array<{
-                    application_id: string
+                    customer_id: string
                     applicant_name: string
                     materials: Array<{ id: string; category: string; files: Array<{ id: string; filename: string }> }>
                 }>
@@ -84,7 +84,7 @@ export const emailRoutes = {
             message?: string
         },
     },
-    /** AI 起草订单邮件（结合订单/申请单/所选材料上下文） */
+    /** AI 起草订单邮件（结合订单/客户/所选材料上下文） */
     draftOrderEmail: {
         path: "/draft-order-email",
         request: {} as { order_id: string; instruction?: string; file_ids?: string[]; auth?: string },

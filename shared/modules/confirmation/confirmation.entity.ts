@@ -24,8 +24,8 @@ export const CONFIRMATION_STATUS_LABEL: Record<ConfirmationStatus, string> = {
 
 /**
  * 客户确认时冻结的资料快照。
- * 与申请单的身份字段同构——既要能回显「客户当时看到的是什么」，
- * 也要能在客户改错时回填申请单。
+ * 与订单客户条目的身份字段同构——既要能回显「客户当时看到的是什么」，
+ * 也要能在客户改错时回填客户资料。
  */
 export interface ConfirmationSnapshot {
     name: string;

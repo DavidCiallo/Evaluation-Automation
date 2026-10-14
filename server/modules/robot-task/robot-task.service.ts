@@ -48,7 +48,7 @@ export async function dispatch(orderId: string, accountId: string): Promise<Robo
     if (account.order_id !== orderId) throw new Error("账号不属于该订单");
     if (!account.email) throw new Error("账号尚未填写邮箱，无法派发注册任务");
     if (!account.password) throw new Error("账号尚未填写密码，无法派发注册任务");
-    if (!account.application_ids?.length) throw new Error("账号下没有申请单，无需注册填表");
+    if (!account.customer_ids?.length) throw new Error("账号下没有客户，无需注册填表");
 
     // 同一账号已有未完成任务时不重复派发（避免机器人重复注册同一个号）
     const existing = await repo.find({ account_id: accountId }, { limit: 50 });
@@ -137,7 +137,7 @@ export async function applyCallback(input: {
         });
     }
 
-    // 逐张申请单的结果记在任务上（results 已随 patch 落库）。
+    // 逐位客户的结果记在任务上（results 已随 patch 落库）。
     // 不回写 Application.result：那个字段描述的是出签结果
     // （approved/refused 等），与「表单是否填完」不是一回事。
 

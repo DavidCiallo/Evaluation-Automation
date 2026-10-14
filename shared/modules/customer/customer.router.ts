@@ -19,7 +19,7 @@ export const customerRoutes = {
         request: {} as { id: string; auth?: string },
         response: {} as CustomerDetailResponse,
     },
-    /** 客户名下申请单的全部已上传文件（按申请单分组） */
+    /** 客户名下全部已上传文件（按订单分组） */
     files: {
         path: "/files",
         request: {} as { id: string; auth?: string },

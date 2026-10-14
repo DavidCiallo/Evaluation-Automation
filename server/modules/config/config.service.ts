@@ -100,7 +100,7 @@ export const DEFAULT_ITINERARY_PROMPT = `你是资深签证行程规划师，擅
 - 每条 row 的 date 必须是对应日期的 DD-MMM 短格式（如 24-Sep）
 - 所有字段必须为字符串，不得省略`;
 
-/** 表客表单转录 prompt（mike/survey 回填数据 → 申请单结构化字段）。 */
+/** 表客表单转录 prompt（mike/survey 回填数据 → 客户资料结构化字段）。 */
 export const DEFAULT_FORM_TRANSCRIBE_PROMPT = `你是签证业务数据录入助手。下面是一份客户填写的表单数据（字段名→值）。
 请把表单内容映射为签证申请人的结构化字段，只输出 JSON，不要解释文字。
 
@@ -214,7 +214,7 @@ const DEFAULTS: Record<string, any> = {
     // partial { start_hour?, end_hour?, days? } merged on top of the defaults
     // above; agents absent here simply use the default calendar.
     agent_business_hours: {},
-    // 材料清单模板字典：国家 × 签证类型 → 必备材料（申请单按模板自动生成材料行）
+    // 材料清单模板字典：国家 × 签证类型 → 必备材料（按模板自动生成客户材料行）
     material_templates: DEFAULT_MATERIAL_TEMPLATES,
 };
 

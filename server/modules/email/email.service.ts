@@ -11,6 +11,7 @@ import type { CustomerEntity } from "../../../shared/modules/customer/customer.e
 import type { EmailLinkEntity } from "../../../shared/modules/email/link.entity";
 import { readMaterialBuffer, findOne as findFile } from "../file/file.service";
 import { EmailDTO, EmailDetailDTO, type EmailLinkDTO, type MailboxInfo } from "../../../shared/modules/email/email.entity";
+import { effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
 
 const linkRepo = Repository.instance<EmailLinkEntity>("EmailLink");
 const customerRepo = Repository.instance<CustomerEntity>("Customer");
@@ -200,24 +201,26 @@ let linkActiveIntervalMs = 0;
 
 /** 订单材料分组：发材料邮件时前端勾选附件的数据源。 */
 export async function orderMaterialGroups(orderId: string): Promise<Array<{
-    application_id: string
+    customer_id: string
     applicant_name: string
     materials: Array<{ id: string; category: string; files: Array<{ id: string; filename: string }> }>
 }>> {
-    const applicationService = await import("../application/application.service");
-    const apps = await applicationService.listByOrder(orderId);
+    const orderRepo = Repository.instance<any>("Order");
+    const order = await orderRepo.findOne({ id: orderId });
+    if (!order) throw "order not found";
+    const customers = effectiveCustomers(order);
     const materialService = await import("../material/material.service");
-    const materials = await materialService.findAllByApplications(apps.map((a) => a.id));
-    const byApp = new Map<string, typeof materials>();
+    const materials = await materialService.listByOrder(orderId);
+    const byCustomer = new Map<string, typeof materials>();
     for (const m of materials) {
-        const arr = byApp.get(m.application_id) || [];
+        const arr = byCustomer.get(m.customer_id) || [];
         arr.push(m);
-        byApp.set(m.application_id, arr);
+        byCustomer.set(m.customer_id, arr);
     }
-    return apps.map((a) => ({
-        application_id: a.id,
-        applicant_name: a.name || "",
-        materials: (byApp.get(a.id) || []).map((m) => ({
+    return customers.map((c) => ({
+        customer_id: c.id,
+        applicant_name: c.name || "",
+        materials: (byCustomer.get(c.id) || []).map((m) => ({
             id: m.id,
             category: m.category,
             files: (m.files || []).map((f) => ({ id: f.id, filename: f.filename })),

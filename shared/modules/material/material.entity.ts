@@ -1,8 +1,6 @@
 /**
  * 材料行内核数据模型（一等实体，垂直切片 v2）。
  * 材料行 = 「某位申请人」的材料清单里的一行，可关联多个已上传的文件。
- * 替换旧版内嵌 ApplicationEntity.materials（MaterialRow[]），
- * ApplicationEntity 只维护 material_ids: string[]（引用本集合）。
  * 文件访问通过 File 实体（data/File.jsonl + data/media/<storage_name>）。
  */
 
@@ -13,8 +11,10 @@ export interface MaterialLineEntity {
     create_time: number;
     update_time: number | null;
     delete_time: number | null;
-    /** 归属申请单 id */
-    application_id: string;
+    /** 归属订单 id */
+    order_id: string;
+    /** 归属客户条目 id（订单客户名单 OrderCustomerInfo.id） */
+    customer_id: string;
     /** 关联的文件 id 列表（同一材料可多份：原件+复印件） */
     file_ids: string[];
     /** 材料类别：护照/照片/身份证/在职证明… */
@@ -30,7 +30,8 @@ export interface MaterialLineEntity {
 /** 对外 DTO：材料行 + 已关联的文件详情（服务端 inflate）。 */
 export class MaterialDTO {
     public id: string;
-    public application_id: string;
+    public order_id: string;
+    public customer_id: string;
     public category: string;
     public required: boolean;
     public received: boolean;
@@ -41,7 +42,8 @@ export class MaterialDTO {
 
     constructor(origin: MaterialLineEntity, files: FileDTO[] = []) {
         this.id = origin.id;
-        this.application_id = origin.application_id;
+        this.order_id = origin.order_id;
+        this.customer_id = origin.customer_id;
         this.category = origin.category || "";
         this.required = !!origin.required;
         this.received = !!origin.received;

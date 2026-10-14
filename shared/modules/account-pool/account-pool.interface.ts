@@ -32,7 +32,7 @@ export class AccountPoolListResponse {
 
 /**
  * 拟定账号数量：客服说「这单要几个号」。
- * 系统据此建出占位账号，并把申请单均分到各账号（客服随后可逐条调整）。
+ * 系统据此建出占位账号，并把客户均分到各账号（客服随后可逐条调整）。
  */
 export class AccountPoolPlanRequest {
     public order_id: string;
@@ -103,23 +103,23 @@ export class AccountPoolUpsertResponse {
     }
 }
 
-/** 把申请单分配到账号（或从账号上摘除）。 */
+/** 把客户分配到账号（或从账号上摘除）。 */
 export class AccountPoolAssignRequest {
     public order_id: string;
-    /** 目标账号 id；传空字符串表示「暂不分配」（申请单回到未分配池） */
+    /** 目标账号 id；传空字符串表示「暂不分配」（客户回到未分配池） */
     public account_id: string;
-    public application_ids: string[];
+    public customer_ids: string[];
     public auth?: string;
 
     constructor(data: any) {
         if (!data.order_id) throw new Error("order_id is required");
         if (data.account_id === undefined || data.account_id === null) throw new Error("account_id is required");
-        if (!Array.isArray(data.application_ids) || data.application_ids.length === 0) {
-            throw new Error("application_ids 不能为空");
+        if (!Array.isArray(data.customer_ids) || data.customer_ids.length === 0) {
+            throw new Error("customer_ids 不能为空");
         }
         this.order_id = data.order_id;
         this.account_id = String(data.account_id);
-        this.application_ids = data.application_ids.map(String);
+        this.customer_ids = data.customer_ids.map(String);
         this.auth = data.auth;
     }
 

@@ -1,7 +1,7 @@
 /**
  * 客户档案内核数据模型（轻量CRM，唯一独立实体）。
- * 客户 = 「这个人是谁」的长期事实：跨订单复用、可检索、可预填申请单。
- * 申请单里存的是预填后的快照，改档案不回改历史订单。
+ * 客户 = 「这个人是谁」的长期事实：跨订单复用、可检索、可预填客户资料。
+ * 订单客户条目存的是预填后的快照，改档案不回改历史订单。
  */
 
 export interface CustomerEntity {
@@ -18,7 +18,7 @@ export interface CustomerEntity {
     /** 邮箱（检索 / 通知） */
     email: string | null;
     gender: string | null;
-    /** YYYY-MM-DD（预填申请单） */
+    /** YYYY-MM-DD（预填客户资料） */
     dob: string | null;
     /** 常用护照号（检索 / 预填） */
     passport_no: string | null;

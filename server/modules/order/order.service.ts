@@ -14,15 +14,13 @@ import type {
 } from "../../../shared/modules/order/order.entity";
 import { OrderDTO } from "../../../shared/modules/order/order.entity";
 import type { ApplicantSummary, ApplicantDetail } from "../../../shared/modules/order/order.entity";
-import { APPLICATION_STATUS_LABEL } from "../../../shared/modules/application/application.entity";
-import type { ApplicationEntity } from "../../../shared/modules/application/application.entity";
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
 import type { AccountEntity } from "../../../shared/modules/account/account.entity";
 import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import { getOrderPlugin, getEnabledOrderPlugins, type PluginContext } from "./plugin-registry";
-import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest";
+import { STANDARD_PLUGIN_ID, effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
 import { getVisaType } from "../../../shared/modules/order/visa";
 import { agentLabel, isKnownAgent } from "../../../shared/modules/case/case.entity";
 
@@ -31,10 +29,9 @@ const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
 const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
 const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
 const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
+const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
 
 const PAGE_SIZE = 20;
-
-const appRepo: Repository<ApplicationEntity> = Repository.instance("Application");
 
 // ---------- 查询 ----------
 
@@ -410,7 +407,6 @@ export async function createManualOrder(input: {
     customer_name?: string;
     source?: "email" | "manual";
 }): Promise<OrderEntity> {
-    const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
     let customerName = (input.customer_name || "").trim();
     let customerWechatId = "";
 
@@ -462,9 +458,9 @@ export async function createManualOrder(input: {
 /**
  * 订单级取消 / 恢复。
  *
- * 状态已改为「由申请单实况实时推导」，因此不再存在「手工把订单推到某个阶段」这回事：
- * 阶段进度由证据（订单信息、表单、同意、行程、材料、申请单）决定。
- * 唯一需要人工直接干预的是**整单取消** —— 它无法从申请单推导（申请单可能仍在进行），
+ * 状态已改为「由办签实况实时推导」，因此不再存在「手工把订单推到某个阶段」这回事：
+ * 阶段进度由证据（订单信息、表单、同意、行程、材料、客户名单）决定。
+ * 唯一需要人工直接干预的是**整单取消** —— 它无法从办签进度推导（客户可能仍在办签），
  * 故以 cancelled_at 作为显式覆盖，投影时优先于推导结果。
  */
 export async function cancelOrder(id: string, reason: string, by: string): Promise<OrderEntity | null> {
@@ -607,7 +603,7 @@ export async function runMessageHooks(order: OrderEntity, msg: ConversationEntit
     }
 }
 
-// ---------- DTO 组装（解析参与客服姓名 + 申请单摘要） ----------
+// ---------- DTO 组装（解析参与客服姓名 + 客户摘要） ----------
 
 async function resolveAgentNames(agentIds: string[]): Promise<Map<string, string>> {
     const unique = [...new Set(agentIds.filter(Boolean))];
@@ -624,64 +620,66 @@ async function resolveAgentNames(agentIds: string[]): Promise<Map<string, string
     return map;
 }
 
-/** 批量查申请单摘要：输入订单列表，返回 orderId → 摘要数组（按 seq 排序）。 */
-export async function resolveApplicantsSummaries(
+/** 组装客户摘要：输入订单列表，返回 orderId → 摘要数组。 */
+/**
+ * 订单客户名单转申请人聚合视图。
+ *
+ * 以前这里实时聚合申请单，申请单取消后订单客户名单就是唯一真相：
+ * 签证/出发地等来自客户条目，护照等身份信息实时取客户档案。
+ */
+async function resolveApplicantsDetail(
     orders: OrderEntity[],
-): Promise<Map<string, ApplicantSummary[]>> {
-    const map = new Map<string, ApplicantSummary[]>();
-    const ids = orders.flatMap((o) => o.applicant_ids || []);
-    if (ids.length === 0) return map;
-    const apps = await appRepo.find({ id: { $in: ids } });
-    const byOrder = new Map<string, ApplicationEntity[]>();
-    for (const a of apps) {
-        const arr = byOrder.get(a.order_id);
-        if (arr) arr.push(a);
-        else byOrder.set(a.order_id, [a]);
-    }
-    for (const [orderId, list] of byOrder) {
-        list.sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
-        map.set(orderId, list.map((a) => ({
-            id: a.id,
-            name: a.name || "",
-            status: a.status,
-            status_label: APPLICATION_STATUS_LABEL[a.status] || a.status,
-        })));
+): Promise<Map<string, ApplicantDetail[]>> {
+    const map = new Map<string, ApplicantDetail[]>();
+    const profileIds = [
+        ...new Set(orders.flatMap((o) => effectiveCustomers(o).map((c) => c.customer_id).filter(Boolean))),
+    ] as string[];
+    const profiles = profileIds.length > 0 ? await customerRepo.find({ id: { $in: profileIds } }) : [];
+    const byProfile = new Map(profiles.map((p) => [p.id, p]));
+
+    for (const order of orders) {
+        const customers = effectiveCustomers(order);
+        map.set(
+            order.id,
+            customers.map((c, i) => {
+                const p = c.customer_id ? byProfile.get(c.customer_id) : undefined;
+                return {
+                    id: c.id,
+                    seq: i + 1,
+                    is_lead: i === 0,
+                    customer_id: c.customer_id || null,
+                    name: p?.name || c.name || "",
+                    gender: p?.gender ?? null,
+                    dob: p?.dob ?? null,
+                    passport_no: p?.passport_no ?? null,
+                    passport_expiry: p?.passport_expiry ?? null,
+                    visa_country: (p as any)?.visa_country ?? null,
+                    visa_type: c.visa_type ?? null,
+                    departure: c.departure ?? null,
+                    status: "active",
+                    status_label: "在办",
+                };
+            }),
+        );
     }
     return map;
 }
 
-/** 批量查申请单聚合详情（订单信息卡用）：orderId → 完整申请人列表（按 seq 排序）。 */
-export async function resolveApplicantsDetail(
+/** 列表页的申请人摘要：客户名单的名字 + 统一状态（个人办签状态已随申请单取消）。 */
+async function resolveApplicantsSummaries(
     orders: OrderEntity[],
-): Promise<Map<string, ApplicantDetail[]>> {
-    const map = new Map<string, ApplicantDetail[]>();
-    const ids = orders.flatMap((o) => o.applicant_ids || []);
-    if (ids.length === 0) return map;
-    const apps = await appRepo.find({ id: { $in: ids } });
-    const byOrder = new Map<string, ApplicationEntity[]>();
-    for (const a of apps) {
-        const arr = byOrder.get(a.order_id);
-        if (arr) arr.push(a);
-        else byOrder.set(a.order_id, [a]);
-    }
-    for (const [orderId, list] of byOrder) {
-        list.sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
-        map.set(orderId, list.map((a) => ({
-            id: a.id,
-            seq: a.seq ?? 0,
-            is_lead: !!a.is_lead,
-            customer_id: a.customer_id || null,
-            name: a.name || "",
-            gender: a.gender ?? null,
-            dob: a.dob ?? null,
-            passport_no: a.passport_no ?? null,
-            passport_expiry: a.passport_expiry ?? null,
-            visa_country: a.visa_country ?? null,
-            visa_type: a.visa_type ?? null,
-            departure: a.departure ?? null,
-            status: a.status,
-            status_label: APPLICATION_STATUS_LABEL[a.status] || a.status,
-        })));
+): Promise<Map<string, ApplicantSummary[]>> {
+    const map = new Map<string, ApplicantSummary[]>();
+    for (const order of orders) {
+        map.set(
+            order.id,
+            effectiveCustomers(order).map((c) => ({
+                id: c.id,
+                name: c.name || "",
+                status: "active",
+                status_label: "在办",
+            })),
+        );
     }
     return map;
 }

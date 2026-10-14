@@ -97,7 +97,7 @@ export function CustomerPage() {
     const [editing, setEditing] = useState<CustomerDTO | null>(null)
     const [form, setForm] = useState<Record<string, string>>({})
     const [busy, setBusy] = useState(false)
-    /** 文件弹窗：查看该客户名下申请单已上传的文件 */
+    /** 文件弹窗：查看该客户名下已上传的材料文件 */
     const [fileOpen, setFileOpen] = useState(false)
     const [fileCustomer, setFileCustomer] = useState<CustomerDTO | null>(null)
     const [fileGroups, setFileGroups] = useState<FileGroup[]>([])
@@ -241,7 +241,7 @@ export function CustomerPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-xl font-semibold">客户档案</h2>
-                    <p className="text-muted-foreground text-xs">跨订单复用 · 建档后可预填申请单</p>
+                    <p className="text-muted-foreground text-xs">跨订单复用 · 建档后可预填客户资料</p>
                 </div>
                 <Button onClick={openCreate}>
                     <UserPlus className="mr-1 size-4" /> 新建客户
@@ -325,7 +325,7 @@ export function CustomerPage() {
                     <DialogHeader>
                         <DialogTitle>{editing ? "编辑客户档案" : "新建客户档案"}</DialogTitle>
                         <DialogDescription>
-                            新建申请单时可选择该档案自动填入资料。
+                            订单里新增客户时可选择该档案自动填入资料。
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid grid-cols-2 gap-3">
@@ -375,14 +375,14 @@ export function CustomerPage() {
                     <DialogHeader>
                         <DialogTitle>相关文件 — {fileCustomer?.name || ""}</DialogTitle>
                         <DialogDescription>
-                            该客户名下所有申请单已上传的文件（跨订单聚合）。
+                            该客户名下所有订单已上传的材料文件（跨订单聚合）。
                         </DialogDescription>
                     </DialogHeader>
                     {fileLoading ? (
                         <Skeleton className="h-32 w-full" />
                     ) : (
                         (() => {
-                            // 跨申请单聚合：按类别归类
+                            // 跨订单聚合：按类别归类
                             const idCards: { app: string; files: FileDTO[] }[] = []
                             const passports: { app: string; files: FileDTO[] }[] = []
                             const others: { app: string; files: FileDTO[] }[] = []

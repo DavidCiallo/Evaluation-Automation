@@ -61,8 +61,8 @@ function effectiveCustomers(order: OrderEntity): OrderCustomerInfo[] {
     return std.draft?.customers || std.confirmed?.customers || [];
 }
 
-/** 由订单的客户条目 + 客户档案组装签发快照。 */
-async function buildSnapshot(customer: OrderCustomerInfo): Promise<ConfirmationSnapshot> {
+/** 由订单的客户条目 + 客户档案组装签发快照。账号池的填表计划复用这个口径。 */
+export async function buildSnapshot(customer: OrderCustomerInfo): Promise<ConfirmationSnapshot> {
     let profile: CustomerEntity | null = null;
     if (customer.customer_id) profile = await customerRepo.findOne({ id: customer.customer_id });
     if (!profile && customer.name) profile = await customerRepo.findOne({ name: customer.name });

@@ -1,5 +1,5 @@
 /**
- * 订单发材料邮件对话框：勾选申请单材料作为附件，可 AI 起草正文，发送到客户邮箱。
+ * 订单发材料邮件对话框：勾选客户材料作为附件，可 AI 起草正文，发送到客户邮箱。
  * 收件人失焦时自动检索该邮箱的「邮件往来」，方便客服掌握上下文。
  */
 import { useEffect, useState } from "react"
@@ -134,7 +134,7 @@ export function SendMaterialsDialog({ open, onClose, order, auth }: {
                 <DialogHeader>
                     <DialogTitle>发送材料邮件</DialogTitle>
                     <DialogDescription>
-                        从申请单材料勾选附件发送给客户；发件域名限 {SENDER_DOMAINS.join(" / ")}。
+                        从客户材料勾选附件发送给客户；发件域名限 {SENDER_DOMAINS.join(" / ")}。
                     </DialogDescription>
                 </DialogHeader>
 
@@ -149,7 +149,7 @@ export function SendMaterialsDialog({ open, onClose, order, auth }: {
                                 <Loader2 className="size-3 animate-spin" /> 加载材料…
                             </div>
                         ) : totalFiles === 0 ? (
-                            <p className="text-muted-foreground text-xs">该订单暂无材料文件。可先在申请单上传或从 ctrip 拉取产物。</p>
+                            <p className="text-muted-foreground text-xs">该订单暂无材料文件。可先在客户材料里上传或从 ctrip 拉取产物。</p>
                         ) : (
                             <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border p-2">
                                 {groups.map((g) => (

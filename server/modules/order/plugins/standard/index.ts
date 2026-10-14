@@ -515,7 +515,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             if (pax.length === 0) throw "至少需要一位乘客";
             for (const [i, p] of pax.entries()) {
                 const tag = `乘客${i + 1}`;
-                if (!p.application_id) throw `${tag}：缺少关联申请单`;
+                if (!p.customer_id) throw `${tag}：缺少关联客户`;
                 if (!String(p.surname || "").trim()) throw `${tag}：请填写拼音姓`;
                 if (!String(p.givenname || "").trim()) throw `${tag}：请填写拼音名`;
                 if (!String(p.passport_no || "").trim()) throw `${tag}：请补录护照号`;
@@ -594,7 +594,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { tasks: tripTasks, changed };
         },
 
-        /** 拉取 ctrip 产物 PDF 并挂到乘客申请单材料（category=机票预订）。payload = { trip_id } */
+        /** 拉取 ctrip 产物 PDF 并挂到乘客的客户材料（category=机票预订）。payload = { trip_id } */
         "attach-trip-files": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.trip_id) throw "trip_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -607,7 +607,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const now = Date.now();
 
             for (const pax of trip.pax) {
-                if (!pax.application_id || !pax.surname || !pax.givenname) continue;
+                if (!pax.customer_id || !pax.surname || !pax.givenname) continue;
                 const prefix = `${pax.surname}_${pax.givenname}_`.toUpperCase();
                 const matched = files.filter(
                     (f) => f.name.toUpperCase().startsWith(prefix) &&
@@ -624,14 +624,14 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                         size: buf.length,
                         uploaded_by: "ctrip",
                     });
-                    // 找/建申请单的「机票预订」材料行并挂文件
-                    const existing = await materialService.listByApplication(pax.application_id);
+                    // 找/建该客户的「机票预订」材料行并挂文件
+                    const existing = await materialService.listByOrder(order.id, pax.customer_id);
                     let line = existing.find((m) => m.category === "机票预订");
                     if (!line) {
-                        line = await materialService.create({ application_id: pax.application_id, category: "机票预订", required: false, received: true, remark: "ctrip 自动生成" });
+                        line = await materialService.create({ order_id: order.id, customer_id: pax.customer_id, category: "机票预订", required: false, received: true, remark: "ctrip 自动生成" });
                     }
                     await materialService.attachFile(line.id, fileDto.id, true);
-                    trip.attachments.push({ name: f.name, file_id: fileDto.id, application_id: pax.application_id, attached_time: now });
+                    trip.attachments.push({ name: f.name, file_id: fileDto.id, customer_id: pax.customer_id, attached_time: now });
                     attached++;
                 }
             }

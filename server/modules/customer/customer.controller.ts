@@ -45,7 +45,7 @@ async function remove(request: CustomerDeleteRequest) {
     return { ok: true };
 }
 
-/** 客户名下申请单的全部已上传文件（聚合视图）。 */
+/** 客户名下全部已上传文件（聚合视图）。 */
 async function files(request: CustomerDetailRequest) {
     const req = CustomerDetailRequest.self(request);
     const customer = await svc.findOne(req.id);

@@ -92,7 +92,7 @@ export class RobotTaskPayloadResponse {
 /**
  * 机器人回调。支持两次调用：
  *   中途把 status 置 running（可选）；
- *   结束时置 succeeded / failed 并带上逐张申请单结果。
+ *   结束时置 succeeded / failed 并带上逐位客户结果。
  * 免鉴权入口，凭 task id + 固定口令校验（见 mount.ts 与 service）。
  */
 export class RobotTaskCallbackRequest {

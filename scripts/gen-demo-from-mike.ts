@@ -1,6 +1,6 @@
 /**
  * 一键演示生成器：随机挑一份近期的麦客表单提交，从它出发走完整业务管线——
- *   聊天记录 → 客户档案 → 订单（含确认信息）→ 申请单（转录身份字段+材料模板）
+ *   聊天记录 → 客户档案 → 订单（含确认信息）→ 客户名单 + 材料模板
  *   → 表单关联（麦客提交）→ AI 行程单（落为材料）→ ctrip 机票任务（可选）
  *
  * 用法：bun run scripts/gen-demo-from-mike.ts [--name=张三] [--days=30] [--no-flight]
@@ -19,7 +19,7 @@ import { buildItineraryMarkdown } from "../server/modules/order/plugins/standard
 import { saveToDisk, createFile as createFileRecord } from "../server/modules/file/file.service";
 import * as materialService from "../server/modules/material/material.service";
 import * as customerService from "../server/modules/customer/customer.service";
-import * as applicationService from "../server/modules/application/application.service";
+import { getConfigValue, type MaterialTemplateEntry } from "../server/modules/config/config.service";
 import { dispatchPluginAction, setPluginData } from "../server/modules/order/order.service";
 import type { ChatEntity, ChatMemberEntity } from "../shared/modules/chat/chat.entity";
 import type { ConversationEntity } from "../shared/modules/conversation/conversation.entity";
@@ -258,22 +258,18 @@ function randPrice(): number {
 await setPluginData(order.id, "standard", std);
 console.log(`[gen] 订单：${order.id}（${order.order_name}，已确认，关联表单提交）`);
 
-// 6. 申请单（转录字段 + 材料模板）
-const app = await applicationService.create({
-    order_id: order.id,
-    customer_id: profile.id,
-    is_lead: true,
-    name,
-    gender: patch.gender || null,
-    dob: patch.dob || null,
-    passport_no: patch.passport_no || null,
-    passport_expiry: patch.passport_expiry || null,
-    visa_country: country,
-    visa_type: visaType,
-    departure: patch.departure || null,
-});
-await applicationService.applyTemplate(app.id, country, visaType);
-console.log(`[gen] 申请单：${app.id}（状态：${app.status_label}，材料模板已套用）`);
+// 6. 材料模板（按国家 × 签证类型套用到该客户条目）
+const templates = await getConfigValue<MaterialTemplateEntry[]>("material_templates");
+const entry = (templates || []).find(
+    (t) => t.country === country || (t.aliases || []).includes(country),
+);
+const template = entry?.visaTypes?.[visaType] || [];
+if (template.length > 0) {
+    await materialService.rebuildFromTemplate(order.id, pluginCustId, template);
+    console.log(`[gen] 材料模板：${template.length} 项已套用到客户条目 ${pluginCustId}`);
+} else {
+    console.warn(`[gen] 材料模板：${country}/${visaType} 无匹配模板，已跳过`);
+}
 
 // 7. AI 行程单（下个月出发，5 天）→ 导出为材料
 let itineraryCreated = false;
@@ -302,9 +298,9 @@ try {
     const itineraryId = (saved.result as any)?.itinerary?.id;
     const exported = await dispatchPluginAction(order.id, "standard", "export-itinerary", { itinerary_id: itineraryId });
     const md = (exported.result as { content: string; filename: string }).content;
-    const { storage_name, content_type } = saveToDisk(Buffer.from(md, "utf-8"), `itinerary_${app.id}.md`);
+    const { storage_name, content_type } = saveToDisk(Buffer.from(md, "utf-8"), `itinerary_${pluginCustId}.md`);
     const fileDto = await createFileRecord({ filename: `itinerary_${name}.md`, storage_name, content_type, size: Buffer.byteLength(md), uploaded_by: "demo-gen" });
-    const line = await materialService.create({ application_id: app.id, category: "行程单", required: false, received: true, remark: "AI 生成（演示）" });
+    const line = await materialService.create({ order_id: order.id, customer_id: pluginCustId, category: "行程单", required: false, received: true, remark: "AI 生成（演示）" });
     await materialService.attachFile(line.id, fileDto.id, true);
     itineraryCreated = true;
     console.log(`[gen] 行程单：${it.title}（已导出为材料「行程单」，${it.rows.length} 天）`);
@@ -333,7 +329,7 @@ if (NO_FLIGHT) {
             to,
             date: new Date(now + 30 * 86400_000).toISOString().slice(0, 10),
             pax: [{
-                application_id: app.id,
+                customer_id: pluginCustId,
                 name,
                 surname: pinyin.surname,
                 givenname: pinyin.givenname,

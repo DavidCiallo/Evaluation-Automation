@@ -83,7 +83,7 @@ function stageLabelOf(o: OrderDTO): string | null {
     return (o.stages || []).find((s) => s.state === "ready")?.label || null
 }
 
-/** 申请单个人状态 → 小徽章可见样式（绿=出签、红=拒签/取消、黄=取回、灰=进行中）。 */
+/** 客户个人状态 → 小徽章可见样式（绿=出签、红=拒签/取消、黄=取回、灰=进行中）。 */
 const APP_BADGE_CLASS: Record<string, string> = {
     approved: "border-emerald-500/60 bg-emerald-500/10 text-emerald-600",
     refused: "border-destructive/60 bg-destructive/10 text-destructive",
@@ -376,7 +376,7 @@ export function OrdersPage() {
                                             </div>
                                         </CardHeader>
                                         <CardContent className="space-y-2">
-                                            {/* 申请单摘要：每人一个状态小徽章 */}
+                                            {/* 客户摘要：每人一个状态小徽章 */}
                                             {o.applicants_summary && o.applicants_summary.length > 0 && (
                                                 <div className="flex flex-wrap gap-1">
                                                     {o.applicants_summary.map((a) => (

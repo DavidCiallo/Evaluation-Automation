@@ -21,17 +21,17 @@ const STATUS_CLASS: Record<string, string> = {
 /**
  * 订单详情里的「办签账号」区块。
  *
- * 这一块对应业务流程里「决定用几个号、哪张申请单填在哪个号」的决策，
+ * 这一块对应业务流程里「决定用几个号、哪位客户填在哪个号」的决策，
  * 以及机器人注册填表的结果回填。密码默认打码，显式点击才取明文。
  */
 export function AccountPoolCard({
     orderId,
-    applications,
+    customers,
     reload,
 }: {
     orderId: string
-    /** 订单下的申请单，用于分配下拉 */
-    applications: Array<{ id: string; name: string }>
+    /** 订单的客户名单，用于分配下拉 */
+    customers: Array<{ id: string; name: string }>
     reload?: () => void
 }) {
     const auth = getAuth()
@@ -96,8 +96,8 @@ export function AccountPoolCard({
         }
     }
 
-    const assigned = new Set(accounts.flatMap((a) => a.application_ids))
-    const unassigned = applications.filter((a) => !assigned.has(a.id))
+    const assigned = new Set(accounts.flatMap((a) => a.customer_ids))
+    const unassigned = customers.filter((c) => !assigned.has(c.id))
 
     return (
         <Card>
@@ -114,7 +114,7 @@ export function AccountPoolCard({
                             )}
                         </CardTitle>
                         <CardDescription className="mt-1">
-                            决定用几个账号，并指定每张申请单填在哪个账号；机器人据此注册填表
+                            决定用几个账号，并指定每位客户填在哪个账号；机器人据此注册填表
                         </CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
@@ -143,13 +143,13 @@ export function AccountPoolCard({
 
                 {!loading && accounts.length === 0 && (
                     <p className="text-muted-foreground text-sm">
-                        尚未建号。一个账号通常能写完 tls 和 fv 的申请单；需要拆号时把数量调大再点「拟定账号」。
+                        尚未建号。一个账号可以同时登记多人，需要拆号时把数量调大再点「拟定账号」。
                     </p>
                 )}
 
                 {unassigned.length > 0 && accounts.length > 0 && (
                     <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
-                        还有 {unassigned.length} 张申请单未分配账号：{unassigned.map((a) => a.name).join("、")}
+                        还有 {unassigned.length} 位客户未分配账号：{unassigned.map((c) => c.name).join("、")}
                     </div>
                 )}
 
@@ -188,7 +188,7 @@ export function AccountPoolCard({
                                     variant="outline"
                                     size="sm"
                                     className="h-7"
-                                    disabled={busy || a.status === "registered" || !a.email || !a.has_password || a.application_ids.length === 0}
+                                    disabled={busy || a.status === "registered" || !a.email || !a.has_password || a.customer_ids.length === 0}
                                     title="交给机器人注册并填表"
                                     onClick={() =>
                                         run(
@@ -214,14 +214,14 @@ export function AccountPoolCard({
 
                         {a.error && <p className="text-destructive text-xs">{a.error}</p>}
 
-                        {/* 申请单分配：一张单只能属于一个账号 */}
+                        {/* 客户分配：一位客户只能属于一个账号 */}
                         <div className="flex flex-wrap items-center gap-2 pl-1">
-                            <span className="text-muted-foreground text-xs">承载申请单：</span>
-                            {a.application_ids.length === 0 && (
+                            <span className="text-muted-foreground text-xs">登记客户：</span>
+                            {a.customer_ids.length === 0 && (
                                 <span className="text-muted-foreground text-xs">（无）</span>
                             )}
-                            {applications
-                                .filter((x) => a.application_ids.includes(x.id))
+                            {customers
+                                .filter((x) => a.customer_ids.includes(x.id))
                                 .map((x) => (
                                     <button
                                         key={x.id}
@@ -229,7 +229,7 @@ export function AccountPoolCard({
                                         title="点击移出该账号"
                                         className="hover:border-destructive rounded-md border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
                                         onClick={() =>
-                                            run(() => accountPoolApi.assign({ order_id: orderId, account_id: "", application_ids: [x.id], auth }))
+                                            run(() => accountPoolApi.assign({ order_id: orderId, account_id: "", customer_ids: [x.id], auth }))
                                         }
                                     >
                                         {x.name} ×
@@ -243,11 +243,11 @@ export function AccountPoolCard({
                                     onChange={(e) => {
                                         const id = e.target.value
                                         if (!id) return
-                                        run(() => accountPoolApi.assign({ order_id: orderId, account_id: a.id, application_ids: [id], auth }))
+                                        run(() => accountPoolApi.assign({ order_id: orderId, account_id: a.id, customer_ids: [id], auth }))
                                         e.target.value = ""
                                     }}
                                 >
-                                    <option value="">+ 分配申请单</option>
+                                    <option value="">+ 分配客户</option>
                                     {unassigned.map((x) => (
                                         <option key={x.id} value={x.id}>
                                             {x.name}

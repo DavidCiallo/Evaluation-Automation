@@ -15,7 +15,7 @@ export const accountPoolRoutes = {
         request: {} as { order_id: string; with_secret?: boolean; auth?: string },
         response: {} as AccountPoolListResponse,
     },
-    /** 拟定账号数量：建出占位账号并把申请单均分过去 */
+    /** 拟定账号数量：建出占位账号并把客户均分过去 */
     plan: {
         path: "/plan",
         request: {} as { order_id: string; count: number; auth?: string },
@@ -34,13 +34,13 @@ export const accountPoolRoutes = {
         },
         response: {} as AccountPoolUpsertResponse,
     },
-    /** 把申请单分配到指定账号 */
+    /** 把客户分配到指定账号 */
     assign: {
         path: "/assign",
-        request: {} as { order_id: string; account_id: string; application_ids: string[]; auth?: string },
+        request: {} as { order_id: string; account_id: string; customer_ids: string[]; auth?: string },
         response: {} as AccountPoolAssignResponse,
     },
-    /** 删除账号（其申请单回到未分配） */
+    /** 删除账号（其客户回到未分配） */
     remove: {
         path: "/remove",
         request: {} as { id: string; auth?: string },

@@ -73,6 +73,15 @@ export interface OrderInfoConfirmed {
     customers: OrderCustomerInfo[];
 }
 
+/**
+ * 当前有效的客户名单：草稿优先。
+ * 拆单时名单即定稿，confirmed 只对存量订单还有意义，因此排在后面兜底。
+ */
+export function effectiveCustomers(order: { data?: Record<string, any> }): OrderCustomerInfo[] {
+    const std = (order?.data?.[STANDARD_PLUGIN_ID] || {}) as StandardPluginData;
+    return std.draft?.customers || std.confirmed?.customers || [];
+}
+
 // ============ 第二栏：表单收集 ============
 
 /** 表单分配记录。 */
@@ -189,10 +198,10 @@ export interface ItineraryGenerateInput {
 
 // ============ 机票任务（ctrip 系统） ============
 
-/** 乘客信息：护照等以申请单为预填真相，拼音姓/名与联系方式由客服确认。 */
+/** 乘客信息：护照等以订单客户条目为预填真相，拼音姓/名与联系方式由客服确认。 */
 export interface TripPax {
-    /** 关联申请单 id */
-    application_id: string | null;
+    /** 关联客户条目 id（订单客户名单 OrderCustomerInfo.id） */
+    customer_id: string | null;
     /** 中文姓名（展示用） */
     name: string;
     /** 拼音姓（大写，如 LIU） */
@@ -215,11 +224,11 @@ export interface TripPax {
     email: string | null;
 }
 
-/** 已挂到申请单材料的产物文件。 */
+/** 已挂到客户材料的产物文件。 */
 export interface TripTaskAttachment {
     name: string;
     file_id: string;
-    application_id: string | null;
+    customer_id: string | null;
     attached_time: number;
 }
 

@@ -1,7 +1,7 @@
 /**
  * 机票任务区块（标准插件第三栏，主流程）+ 手动行程单（兜底，折叠）。
- * 主流程：从申请单聚合乘客（护照为预填真相）→ 创建 ctrip 机票任务 → 同步状态 →
- *         产物 PDF 一键挂到申请单材料（category=机票预订）。
+ * 主流程：从订单客户名单聚合乘客（护照为预填真相）→ 创建 ctrip 机票任务 → 同步状态 →
+ *         产物 PDF 一键挂到客户材料（category=机票预订）。
  * 兜底：原 AI 行程单生成/编辑/导出（ctrip 不可用或需手动行程时使用）。
  */
 import { useEffect, useState } from "react"
@@ -37,7 +37,7 @@ const action = (order: any, auth: string, act: string, payload: any) =>
 
 // ============ 机票任务 ============
 
-/** 乘客编辑行（预填自申请单；拼音姓/名与联系方式由客服确认）。 */
+/** 乘客编辑行（预填自订单客户名单；拼音姓/名与联系方式由客服确认）。 */
 function PaxRow({ pax, onChange, removable, onRemove, isContact }: {
     pax: TripPax
     onChange: (p: TripPax) => void
@@ -116,7 +116,7 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
     const [paxList, setPaxList] = useState<TripPax[]>([])
     const [busy, setBusy] = useState(false)
 
-    // 弹窗打开时：从申请单预填乘客（护照为真相，拼音留空由客服填写）
+    // 弹窗打开时：从订单客户名单预填乘客（护照为真相，拼音留空由客服填写）
     useEffect(() => {
         if (!open) return
         setFrom("")
@@ -124,7 +124,7 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
         setDate("")
         setReturnDate("")
         setPaxList(applicants.slice(0, 6).map((a) => ({
-            application_id: a.id,
+            customer_id: a.id,
             name: a.name || "",
             surname: "",
             givenname: "",
@@ -175,7 +175,7 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
                 <DialogHeader>
                     <DialogTitle>新建机票任务（ctrip）</DialogTitle>
                     <DialogDescription>
-                        航线用 IATA 码（如 PVG → CDG）。乘客护照信息预填自申请单，拼音姓/名与联系方式请确认后提交。
+                        航线用 IATA 码（如 PVG → CDG）。乘客护照信息预填自客户名单，拼音姓/名与联系方式请确认后提交。
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3">
@@ -202,11 +202,11 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
                             <Label>乘客（{paxList.length}）</Label>
                         </div>
                         {paxList.length === 0 && (
-                            <p className="text-muted-foreground text-xs">该订单暂无申请单，无法创建任务。</p>
+                            <p className="text-muted-foreground text-xs">该订单暂无客户名单，无法创建任务。</p>
                         )}
                         {paxList.map((p, i) => (
                             <PaxRow
-                                key={p.application_id || i}
+                                key={p.customer_id || i}
                                 pax={p}
                                 onChange={(np) => setPaxList((prev) => prev.map((x, j) => (j === i ? np : x)))}
                                 removable={i > 0}
@@ -258,7 +258,7 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
         setBusyId(trip.id)
         try {
             const res: any = await action(order, auth, "attach-trip-files", { trip_id: trip.id })
-            toast.success(`已挂 ${res?.data?.result?.attached ?? 0} 份材料到申请单`)
+            toast.success(`已挂 ${res?.data?.result?.attached ?? 0} 份材料到客户`)
             reload()
         } catch (e: any) {
             toast.error(`挂材料失败: ${e?.message || ""}`)
@@ -292,7 +292,7 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between">
-                <p className="text-muted-foreground text-xs">ctrip 机票任务：产物 PDF 可一键挂为申请单材料。</p>
+                <p className="text-muted-foreground text-xs">ctrip 机票任务：产物 PDF 可一键挂为客户材料。</p>
                 <div className="flex items-center gap-1">
                     {trips.length > 0 && (
                         <Button size="sm" variant="outline" onClick={syncAll} disabled={syncing}>
@@ -308,7 +308,7 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
                             tripBlocked
                                 ? tripBlocked
                                 : applicants.length === 0
-                                ? "该订单暂无申请单"
+                                ? "该订单暂无客户名单"
                                 : undefined
                         }
                     >
@@ -319,7 +319,7 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
 
             {trips.length === 0 ? (
                 <p className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
-                    暂无机票任务。点击「新建任务」从申请单生成。
+                    暂无机票任务。点击「新建任务」从客户名单生成。
                 </p>
             ) : (
                 <div className="space-y-2">

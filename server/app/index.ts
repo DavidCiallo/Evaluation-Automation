@@ -18,7 +18,6 @@ import { confirmationMount } from "../modules/confirmation/confirmation.controll
 import { accountPoolMount } from "../modules/account-pool/account-pool.controller";
 import { robotTaskMount } from "../modules/robot-task/robot-task.controller";
 import { formMount } from "../modules/form/form.controller";
-import { applicationMount } from "../modules/application/application.controller";
 import { customerMount } from "../modules/customer/customer.controller";
 import { fileMount } from "../modules/file/file.controller";
 import { materialMount } from "../modules/material/material.controller";
@@ -139,7 +138,6 @@ Bun.serve({
             robotTaskMount,
             formMount,
             orderMount,
-            applicationMount,
             customerMount,
             fileMount,
             materialMount,

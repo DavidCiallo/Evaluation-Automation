@@ -262,7 +262,7 @@ export function OrderDetailPage() {
                 {/* 行2.6：办签账号（信息确认后、注册填表前） */}
                 <AccountPoolCard
                     orderId={order.id}
-                    applications={(order.applicants_detail || []).map((a) => ({ id: a.id, name: a.name }))}
+                    customers={(order.applicants_detail || []).map((a) => ({ id: a.id, name: a.name }))}
                     reload={load}
                 />
 

@@ -5,9 +5,10 @@
  * 同一个邮箱不能在两个订单里各注册一次（tls/fv 只认唯一账号）。
  * 放在订单的 data 分片里就查不了全局。
  *
- * 账号与订单的关系：一个订单通常 1 个号（一个号能写完 tls+fv 的申请单），
- * 但经常要拆成 2 个号。申请单经 account_id 挂到具体账号上，因此
- * 「几个号、哪个申请单填在哪个号里」由客服在账号分配阶段决定。
+ * 账号与订单的关系：一个订单通常 1 个号，一个号可以同时登记多人
+ * （tls/fv 的一次提交就能填完同行的人），需要拆号时把数量调大。
+ * 账号承载的是**订单客户名单里的条目**（OrderCustomerInfo.id），
+ * 不是全局客户档案——同一个人在两个订单里是两条记录。
  *
  * 注意与 Account 的区别：Account 是客服登录账号（account.module），
  * 这里是客户的办签账号，两者不可混用，故集合名取 AccountPool。
@@ -42,8 +43,8 @@ export interface PoolAccountEntity {
      */
     password: string;
     status: PoolAccountStatus;
-    /** 该账号承载的申请单 id（Application.id） */
-    application_ids: string[];
+    /** 该账号承载的客户条目 id（订单客户名单 OrderCustomerInfo.id） */
+    customer_ids: string[];
     /** 人工补录或回调回来的备注 */
     remark: string | null;
     /** 注册失败原因 */
@@ -66,7 +67,7 @@ export interface PoolAccountDTO {
     password?: string;
     status: PoolAccountStatus;
     status_label: string;
-    application_ids: string[];
+    customer_ids: string[];
     remark: string | null;
     error: string | null;
     task_id: string | null;
@@ -89,7 +90,7 @@ export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false): Pool
         has_password: !!e.password,
         status: e.status,
         status_label: POOL_ACCOUNT_STATUS_LABEL[e.status] || e.status,
-        application_ids: e.application_ids || [],
+        customer_ids: e.customer_ids || [],
         remark: e.remark ?? null,
         error: e.error ?? null,
         task_id: e.task_id ?? null,
@@ -116,11 +117,11 @@ export interface ApplicantPayload {
     email: string | null;
     visa_country: string | null;
     visa_type: string | null;
-    /** 该申请人在本账号下要填的申请单 id */
-    application_id: string;
+    /** 该申请人在本账号下对应的客户条目 id（订单客户名单 OrderCustomerInfo.id） */
+    customer_id: string;
 }
 
-/** 账号的填表计划：机器人照此为某个账号填若干张申请单。 */
+/** 账号的填表计划：机器人照此为某个账号填若干位客户。 */
 export interface AccountFillPlan {
     account_id: string;
     email: string;

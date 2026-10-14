@@ -34,7 +34,7 @@ async function upsert(request: AccountPoolUpsertRequest) {
 
 async function assign(request: AccountPoolAssignRequest) {
     const req = AccountPoolAssignRequest.self(request);
-    const rows = await svc.assignApplications(req.order_id, req.account_id, req.application_ids);
+    const rows = await svc.assignCustomers(req.order_id, req.account_id, req.customer_ids);
     return { list: rows.map((r) => svc.toDTO(r)) };
 }
 

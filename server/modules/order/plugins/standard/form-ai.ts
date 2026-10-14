@@ -1,5 +1,5 @@
 /**
- * 标准插件 — 表单数据转录：把表客表单的键值对映射为申请单结构化字段（LLM 优先，规则兜底）。
+ * 标准插件 — 表单数据转录：把表客表单的键值对映射为客户资料结构化字段（LLM 优先，规则兜底）。
  * 输入统一为 FormProvider 的 FormDataItem[]（mike 的 meta 行先过滤）。
  * 供演示数据脚本使用（界面不再提供转录入口）。
  */
@@ -7,7 +7,7 @@ import { isLlmConfigured, llmChat, extractJson } from "../../../../lib/llm";
 import { getConfigValue } from "../../../config/config.service";
 import type { FormDataItem } from "../../../../lib/form-providers";
 
-/** 申请单身份字段白名单：转录只允许产出这些键。 */
+/** 客户资料字段白名单：转录只允许产出这些键。 */
 const TRANSCRIBABLE_KEYS = ["name", "gender", "dob", "passport_no", "passport_expiry", "visa_country", "visa_type", "departure"] as const;
 export type TranscribableKey = (typeof TRANSCRIBABLE_KEYS)[number];
 
@@ -42,7 +42,7 @@ export function normalizeDate(raw: string): string | null {
     return null;
 }
 
-/** 规则兜底：字段名模式 → 申请单字段。 */
+/** 规则兜底：字段名模式 → 客户资料字段。 */
 const RULE_PATTERNS: Array<{ key: TranscribableKey; patterns: RegExp[] }> = [
     { key: "name", patterns: [/申请人?中文姓名/, /^姓名$/, /^客户姓名$/, /^中文姓名$/, /申请人姓名/] },
     { key: "gender", patterns: [/^性别$/, /^申请人性别$/] },

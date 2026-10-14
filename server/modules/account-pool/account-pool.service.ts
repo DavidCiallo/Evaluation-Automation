@@ -9,11 +9,20 @@ import Repository from "../../lib/repository";
 import { nanoid } from "nanoid";
 import type { PoolAccountEntity, PoolAccountDTO, AccountFillPlan, ApplicantPayload } from "../../../shared/modules/account-pool/account-pool.entity";
 import { toPoolAccountDTO } from "../../../shared/modules/account-pool/account-pool.entity";
-import type { ApplicationEntity } from "../../../shared/modules/application/application.entity";
+import type { OrderEntity } from "../../../shared/modules/order/order.entity";
+import { effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
+import type { OrderCustomerInfo } from "../../../shared/modules/order/plugins/standard.manifest";
+import { buildSnapshot } from "../confirmation/confirmation.service";
 
 const repo: Repository<PoolAccountEntity> = Repository.instance("AccountPool");
-const appRepo: Repository<ApplicationEntity> = Repository.instance("Application");
+const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const confirmRepo: Repository<any> = Repository.instance("Confirmation");
+
+/** 订单客户名单。账号分配的对象就是这些条目。 */
+async function customersOf(orderId: string): Promise<OrderCustomerInfo[]> {
+    const order = await orderRepo.findOne({ id: orderId });
+    return order ? effectiveCustomers(order) : [];
+}
 
 /** 找订单下的账号，按 seq 升序。 */
 export async function listByOrder(orderId: string): Promise<PoolAccountEntity[]> {
@@ -50,15 +59,15 @@ export async function findByEmail(email: string, excludeId?: string): Promise<Po
 }
 
 /**
- * 拟定账号数量：建出占位账号，并把订单下**尚未分配**的申请单均分过去。
+ * 拟定账号数量：建出占位账号，并把订单下**尚未分配**的客户均分过去。
  *
  * 幂等策略：已存在的账号保留，只补足到 count 个；
- * 申请单只分给没有任何账号承载的那些，已分配的不动（不覆盖客服的手工调整）。
+ * 客户只分给没有任何账号承载的那些，已分配的不动（不覆盖客服的手工调整）。
+ * 一人一单时 count 取 1，轮转分配自然把唯一的客户放到唯一的账号上。
  */
 export async function planAccounts(orderId: string, count: number): Promise<PoolAccountEntity[]> {
     const existing = await listByOrder(orderId);
-    const apps = await appRepo.find({ order_id: orderId }, { limit: 200 });
-    apps.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    const customers = await customersOf(orderId);
 
     // 补足账号
     const created: PoolAccountEntity[] = [];
@@ -76,7 +85,7 @@ export async function planAccounts(orderId: string, count: number): Promise<Pool
             email: "",
             password: "",
             status: "planned",
-            application_ids: [],
+            customer_ids: [],
             remark: null,
             error: null,
             task_id: null,
@@ -87,32 +96,27 @@ export async function planAccounts(orderId: string, count: number): Promise<Pool
         created.push(row);
     }
 
-    let all = await listByOrder(orderId);
+    const all = await listByOrder(orderId);
 
-    // 统计每张申请单当前的归属（以账号侧为准，account_id 是冗余快照）
-    const claimed = new Set(all.flatMap((a) => a.application_ids || []));
-    const unassigned = apps.filter((a) => !claimed.has(a.id) && !a.account_id);
+    // 统计每个客户当前的归属（以账号侧为准）
+    const claimed = new Set(all.flatMap((a) => a.customer_ids || []));
+    const unassigned = customers.filter((c) => !claimed.has(c.id));
 
-    // 均分：轮转分配，保证各账号张数尽量平均
+    // 均分：轮转分配，保证各账号人数尽量平均
     for (let i = 0; i < unassigned.length; i++) {
         const target = all[i % all.length];
         if (!target) break;
-        target.application_ids = [...(target.application_ids || []), unassigned[i].id];
+        target.customer_ids = [...(target.customer_ids || []), unassigned[i].id];
     }
 
-    // 落库：账号侧与申请单侧都写（申请单的 account_id 是查询用的冗余快照）
     for (const acct of all) {
         const before = existing.find((e) => e.id === acct.id);
         const changed =
             !before ||
-            JSON.stringify(before.application_ids || []) !== JSON.stringify(acct.application_ids || []);
+            JSON.stringify(before.customer_ids || []) !== JSON.stringify(acct.customer_ids || []);
         if (changed) {
-            await repo.update({ id: acct.id }, { application_ids: acct.application_ids, version: (acct.version || 1) + 1 });
+            await repo.update({ id: acct.id }, { customer_ids: acct.customer_ids, version: (acct.version || 1) + 1 });
         }
-    }
-    for (const app of unassigned) {
-        const owner = all.find((a) => (a.application_ids || []).includes(app.id));
-        if (owner) await appRepo.update({ id: app.id }, { account_id: owner.id });
     }
 
     return listByOrder(orderId);
@@ -140,48 +144,41 @@ export async function upsertAccount(
 }
 
 /**
- * 把申请单分配到账号。account_id 传空串表示摘除（回到未分配池）。
- * 同一张申请单同时只能属于一个账号，故先把它从其它账号上摘掉。
+ * 把客户分配到账号。accountId 传空串表示摘除（回到未分配池）。
+ * 同一个客户同时只能属于一个账号，故先把它从其它账号上摘掉。
  */
-export async function assignApplications(
+export async function assignCustomers(
     orderId: string,
     accountId: string,
-    applicationIds: string[],
+    customerIds: string[],
 ): Promise<PoolAccountEntity[]> {
     const all = await listByOrder(orderId);
-    const ids = new Set(applicationIds);
+    const ids = new Set(customerIds);
 
-    // 校验：申请单必须属于本订单
-    const apps = await appRepo.find({ order_id: orderId }, { limit: 200 });
-    const ownIds = new Set(apps.map((a) => a.id));
+    // 校验：客户必须属于本订单
+    const customers = await customersOf(orderId);
+    const ownIds = new Set(customers.map((c) => c.id));
     for (const id of ids) {
-        if (!ownIds.has(id)) throw new Error(`申请单 ${id} 不属于本订单`);
+        if (!ownIds.has(id)) throw new Error(`客户 ${id} 不属于本订单`);
     }
     if (accountId && !all.some((a) => a.id === accountId)) throw new Error("目标账号不属于本订单");
 
     for (const acct of all) {
         const isTarget = acct.id === accountId;
-        const kept = (acct.application_ids || []).filter((x) => !ids.has(x));
+        const kept = (acct.customer_ids || []).filter((x) => !ids.has(x));
         const next = isTarget ? [...kept, ...ids] : kept;
-        if (JSON.stringify(next) !== JSON.stringify(acct.application_ids || [])) {
-            await repo.update({ id: acct.id }, { application_ids: next, version: (acct.version || 1) + 1 });
+        if (JSON.stringify(next) !== JSON.stringify(acct.customer_ids || [])) {
+            await repo.update({ id: acct.id }, { customer_ids: next, version: (acct.version || 1) + 1 });
         }
-    }
-
-    for (const id of ids) {
-        await appRepo.update({ id }, { account_id: accountId || null });
     }
 
     return listByOrder(orderId);
 }
 
-/** 删除账号：其承载的申请单回到未分配。 */
+/** 删除账号：其承载的客户回到未分配。 */
 export async function removeAccount(id: string): Promise<PoolAccountEntity[]> {
     const row = await findOne(id);
     if (!row) throw new Error("账号不存在");
-    for (const appId of row.application_ids || []) {
-        await appRepo.update({ id: appId }, { account_id: null });
-    }
     await repo.delete({ id });
     return listByOrder(row.order_id);
 }
@@ -212,34 +209,35 @@ export async function markAccountResult(
 /**
  * 组装机器人的填表计划：一个账号 + 它承载的申请人资料。
  *
- * 资料优先级：客户回签过的确认单快照 > 申请单自身字段。
+ * 资料优先级：客户回签过的确认单快照 > 订单客户条目 + 客户档案。
  * 回签过的才是客户认可的版本，机器人应照此填表。
  */
 export async function buildFillPlan(account: PoolAccountEntity): Promise<AccountFillPlan> {
+    const customers = await customersOf(account.order_id);
+    const byId = new Map(customers.map((c) => [c.id, c]));
     const applicants: ApplicantPayload[] = [];
-    for (const appId of account.application_ids || []) {
-        const app = (await appRepo.findOne({ id: appId })) as ApplicationEntity | null;
-        if (!app) continue;
 
-        // 优先取该客户在本订单已回签的确认单快照
+    for (const cid of account.customer_ids || []) {
+        const customer = byId.get(cid);
+        if (!customer) continue;
+
+        // 优先取该客户在本订单已回签的确认单快照（confirmation.customer_id 就是客户条目 id）
         let snap: any = null;
-        if (app.customer_id) {
-            const confs = await confirmRepo.find({ order_id: account.order_id, customer_id: app.customer_id }, { limit: 10 });
-            const signed = confs.find((c: any) => c.status === "signed");
-            if (signed?.snapshot) snap = signed.snapshot;
-        }
+        const confs = await confirmRepo.find({ order_id: account.order_id, customer_id: cid }, { limit: 10 });
+        const signed = confs.find((c: any) => c.status === "signed");
+        if (signed?.snapshot) snap = signed.snapshot;
 
+        const base = await buildSnapshot(customer);
         applicants.push({
-            name: snap?.name || app.name || "",
-            gender: snap?.gender ?? app.gender ?? null,
-            dob: snap?.dob ?? app.dob ?? null,
-            passport_no: snap?.passport_no ?? app.passport_no ?? null,
-            passport_expiry: snap?.passport_expiry ?? app.passport_expiry ?? null,
-            phone: snap?.phone ?? null,
-            email: snap?.email ?? null,
-            visa_country: app.visa_country ?? null,
-            visa_type: app.visa_type ?? null,
-            application_id: app.id,
+            ...base,
+            name: snap?.name || base.name,
+            gender: snap?.gender ?? base.gender,
+            dob: snap?.dob ?? base.dob,
+            passport_no: snap?.passport_no ?? base.passport_no,
+            passport_expiry: snap?.passport_expiry ?? base.passport_expiry,
+            phone: snap?.phone ?? base.phone,
+            email: snap?.email ?? base.email,
+            customer_id: cid,
         });
     }
 

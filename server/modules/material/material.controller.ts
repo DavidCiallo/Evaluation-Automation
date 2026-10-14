@@ -10,7 +10,7 @@ import * as svc from "./material.service";
 
 async function list(request: MaterialListRequest) {
     const req = MaterialListRequest.self(request);
-    const list = await svc.listByApplication(req.application_id);
+    const list = await svc.listByOrder(req.order_id, req.customer_id);
     return { list };
 }
 

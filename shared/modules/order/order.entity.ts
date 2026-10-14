@@ -23,7 +23,7 @@ export interface RemarkEntry {
     source: "auto" | "manual";
 }
 
-/** 列表页透出的申请单摘要（每人一行：名字 + 个人状态）。 */
+/** 列表页透出的客户摘要（每人一行：名字 + 个人状态）。 */
 export interface ApplicantSummary {
     id: string;
     name: string;
@@ -31,12 +31,12 @@ export interface ApplicantSummary {
     status_label: string;
 }
 
-/** 订单信息卡透出的申请人聚合视图（以申请单为唯一真相，实时聚合）。 */
+/** 订单信息卡透出的客户聚合视图（以订单客户名单为唯一真相，实时聚合）。 */
 export interface ApplicantDetail {
     id: string;
     seq: number;
     is_lead: boolean;
-    /** 关联客户档案 id（可与插件客户.customer_id 对齐定位申请单） */
+    /** 关联客户档案 id（对齐插件客户.customer_id） */
     customer_id: string | null;
     name: string;
     gender: string | null;
@@ -80,7 +80,7 @@ export interface OrderEntity {
     customer_remark: string;
     /** 参与客服的 wechat_id 列表（取自该群聊 role=agent 的成员） */
     agent_ids: string[];
-    /** 关联申请单 id 列表（主申请人在前；由申请单模块维护） */
+    /** 关联客户条目 id 列表（历史字段，已由订单客户名单取代） */
     applicant_ids: string[];
     /**
      * 订单级签证类型标记（VISA_TYPES.value，如 "fr"/"jp"）。
@@ -123,9 +123,9 @@ export class OrderDTO {
     /** 订单级签证类型（未标记为空字符串） */
     public visa_type: string;
     public visa_type_label: string;
-    /** 列表页透出的申请单摘要（姓名 + 个人状态） */
+    /** 列表页透出的客户摘要（姓名 + 个人状态） */
     public applicants_summary: ApplicantSummary[];
-    /** 订单信息卡透出的申请单聚合（以申请单为唯一真相，实时聚合） */
+    /** 订单信息卡透出的客户聚合（以订单客户名单为唯一真相，实时聚合） */
     public applicants_detail: ApplicantDetail[];
     /** 整单取消时间戳（null=在办）。前端靠它区分在办/已取消。 */
     public cancelled_at: number | null;

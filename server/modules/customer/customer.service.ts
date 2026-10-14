@@ -1,41 +1,49 @@
 /**
  * 客户档案服务（轻量CRM）。
  * 职责：客户 CRUD、姓名/手机/护照/邮箱模糊检索。
- * 不改动任何订单/申请单逻辑 —— 只做「这个人是谁」的档案。
+ * 不改动任何订单逻辑 —— 只做「这个人是谁」的档案。
  */
 import Repository from "../../lib/repository";
 import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 import { CustomerDTO } from "../../../shared/modules/customer/customer.entity";
-import * as appSvc from "../application/application.service";
+import { effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
+import * as materialSvc from "../material/material.service";
 import type { FileDTO } from "../../../shared/modules/file/file.entity";
+import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 
 const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
+const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 
-/** 客户名下所有申请单里已上传的文件（聚合视图：按申请单分组）。 */
+/**
+ * 客户名下所有订单里已上传的材料（聚合视图：按「订单-客户条目」分组）。
+ * 客户条目 id 是订单内的，所以要先在所有订单里找指向这位档案的条目。
+ */
 export async function listCustomerFiles(customerId: string): Promise<{
-    application_id: string;
-    application_name: string;
-    status: string;
+    order_id: string;
+    order_name: string;
+    customer_id: string;
     materials: {
         id: string;
         category: string;
         files: FileDTO[];
     }[];
 }[]> {
-    const apps = await appSvc.listByCustomer(customerId);
+    const orders = await orderRepo.find({}, { limit: 500 });
     const result = [];
-    for (const a of apps) {
-        const dto = await appSvc.toDTO(a);
-        const rows = (dto.materials || [])
-            .filter((m: any) => (m.files || []).length > 0)
-            .map((m: any) => ({ id: m.id, category: m.category, files: m.files as FileDTO[] }));
-        if (rows.length === 0) continue;
-        result.push({
-            application_id: a.id,
-            application_name: dto.name || "未命名申请人",
-            status: dto.status,
-            materials: rows,
-        });
+    for (const order of orders) {
+        for (const c of effectiveCustomers(order)) {
+            if (c.customer_id !== customerId) continue;
+            const rows = (await materialSvc.listByOrder(order.id, c.id))
+                .filter((m) => (m.files || []).length > 0)
+                .map((m) => ({ id: m.id, category: m.category, files: m.files as FileDTO[] }));
+            if (rows.length === 0) continue;
+            result.push({
+                order_id: order.id,
+                order_name: (order as any).order_name || "未命名订单",
+                customer_id: c.id,
+                materials: rows,
+            });
+        }
     }
     return result;
 }

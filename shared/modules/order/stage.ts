@@ -2,7 +2,7 @@
  * 订单阶段与准入模型（前后端共享契约）。
  *
  * 设计原则：**阶段状态是算出来的，不是存出来的。**
- * 每个阶段是否就绪，完全由已有业务数据推导（订单信息、申请单、材料行、行程、机票任务、
+ * 每个阶段是否就绪，完全由已有业务数据推导（订单信息、客户名单、材料行、行程、机票任务、
  * 客户同意记录）。因此不存在「状态字段被人手工改坏」的问题，也不可能出现
  * 状态与实况不一致。
  *
@@ -20,12 +20,12 @@ export type OrderStageId =
     | "order_info" // 订单信息：客户与签证要素
     | "form_collection" // 表单收集：每位客户的表单分配与回收
     | "info_confirmation" // 信息确认：每位客户回签自己的资料确认单
-    | "account_allocation" // 账号分配：决定几个办签账号、哪张申请单填在哪个号
+    | "account_allocation" // 账号分配：决定几个办签账号、哪位客户填在哪个号
     | "registration" // 注册填表：机器人注册账号并按计划填表
     | "itinerary" // 行程安排：客户同意 + 行程单
     | "flight" // 机票办理：乘客证件齐备并提交 ctrip
-    | "materials" // 材料制作：各申请单必备材料收齐
-    | "completion"; // 完结：所有申请单进入终态
+    | "materials" // 材料制作：各客户必备材料收齐
+    | "completion"; // 完结：订单结束
 
 /** 阶段内的具体准入项。动作可只要求其中某几项，不必等整阶段完成。 */
 export type OrderRequirementKey =
@@ -33,13 +33,13 @@ export type OrderRequirementKey =
     | "customers_complete" // 每位客户的姓名/签证类型/出发地/目的地齐全
     | "forms_assigned" // 每位客户都已分配表单
     | "confirmations_signed" // 每位客户都已回签信息确认单
-    | "accounts_allocated" // 每张申请单都挂到了具体办签账号上
-    | "accounts_registered" // 所有账号已注册且申请单填表完成
+    | "accounts_allocated" // 每位客户都挂到了具体办签账号上
+    | "accounts_registered" // 所有账号已注册且客户填表完成
     | "itinerary_consent" // 客户已同意按行程办理（客服确认）
     | "itinerary_exists" // 至少一份行程单或机票任务
     | "pax_documents" // 每位机票乘客证件与联系人信息齐备
-    | "materials_received" // 各申请单的必备材料行均已收到
-    | "applications_finished"; // 所有申请单已出签/拒签/取回/取消
+    | "materials_received" // 各客户的必备材料行均已收到
+    | "applications_finished"; // 所有客户已出签/拒签/取回/取消
 
 export interface OrderStageMeta {
     id: OrderStageId;
@@ -82,10 +82,10 @@ export const ORDER_STAGES: OrderStageMeta[] = [
     {
         id: "account_allocation",
         label: "账号分配",
-        description: "决定用几个办签账号，并指定每张申请单填在哪个账号",
+        description: "决定用几个办签账号，并指定每位客户填在哪个账号",
         optional: false,
         waivable: true,
-        // 只要求「每张申请单都挂上了账号」：账号数量多少、是否均衡属于业务判断，
+        // 只要求「每位客户都挂上了账号」：账号数量多少、是否均衡属于业务判断，
         // 系统不替客服设配额。
         requirements: ["accounts_allocated"],
     },
@@ -117,7 +117,7 @@ export const ORDER_STAGES: OrderStageMeta[] = [
     {
         id: "materials",
         label: "材料制作",
-        description: "各申请单的必备材料收齐",
+        description: "各客户的必备材料收齐",
         optional: true,
         waivable: true,
         requirements: ["materials_received"],
@@ -125,7 +125,7 @@ export const ORDER_STAGES: OrderStageMeta[] = [
     {
         id: "completion",
         label: "完结",
-        description: "所有申请单出结果并归档",
+        description: "所有客户出结果并归档",
         optional: false,
         waivable: false,
         requirements: ["applications_finished"],
@@ -143,13 +143,13 @@ export const ORDER_REQUIREMENT_LABEL: Record<OrderRequirementKey, string> = {
     customers_complete: "客户签证要素齐全（类型/出发地/目的地）",
     forms_assigned: "每位客户都已分配表单",
     confirmations_signed: "每位客户都已回签信息确认单",
-    accounts_allocated: "每张申请单都已分配到办签账号",
-    accounts_registered: "所有账号已注册且申请单填表完成",
+    accounts_allocated: "每位客户都已分配到办签账号",
+    accounts_registered: "所有账号已注册且客户填表完成",
     itinerary_consent: "客户已同意行程方案",
     itinerary_exists: "已生成行程单或已建机票任务",
     pax_documents: "乘客证件与联系人信息齐备",
     materials_received: "必备材料已收齐",
-    applications_finished: "所有申请单已出结果",
+    applications_finished: "所有客户已出结果",
 };
 
 export const ORDER_STAGE_IDS: OrderStageId[] = ORDER_STAGES.map((s) => s.id);

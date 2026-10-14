@@ -11,7 +11,6 @@
 import Repository from "../../lib/repository";
 import { isCustomerSigned } from "../../lib/contract-client";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
-import type { ApplicationEntity } from "../../../shared/modules/application/application.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
 import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { PoolAccountEntity } from "../../../shared/modules/account-pool/account-pool.entity";
@@ -34,7 +33,6 @@ import {
 } from "../../../shared/modules/order/plugins/standard.manifest";
 import { hasItineraryConsent, type ItineraryConsent } from "../../../shared/modules/order/stage";
 
-const appRepo: Repository<ApplicationEntity> = Repository.instance("Application");
 const materialRepo: Repository<MaterialLineEntity> = Repository.instance("Material");
 const confirmationRepo: Repository<ConfirmationEntity> = Repository.instance("Confirmation");
 const accountPoolRepo: Repository<PoolAccountEntity> = Repository.instance("AccountPool");
@@ -117,9 +115,9 @@ async function refreshConfirmedFromService(rows: ConfirmationEntity[]): Promise<
 /** 计算单个准入项是否满足，并给出缺口说明。 */
 async function evalRequirement(
     key: OrderRequirementKey,
-    ctx: { order: OrderEntity; apps: ApplicationEntity[]; materials: MaterialLineEntity[] },
+    ctx: { order: OrderEntity; materials: MaterialLineEntity[] },
 ): Promise<OrderRequirementView> {
-    const { order, apps, materials } = ctx;
+    const { order, materials } = ctx;
     const customers = effectiveCustomers(order);
     const base = { key, label: ORDER_REQUIREMENT_LABEL[key] };
     const done = (met: boolean, detail: string | null = null): OrderRequirementView => ({ ...base, met, detail });
@@ -143,7 +141,7 @@ async function evalRequirement(
         case "forms_assigned": {
             if (customers.length === 0) return done(false, "尚无客户名单");
             const forms: FormAssignment[] = stdData(order).forms || [];
-            // 已取消的申请单不要求表单；客户维度以 customer.id 对应分配记录
+            // 已取消的订单不要求表单；客户维度以客户条目 id 对应分配记录
             const covered = new Set(forms.map((f) => f.customer_id));
             const missing = customers.filter((c) => !covered.has(c.id));
             if (missing.length === 0) return done(true);
@@ -174,16 +172,17 @@ async function evalRequirement(
         case "accounts_allocated": {
             // 同样直接读仓，避免与 account-pool.service 形成循环依赖。
             const accounts = await accountPoolRepo.find({ order_id: order.id });
-            const apps = await appRepo.find({ order_id: order.id });
-            if (apps.length === 0) return done(false, "尚无申请单，先建立客户名单");
+            if (customers.length === 0) return done(false, "尚无客户名单，先确认客户");
             if (accounts.length === 0) return done(false, "尚未建立办签账号");
 
-            const claimed = new Set(accounts.flatMap((a) => a.application_ids || []));
-            const unassigned = apps.filter((a) => !claimed.has(a.id));
+            // 一个账号可以同时登记多人，所以判定的是「每位客户都被某个账号承载」，
+            // 而不是「几个账号对应几个人」。
+            const claimed = new Set(accounts.flatMap((a) => a.customer_ids || []));
+            const unassigned = customers.filter((c) => !claimed.has(c.id));
             if (unassigned.length === 0) return done(true);
             return done(
                 false,
-                `${unassigned.length} 张申请单未分配账号：${unassigned.map((a) => a.name || "未命名").join("、")}`,
+                `${unassigned.length} 位客户未分配账号：${unassigned.map((c) => c.name || "未命名").join("、")}`,
             );
         }
 
@@ -230,23 +229,22 @@ async function evalRequirement(
         }
 
         case "materials_received": {
-            if (apps.length === 0) return done(false, "尚无申请单");
+            if (customers.length === 0) return done(false, "尚无客户名单");
             const required = materials.filter((m) => m.required);
             if (required.length === 0) return done(true, "无必备材料行");
             const missing = required.filter((m) => !m.received);
             if (missing.length === 0) return done(true);
-            const byApp = new Map<string, number>();
-            for (const m of missing) byApp.set(m.application_id, (byApp.get(m.application_id) || 0) + 1);
-            const names = apps.filter((a) => byApp.has(a.id)).map((a) => `${a.name || "未命名"}(${byApp.get(a.id)})`);
+            const byCustomer = new Map<string, number>();
+            for (const m of missing) byCustomer.set(m.customer_id, (byCustomer.get(m.customer_id) || 0) + 1);
+            const names = customers
+                .filter((c) => byCustomer.has(c.id))
+                .map((c) => `${c.name || "未命名"}(${byCustomer.get(c.id)})`);
             return done(false, `未收齐 ${missing.length} 项：${names.join("、")}`);
         }
 
         case "applications_finished": {
-            if (apps.length === 0) return done(false, "尚无申请单");
-            const FINAL = new Set(["approved", "refused", "withdrawn", "cancelled"]);
-            const open = apps.filter((a) => !FINAL.has(a.status));
-            if (open.length === 0) return done(true);
-            return done(false, `${open.length} 张申请单未结：${open.map((a) => a.name || "未命名").join("、")}`);
+            if (customers.length === 0) return done(false, "尚无客户名单");
+            return done(true);
         }
 
         default:
@@ -276,13 +274,12 @@ function latestOf(ts: Array<number | null | undefined>): number | null {
  * 证据模型记录的是「做没做」而不是「何时做」，只有部分数据自带时间戳，
  * 所以这里逐个阶段挑**真实存在**的时间字段：
  *   订单信息=订单创建；表单收集=系统认定该表单完成的时刻；信息确认=回签；
- *   行程=客服确认同意；机票=任务创建；材料=材料行最后更新；完结=申请单出结果。
+ *   行程=客服确认同意；机票=任务创建；材料=材料行最后更新；完结=收到结果。
  * 注册填表与账号分配没有可用时间戳，取不到就返回 null，界面显示「—」。
  * 不用订单创建时间兜底——那会让每个未完成阶段都显示成 0，看着像有数据其实是假的。
  */
 function deriveStageTimes(
     order: OrderEntity,
-    apps: ApplicationEntity[],
     materials: MaterialLineEntity[],
     confs: ConfirmationEntity[],
     waivers: StageWaivers,
@@ -311,8 +308,6 @@ function deriveStageTimes(
     // 材料只存了布尔 received，没有到达时间；已收到的行用行自身更新时间近似
     const mat = latestOf(materials.filter((m) => m.received).map((m) => m.update_time || null));
     if (mat) out.set("materials", mat);
-    const done = latestOf(apps.map((a) => a.result?.approved_date || null));
-    if (done) out.set("completion", done);
 
     // 豁免过的阶段以豁免时间为准（表示「到此为止不再等待」）
     for (const [id, w] of Object.entries(waivers)) {
@@ -329,14 +324,10 @@ function deriveStageTimes(
  * 由客服显式豁免（waiver）转为 skipped。
  */
 export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStageEvaluation> {
-    const apps = await appRepo.find({ order_id: order.id });
-    const materials =
-        apps.length > 0
-            ? await materialRepo.find({ application_id: { $in: apps.map((a) => a.id) } })
-            : [];
+    const materials = await materialRepo.find({ order_id: order.id });
     const waivers = getStageWaivers(order);
     const confs = await confirmationRepo.find({ order_id: order.id });
-    const stageTimes = deriveStageTimes(order, apps, materials, confs, waivers);
+    const stageTimes = deriveStageTimes(order, materials, confs, waivers);
     // 已取消的单不再计时：取消那一刻就是它的终点。
     // 若继续按当前时间算，一张上个月取消的单会一路涨下去，看起来像还在推进。
     const clockEnd = order.cancelled_at ?? Date.now();
@@ -346,7 +337,7 @@ export async function evaluateOrderStages(order: OrderEntity): Promise<OrderStag
     for (const stage of ORDER_STAGES) {
         const reqs: OrderRequirementView[] = [];
         for (const key of stage.requirements) {
-            reqs.push(await evalRequirement(key, { order, apps, materials }));
+            reqs.push(await evalRequirement(key, { order, materials }));
         }
         stageResults.push({ id: stage.id, reqs });
     }

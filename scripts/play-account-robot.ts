@@ -2,7 +2,7 @@
  * 账号池 + 机器人任务冒烟（批次 C/D）。
  *
  * 覆盖：
- *   1. 按数量建号并把申请单均分；
+ *   1. 按数量建号并把客户均分；
  *   2. 未分配账号时，注册填表阶段被拦；
  *   3. 手动填写邮箱密码（模拟「外部已分配」的情况）；
  *   4. 派发机器人任务 → 载荷内容正确（客户回签快照优先）；
@@ -72,8 +72,8 @@ if (!orderId) {
     const list: any = await call("/order/list", { page: 1, status: "all" });
     for (const o of list.list) {
         const st = await stagesOf(o.id);
-        // 挑信息确认已过、且有 2 张以上申请单的单：
-        // 单申请单的订单建第二个账号会是空账号，走不到「全部注册完成」那一步。
+        // 挑信息确认已过、且有 2 位以上客户的单：
+        // 只有一位客户的订单建第二个账号会是空账号，走不到「全部注册完成」那一步。
         if (st.alloc && st.alloc.state !== "blocked" && (st.order.applicants_detail?.length || 0) >= 2) {
             orderId = o.id;
             break;
@@ -84,7 +84,7 @@ if (!orderId) throw new Error("没有找到可测订单（需要信息确认已�
 
 step(0, `选定订单 ${orderId}`);
 let s = await stagesOf(orderId);
-console.log(`订单：${s.order.order_name}  申请单：${s.order.applicants_detail?.length || 0} 张`);
+console.log(`订单：${s.order.order_name}  客户：${s.order.applicants_detail?.length || 0} 位`);
 console.log(`  ${fmt(s.alloc)}`);
 console.log(`  ${fmt(s.reg)}`);
 
@@ -105,11 +105,11 @@ if (process.argv.includes("--waive")) {
 }
 
 // ---------- 步骤 1：建号并均分 ----------
-step(1, "拟定 2 个账号，申请单均分");
+step(1, "拟定 2 个账号，客户均分");
 const planned: any = await call("/account-pool/plan", { order_id: orderId, count: 2 });
 console.log(`共 ${planned.list.length} 个账号`);
 for (const a of planned.list) {
-    console.log(`  ${a.label} [${a.status_label}] 邮箱=${a.email || "（未填）"} 承载=${a.application_ids.length} 张`);
+    console.log(`  ${a.label} [${a.status_label}] 邮箱=${a.email || "（未填）"} 承载=${a.customer_ids.length} 位`);
 }
 
 s = await stagesOf(orderId);
@@ -163,7 +163,7 @@ const pl: any = await call("/robot-task/payload", { id: first.task.id });
 console.log(`  载荷账号：${pl.task.payload.email}`);
 console.log(`  载荷申请人数：${pl.task.payload.applicants.length}`);
 for (const p of pl.task.payload.applicants) {
-    console.log(`    ${p.name} 护照=${p.passport_no || "（空）"} 签证=${p.visa_country || "?"}/${p.visa_type || "?"} 申请单=${p.application_id}`);
+    console.log(`    ${p.name} 护照=${p.passport_no || "（空）"} 签证=${p.visa_country || "?"}/${p.visa_type || "?"} 客户=${p.customer_id}`);
 }
 
 s = await stagesOf(orderId);
@@ -172,7 +172,7 @@ console.log(`  ${fmt(s.reg)}`);
 // ---------- 步骤 6：回调成功 ----------
 step(6, "机器人回调成功（免鉴权入口）");
 const results = pl.task.payload.applicants.map((p: any, i: number) => ({
-    application_id: p.application_id,
+    customer_id: p.customer_id,
     success: true,
     external_ref: `EXT-${stamp}-${i + 1}`,
 }));
@@ -207,7 +207,7 @@ await callPublic("/robot-task/callback", {
     status: "succeeded",
     external_task_id: `ROBOT-${stamp}-2`,
     results: pl2.task.payload.applicants.map((p: any) => ({
-        application_id: p.application_id,
+        customer_id: p.customer_id,
         success: true,
         external_ref: `EXT-${stamp}-b`,
     })),
