@@ -1,4 +1,5 @@
-import type { PoolAccountDTO } from "./account-pool.entity";
+import type { PoolAccountDTO, PoolPlatform } from "./account-pool.entity";
+import { POOL_PLATFORMS } from "./account-pool.entity";
 
 export class AccountPoolListRequest {
     public order_id: string;
@@ -31,21 +32,16 @@ export class AccountPoolListResponse {
 }
 
 /**
- * 拟定账号数量：客服说「这单要几个号」。
- * 系统据此建出占位账号，并把客户均分到各账号（客服随后可逐条调整）。
+ * 拟定账号：按订单签证类型所需的平台各建一个号（法签 → FV + TLS，申根 → VFS）。
+ * 客服不再填数量——需要什么平台是业务规则，不是每次拍脑袋决定的。
  */
 export class AccountPoolPlanRequest {
     public order_id: string;
-    public count: number;
     public auth?: string;
 
     constructor(data: any) {
         if (!data.order_id) throw new Error("order_id is required");
         this.order_id = String(data.order_id);
-        const n = Number(data.count);
-        if (!Number.isInteger(n) || n < 1) throw new Error("账号数量必须是 ≥1 的整数");
-        if (n > 10) throw new Error("单个订单的账号数量不能超过 10");
-        this.count = n;
         this.auth = data.auth;
     }
 
@@ -72,16 +68,23 @@ export class AccountPoolUpsertRequest {
     public email?: string;
     public password?: string;
     public label?: string;
+    public platform?: PoolPlatform;
+    public outputs?: string[];
     public remark?: string;
     public auth?: string;
 
     constructor(data: any) {
         if (!data.id) throw new Error("id is required");
         if (data.email !== undefined && !String(data.email).trim()) throw new Error("邮箱不能为空");
+        if (data.platform !== undefined && !POOL_PLATFORMS.some((p) => p.value === data.platform)) {
+            throw new Error(`未知平台：${data.platform}`);
+        }
         this.id = data.id;
         this.email = data.email !== undefined ? String(data.email).trim() : undefined;
         this.password = data.password !== undefined ? String(data.password) : undefined;
         this.label = data.label !== undefined ? String(data.label) : undefined;
+        this.platform = data.platform;
+        this.outputs = Array.isArray(data.outputs) ? data.outputs.map(String) : undefined;
         this.remark = data.remark !== undefined ? String(data.remark) : undefined;
         this.auth = data.auth;
     }

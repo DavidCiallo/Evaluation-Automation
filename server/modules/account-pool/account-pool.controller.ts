@@ -17,7 +17,7 @@ async function list(request: AccountPoolListRequest) {
 
 async function plan(request: AccountPoolPlanRequest) {
     const req = AccountPoolPlanRequest.self(request);
-    const rows = await svc.planAccounts(req.order_id, req.count);
+    const rows = await svc.planAccounts(req.order_id);
     return { list: rows.map((r) => svc.toDTO(r)) };
 }
 
@@ -27,6 +27,8 @@ async function upsert(request: AccountPoolUpsertRequest) {
         email: req.email,
         password: req.password,
         label: req.label,
+        platform: req.platform,
+        outputs: req.outputs,
         remark: req.remark,
     });
     return { account: svc.toDTO(row) };

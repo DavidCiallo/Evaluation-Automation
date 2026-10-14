@@ -104,12 +104,12 @@ if (process.argv.includes("--waive")) {
     console.log(`  ${fmt(s.alloc)}`);
 }
 
-// ---------- 步骤 1：建号并均分 ----------
-step(1, "拟定 2 个账号，客户均分");
-const planned: any = await call("/account-pool/plan", { order_id: orderId, count: 2 });
+// ---------- 步骤 1：按平台建号 ----------
+step(1, "按本单所需平台建号，客户在每个号上登记");
+const planned: any = await call("/account-pool/plan", { order_id: orderId });
 console.log(`共 ${planned.list.length} 个账号`);
 for (const a of planned.list) {
-    console.log(`  ${a.label} [${a.status_label}] 邮箱=${a.email || "（未填）"} 承载=${a.customer_ids.length} 位`);
+    console.log(`  ${a.platform_label} [${a.status_label}] 邮箱=${a.email || "（未填）"} 承载=${a.customer_ids.length} 位`);
 }
 
 s = await stagesOf(orderId);

@@ -14,6 +14,7 @@ import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
 import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { PoolAccountEntity } from "../../../shared/modules/account-pool/account-pool.entity";
+import { requiredPlatforms, platformLabel } from "../../../shared/modules/account-pool/account-pool.entity";
 import {
     ORDER_STAGES,
     ORDER_REQUIREMENT_LABEL,
@@ -175,15 +176,23 @@ async function evalRequirement(
             if (customers.length === 0) return done(false, "尚无客户名单，先确认客户");
             if (accounts.length === 0) return done(false, "尚未建立办签账号");
 
-            // 一个账号可以同时登记多人，所以判定的是「每位客户都被某个账号承载」，
-            // 而不是「几个账号对应几个人」。
-            const claimed = new Set(accounts.flatMap((a) => a.customer_ids || []));
-            const unassigned = customers.filter((c) => !claimed.has(c.id));
-            if (unassigned.length === 0) return done(true);
-            return done(
-                false,
-                `${unassigned.length} 位客户未分配账号：${unassigned.map((c) => c.name || "未命名").join("、")}`,
-            );
+            // 每位客户都要在本单所需的**每个平台**上各登记一次，
+            // 所以判的是「客户 × 平台」这个组合都有人承载，而不是客户归属唯一账号。
+            const missing: string[] = [];
+            for (const platform of requiredPlatforms(order.visa_type)) {
+                const onPlatform = accounts.filter((a) => (a.platform || "fv") === platform);
+                if (onPlatform.length === 0) {
+                    missing.push(`${platformLabel(platform)} 平台还没有账号`);
+                    continue;
+                }
+                const claimed = new Set(onPlatform.flatMap((a) => a.customer_ids || []));
+                const gap = customers.filter((c) => !claimed.has(c.id));
+                if (gap.length > 0) {
+                    missing.push(`${platformLabel(platform)} 未分配：${gap.map((c) => c.name || "未命名").join("、")}`);
+                }
+            }
+            if (missing.length === 0) return done(true);
+            return done(false, missing.join("；"));
         }
 
         case "accounts_registered": {

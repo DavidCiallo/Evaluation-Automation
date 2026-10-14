@@ -5,8 +5,9 @@
  * 同一个邮箱不能在两个订单里各注册一次（tls/fv 只认唯一账号）。
  * 放在订单的 data 分片里就查不了全局。
  *
- * 账号与订单的关系：一个订单通常 1 个号，一个号可以同时登记多人
- * （tls/fv 的一次提交就能填完同行的人），需要拆号时把数量调大。
+ * 账号按**平台**区分：一次办签要在多个平台各注册一个号
+ * （法签走 fv + tls，申根走 vfs），平台不同就是两个独立账号，
+ * 邮箱密码也各填各的。所以一个客户会同时挂在多个平台的账号上。
  * 账号承载的是**订单客户名单里的条目**（OrderCustomerInfo.id），
  * 不是全局客户档案——同一个人在两个订单里是两条记录。
  *
@@ -24,6 +25,37 @@ export const POOL_ACCOUNT_STATUS_LABEL: Record<PoolAccountStatus, string> = {
     failed: "注册失败",
 };
 
+/** 办签平台。预留 other 给还没纳入字典的平台。 */
+export type PoolPlatform = "fv" | "tls" | "vfs" | "other";
+
+export const POOL_PLATFORMS: { value: PoolPlatform; label: string }[] = [
+    { value: "fv", label: "FV" },
+    { value: "tls", label: "TLS" },
+    { value: "vfs", label: "VFS" },
+    { value: "other", label: "其他" },
+];
+
+export function platformLabel(value: string | null | undefined): string {
+    return POOL_PLATFORMS.find((p) => p.value === value)?.label || "未指定";
+}
+
+/**
+ * 订单签证类型 → 需要注册的平台。
+ *
+ * 规则固定写在这里（和 VISA_TYPES 一样的取舍）：法签要在 fv 拿号、
+ * 再去 tls 组单，所以两个平台都要；申根走 vfs。
+ * 没配的类型先给 fv，客服可以在卡片上手动加平台——猜错等于漏注册一个号。
+ */
+const PLATFORMS_BY_VISA: Record<string, PoolPlatform[]> = {
+    fr: ["fv", "tls"],
+    schengen: ["vfs"],
+    es: ["vfs"],
+};
+
+export function requiredPlatforms(visaType: string | null | undefined): PoolPlatform[] {
+    return PLATFORMS_BY_VISA[String(visaType || "")] || ["fv"];
+}
+
 export interface PoolAccountEntity {
     id: string;
     create_time: number;
@@ -35,6 +67,8 @@ export interface PoolAccountEntity {
     seq: number;
     /** 账号用途标记，便于客服区分（如「主账号」「补充账号」） */
     label: string;
+    /** 所属办签平台。同一订单同一平台可以只有一个号。 */
+    platform: PoolPlatform;
     /** 注册邮箱（登录名）。跨订单唯一，查重用。 */
     email: string;
     /**
@@ -45,6 +79,11 @@ export interface PoolAccountEntity {
     status: PoolAccountStatus;
     /** 该账号承载的客户条目 id（订单客户名单 OrderCustomerInfo.id） */
     customer_ids: string[];
+    /**
+     * 成品：这个账号下已经拿到的号（fv 号、application 号等）。
+     * 目前由客服手工登记，机器人填表回填是后续的事。
+     */
+    outputs: string[];
     /** 人工补录或回调回来的备注 */
     remark: string | null;
     /** 注册失败原因 */
@@ -61,6 +100,8 @@ export interface PoolAccountDTO {
     order_id: string;
     seq: number;
     label: string;
+    platform: PoolPlatform;
+    platform_label: string;
     email: string;
     /** 密码是否已填（列表不默认回传明文，与接入设置口令的处理口径一致） */
     has_password: boolean;
@@ -68,6 +109,7 @@ export interface PoolAccountDTO {
     status: PoolAccountStatus;
     status_label: string;
     customer_ids: string[];
+    outputs: string[];
     remark: string | null;
     error: string | null;
     task_id: string | null;
@@ -86,11 +128,14 @@ export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false): Pool
         order_id: e.order_id,
         seq: e.seq,
         label: e.label || "",
+        platform: e.platform || "fv",
+        platform_label: platformLabel(e.platform),
         email: e.email || "",
         has_password: !!e.password,
         status: e.status,
         status_label: POOL_ACCOUNT_STATUS_LABEL[e.status] || e.status,
         customer_ids: e.customer_ids || [],
+        outputs: e.outputs || [],
         remark: e.remark ?? null,
         error: e.error ?? null,
         task_id: e.task_id ?? null,
@@ -124,6 +169,7 @@ export interface ApplicantPayload {
 /** 账号的填表计划：机器人照此为某个账号填若干位客户。 */
 export interface AccountFillPlan {
     account_id: string;
+    platform: PoolPlatform;
     email: string;
     password: string;
     applicants: ApplicantPayload[];

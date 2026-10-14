@@ -5,6 +5,7 @@ import {
     AccountPoolRemoveResponse,
     AccountPoolUpsertResponse,
 } from "./account-pool.interface";
+import type { PoolPlatform } from "./account-pool.entity";
 
 export const accountPoolRoutes = {
     base: "/api",
@@ -15,10 +16,10 @@ export const accountPoolRoutes = {
         request: {} as { order_id: string; with_secret?: boolean; auth?: string },
         response: {} as AccountPoolListResponse,
     },
-    /** 拟定账号数量：建出占位账号并把客户均分过去 */
+    /** 拟定账号：按订单签证类型所需的平台，各建一个账号并把客户分过去 */
     plan: {
         path: "/plan",
-        request: {} as { order_id: string; count: number; auth?: string },
+        request: {} as { order_id: string; auth?: string },
         response: {} as AccountPoolPlanResponse,
     },
     /** 手动填写/修改账号（未走机器人时客服直接录） */
@@ -29,6 +30,8 @@ export const accountPoolRoutes = {
             email?: string;
             password?: string;
             label?: string;
+            platform?: PoolPlatform;
+            outputs?: string[];
             remark?: string;
             auth?: string;
         },

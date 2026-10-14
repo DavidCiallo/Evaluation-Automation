@@ -506,3 +506,19 @@ export function stageBlockReason(stages: OrderStageView[] | undefined, stageId: 
     if (!gap) return null
     return `需先满足「${gap.label}」${gap.detail ? `：${gap.detail}` : ""}`
 }
+
+/**
+ * 阶段能否**开始动手**：只有前序阶段没完成时才算不能。
+ *
+ * 不能用 stageBlockReason 代替——它把「本阶段自己还没做完」也一并返回，
+ * 而本阶段的动作（比如「拟定账号」）恰恰就是去满足那条要求；
+ * 拿它禁用按钮会让这个阶段永远无法开始。
+ */
+export function stageNotStartedReason(stages: OrderStageView[] | undefined, stageId: string): string | null {
+    if (!stages) return null
+    const target = stages.find((s) => s.id === stageId)
+    if (!target) return null
+    if (target.state !== "blocked") return null
+    const blocker = stages.find((s) => s.id === target.blocked_by)
+    return blocker ? `需先完成「${blocker.label}」` : "需先完成前序阶段"
+}
