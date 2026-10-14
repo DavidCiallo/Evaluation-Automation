@@ -56,9 +56,11 @@ export async function dispatch(orderId: string, accountId: string): Promise<Robo
     const active = existing.find((t) => !ROBOT_TASK_FINAL.includes(t.status));
     if (active) throw new Error(`该账号已有进行中的任务（${active.status}），请等待完成或先重试`);
 
-    // 派发即占用邮箱：从这一刻起开 60 天授权，机器人拿链接就能收注册邮件
+    // 派发即占用邮箱：从这一刻起开 60 天授权，机器人拿链接就能收注册邮件。
+    // 备注写上账号下的所有客户，一个邮箱可能带团里好几个人。
     const payload = await accountService.buildFillPlan(account);
-    await accountService.grantMailbox(account, payload.applicants[0]?.name || account.label);
+    const names = payload.applicants.map((a) => a.name).filter(Boolean);
+    await accountService.grantMailbox(account, names.join("、") || account.label);
     const now = Date.now();
     const row: RobotTaskEntity = {
         id: nanoid(10),

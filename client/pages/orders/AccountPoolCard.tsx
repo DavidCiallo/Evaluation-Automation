@@ -3,23 +3,15 @@ import { Bot, Eye, EyeOff, KeyRound, Plus, Trash2 } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/client/components/ui/card"
-import { Badge } from "@/client/components/ui/badge"
 import { Button } from "@/client/components/ui/button"
 import { Input } from "@/client/components/ui/input"
 import { accountPoolApi, robotTaskApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import { stageBlockReason, stageNotStartedReason } from "@/client/pages/orders/StageBar"
 import type { PoolAccountDTO, PoolPlatform } from "../../../shared/modules/account-pool/account-pool.entity"
-import { POOL_PLATFORMS, platformLabel, requiredPlatforms } from "../../../shared/modules/account-pool/account-pool.entity"
+import { POOL_PLATFORMS, platformLabel } from "../../../shared/modules/account-pool/account-pool.entity"
 import type { RobotTaskDTO } from "../../../shared/modules/robot-task/robot-task.entity"
 import type { OrderStageView } from "../../../shared/modules/order/stage"
-
-const STATUS_CLASS: Record<string, string> = {
-    registered: "border-emerald-500/60 bg-emerald-500/10 text-emerald-600",
-    registering: "border-sky-500/60 bg-sky-500/10 text-sky-600",
-    planned: "border-border text-muted-foreground",
-    failed: "border-destructive/60 bg-destructive/10 text-destructive",
-}
 
 /**
  * 订单详情里的「办签账号」区块。
@@ -113,22 +105,15 @@ export function AccountPoolCard({
     const poolBlocked = stageNotStartedReason(stages, "account_allocation")
     /** 本阶段还差什么：只作提示，不禁用按钮 */
     const poolProgress = stageBlockReason(stages, "account_allocation")
-    /** 本单需要哪些平台：法签 → FV + TLS，申根 → VFS */
-    const needed = requiredPlatforms(order?.visa_type)
 
     return (
         <Card>
             <CardHeader>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                        <CardTitle className="flex items-center gap-2 text-base">
+                        <CardTitle className="flex items-center gap-2 text-lg">
                             <KeyRound className="size-4" />
                             办签账号
-                            {accounts.length > 0 && (
-                                <Badge variant="outline">
-                                    {accounts.filter((a) => a.status === "registered").length}/{accounts.length} 已注册
-                                </Badge>
-                            )}
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {poolBlocked ||
@@ -172,9 +157,6 @@ export function AccountPoolCard({
                 {accounts.map((a) => (
                     <div key={a.id} className="space-y-2 rounded-md border px-3 py-2">
                         <div className="flex flex-wrap items-center gap-2">
-                            <span className={`rounded-md border px-1.5 py-0.5 text-[11px] ${STATUS_CLASS[a.status] || ""}`}>
-                                {a.status_label}
-                            </span>
                             {/* 平台是邮箱上的标签：勾上的都会用这个邮箱去注册 */}
                             <div className="flex items-center gap-1">
                                 {POOL_PLATFORMS.map((p) => {
@@ -184,7 +166,7 @@ export function AccountPoolCard({
                                             key={p.value}
                                             disabled={busy || !!poolBlocked}
                                             title={poolBlocked || (on ? `取消注册 ${p.label}` : `这个邮箱也去注册 ${p.label}`)}
-                                            className={`rounded-md border px-1.5 py-0.5 text-[11px] disabled:opacity-50 ${
+                                            className={`rounded-md border px-1.5 py-0.5 text-xs disabled:opacity-50 ${
                                                 on ? "border-primary text-primary" : "text-muted-foreground"
                                             }`}
                                             onClick={() =>
@@ -208,7 +190,7 @@ export function AccountPoolCard({
                             <Input
                                 defaultValue={a.email}
                                 placeholder="注册邮箱"
-                                className="h-7 w-56"
+                                className="h-8 w-60"
                                 disabled={busy || !!poolBlocked || a.status === "registered"}
                                 onBlur={(e) => {
                                     if (e.target.value !== a.email) {
@@ -220,13 +202,13 @@ export function AccountPoolCard({
                             {a.mailbox_labels.map((l) => (
                                 <span
                                     key={l}
-                                    className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[11px]"
+                                    className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs"
                                 >
                                     {l}
                                 </span>
                             ))}
                             {a.grant_end_time && (
-                                <span className="text-muted-foreground text-[11px]" title="邮箱授权到期时间">
+                                <span className="text-muted-foreground text-xs" title="邮箱授权到期时间">
                                     授权至 {new Date(a.grant_end_time).toLocaleDateString("zh-CN")}
                                 </span>
                             )}
@@ -236,7 +218,7 @@ export function AccountPoolCard({
                                     type="text"
                                     value={revealed[a.id] ?? (a.has_password ? "••••••••" : "")}
                                     placeholder="密码"
-                                    className="h-7 w-36"
+                                    className="h-8 w-40"
                                     disabled={busy || !!poolBlocked || a.status === "registered"}
                                     onChange={(e) => setRevealed((s) => ({ ...s, [a.id]: e.target.value }))}
                                     onBlur={(e) => {
@@ -245,8 +227,8 @@ export function AccountPoolCard({
                                         run(() => accountPoolApi.upsert({ id: a.id, password: e.target.value, auth }))
                                     }}
                                 />
-                                <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => reveal(a.id)}>
-                                    {revealed[a.id] ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                                <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => reveal(a.id)}>
+                                    {revealed[a.id] ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                                 </Button>
                             </div>
 
@@ -254,7 +236,7 @@ export function AccountPoolCard({
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-7"
+                                    className="h-8"
                                     disabled={busy || !!poolBlocked || a.status === "registered" || !a.email || !a.has_password || a.customer_ids.length === 0}
                                     title={poolBlocked || "交给机器人注册并填表"}
                                     onClick={() =>
@@ -264,13 +246,13 @@ export function AccountPoolCard({
                                         )
                                     }
                                 >
-                                    <Bot className="size-3" />
+                                    <Bot className="size-3.5" />
                                     派发注册
                                 </Button>
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="text-muted-foreground h-7 px-2"
+                                    className="text-muted-foreground h-8 px-2"
                                     disabled={busy || !!poolBlocked}
                                     title={poolBlocked || undefined}
                                     onClick={() => run(() => accountPoolApi.remove({ id: a.id, auth }), "已删除账号")}
@@ -295,7 +277,7 @@ export function AccountPoolCard({
                                         key={x.id}
                                         disabled={busy || !!poolBlocked}
                                         title={poolBlocked || "点击移出，回到未分配"}
-                                        className="hover:border-destructive rounded-md border px-1.5 py-0.5 text-[11px] disabled:opacity-50"
+                                        className="hover:border-destructive rounded-md border px-1.5 py-0.5 text-xs disabled:opacity-50"
                                         onClick={() =>
                                             run(() => accountPoolApi.assign({ order_id: orderId, account_id: "", customer_ids: [x.id], auth }))
                                         }
@@ -305,7 +287,7 @@ export function AccountPoolCard({
                                 ))}
                             {unassigned.length > 0 && (
                                 <select
-                                    className="bg-background h-7 rounded-md border px-1 text-[11px]"
+                                    className="bg-background h-8 rounded-md border px-1 text-xs"
                                     disabled={busy || !!poolBlocked}
                                     title={poolBlocked || undefined}
                                     value=""
@@ -335,7 +317,7 @@ export function AccountPoolCard({
                                     key={`${o}-${i}`}
                                     defaultValue={o}
                                     disabled={busy || !!poolBlocked}
-                                    className="h-7 w-40"
+                                    className="h-8 w-64"
                                     onBlur={(e) => {
                                         const v = e.target.value.trim()
                                         if (v === o) return
@@ -349,7 +331,7 @@ export function AccountPoolCard({
                             ))}
                             <Input
                                 placeholder="+ 加入产出号"
-                                className="h-7 w-40"
+                                className="h-8 w-64"
                                 disabled={busy || !!poolBlocked}
                                 onKeyDown={(e) => {
                                     if (e.key !== "Enter") return
@@ -363,7 +345,7 @@ export function AccountPoolCard({
                                 <button
                                     disabled={busy || !!poolBlocked}
                                     title={poolBlocked || "清空全部产出"}
-                                    className="text-muted-foreground hover:text-destructive text-[11px] disabled:opacity-50"
+                                    className="text-muted-foreground hover:text-destructive text-xs disabled:opacity-50"
                                     onClick={() => run(() => accountPoolApi.upsert({ id: a.id, outputs: [], auth }))}
                                 >
                                     清空
