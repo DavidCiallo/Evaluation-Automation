@@ -132,15 +132,11 @@ export function AccountPoolCard({
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {poolBlocked ||
-                                `每位客户一个办签邮箱，勾上这个邮箱要注册的平台（${
-                                    needed.map((p) => platformLabel(p)).join(" + ")
-                                }），确定后派发`}
+                                "决定用几个账号；给每个账号勾上要注册的平台，再把客户挂上去，确定后派发"}
                         </CardDescription>
                         {!poolBlocked && poolProgress && (
                             <p className="text-muted-foreground mt-1 text-xs">
-                                {accounts.length === 0
-                                    ? `还没有办签邮箱，点右上角「拟定账号」按客户名单建`
-                                    : `还差：${poolProgress.replace(/^需先满足「[^」]*」：?/, "")}`}
+                                还差：{poolProgress.replace(/^需先满足「[^」]*」：?/, "")}
                             </p>
                         )}
                     </div>
@@ -148,14 +144,9 @@ export function AccountPoolCard({
                         <Button
                             size="sm"
                             variant="outline"
-                            disabled={busy || !!poolBlocked || unassigned.length === 0}
-                            title={
-                                poolBlocked ||
-                                (unassigned.length === 0
-                                    ? "每位客户都已有办签邮箱"
-                                    : `将为 ${unassigned.map((c) => c.name).join("、")} 各建一个邮箱`)
-                            }
-                            onClick={() => run(() => accountPoolApi.plan({ order_id: orderId, auth }), "已按客户名单建号")}
+                            disabled={busy || !!poolBlocked}
+                            title={poolBlocked || "加一个账号，平台和客户随后自己指定"}
+                            onClick={() => run(() => accountPoolApi.plan({ order_id: orderId, auth }), "已加一个账号")}
                         >
                             <Plus className="size-4" />
                             拟定账号
@@ -168,15 +159,13 @@ export function AccountPoolCard({
 
                 {!loading && accounts.length === 0 && (
                     <p className="text-muted-foreground text-sm">
-                        {poolBlocked
-                            ? `还不能建号：${poolBlocked}。`
-                            : "尚未建号。点「拟定账号」会按客户名单每人建一个邮箱，并预勾本单所需的平台。"}
+                        {poolBlocked ? `还不能建号：${poolBlocked}。` : "尚未建号。点「拟定账号」加一个账号。"}
                     </p>
                 )}
 
                 {unassigned.length > 0 && accounts.length > 0 && (
                     <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
-                        还有 {unassigned.length} 位客户没有办签邮箱：{unassigned.map((c) => c.name).join("、")}
+                        还有 {unassigned.length} 位客户没挂到账号上：{unassigned.map((c) => c.name).join("、")}
                     </div>
                 )}
 
@@ -228,11 +217,19 @@ export function AccountPoolCard({
                                 }}
                             />
                             <div className="flex items-center gap-1">
+                                {/* 密码可以手工录，也可以点眼睛看已存的明文 */}
                                 <Input
-                                    readOnly
+                                    type="text"
                                     value={revealed[a.id] ?? (a.has_password ? "••••••••" : "")}
                                     placeholder="密码"
                                     className="h-7 w-36"
+                                    disabled={busy || !!poolBlocked || a.status === "registered"}
+                                    onChange={(e) => setRevealed((s) => ({ ...s, [a.id]: e.target.value }))}
+                                    onBlur={(e) => {
+                                        // 打码占位符不是真密码，没动过就别拿它覆盖
+                                        if (e.target.value === "••••••••") return
+                                        run(() => accountPoolApi.upsert({ id: a.id, password: e.target.value, auth }))
+                                    }}
                                 />
                                 <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => reveal(a.id)}>
                                     {revealed[a.id] ? <EyeOff className="size-3" /> : <Eye className="size-3" />}

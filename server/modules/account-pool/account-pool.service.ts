@@ -8,7 +8,7 @@
 import Repository from "../../lib/repository";
 import { nanoid } from "nanoid";
 import type { PoolAccountEntity, PoolAccountDTO, AccountFillPlan, ApplicantPayload, PoolPlatform } from "../../../shared/modules/account-pool/account-pool.entity";
-import { toPoolAccountDTO, platformLabel, requiredPlatforms } from "../../../shared/modules/account-pool/account-pool.entity";
+import { toPoolAccountDTO } from "../../../shared/modules/account-pool/account-pool.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
 import type { OrderCustomerInfo } from "../../../shared/modules/order/plugins/standard.manifest";
@@ -75,50 +75,44 @@ export async function findByEmail(email: string, excludeId?: string): Promise<Po
 }
 
 /**
- * 拟定账号：订单每位客户各建一条邮箱记录，并按签证类型预勾要注册的平台。
+ * 拟定账号：**每次加一个**，平台留空由客服自己勾。
  *
- * 为什么是「一人一行」而不是「一平台一行」：分配的单位是邮箱，不是平台。
- * 一个客户拿一个邮箱去所有需要的平台注册（法签的邮箱同时挂 fv 和 tls），
- * 平台只是这个邮箱身上的标签。按平台建行会让两个客户抢同一个号的位置，
- * 那是不存在的约束。
+ * 为什么不按客户名单批量建、也不预勾平台：账号数量是客服的判断
+ * （一个号能带几个人，取决于怎么和官方平台组单），系统替他们定死
+ * 反而要手工删；平台同理，预勾错了比空着更危险。
  *
- * 幂等策略：已经挂了客户的邮箱行保留，只为还没有邮箱的客户补建。
+ * 幂等策略：只补一个「还没挂客户」的空位；没有空位就新加一条。
  */
 export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]> {
     await assertAllocatable(orderId);
-    const order = await orderRepo.findOne({ id: orderId });
-    const platforms = requiredPlatforms(order?.visa_type);
-    const customers = await customersOf(orderId);
     const existing = await listByOrder(orderId);
 
-    const claimed = new Set(existing.flatMap((a) => a.customer_ids || []));
-    for (const customer of customers) {
-        if (claimed.has(customer.id)) continue;
-        const now = Date.now();
-        const row: PoolAccountEntity = {
-            id: nanoid(8),
-            create_time: now,
-            update_time: null,
-            delete_time: null,
-            order_id: orderId,
-            seq: existing.length + 1,
-            label: customer.name || `客户 ${existing.length + 1}`,
-            // 邮箱留空由客服/机器人补：系统不编造邮箱，避免生成无法注册的假地址
-            email: "",
-            password: "",
-            status: "planned",
-            customer_ids: [customer.id],
-            platforms: [...platforms],
-            outputs: [],
-            remark: null,
-            error: null,
-            task_id: null,
-            registered_time: null,
-            version: 1,
-        };
-        await repo.insert(row);
-        existing.push(row);
-    }
+    const spare = existing.find((a) => (a.customer_ids || []).length === 0);
+    if (spare) return existing;
+
+    const now = Date.now();
+    const row: PoolAccountEntity = {
+        id: nanoid(8),
+        create_time: now,
+        update_time: null,
+        delete_time: null,
+        order_id: orderId,
+        seq: existing.length + 1,
+        label: `账号 ${existing.length + 1}`,
+        // 邮箱留空由客服/机器人补：系统不编造邮箱，避免生成无法注册的假地址
+        email: "",
+        password: "",
+        status: "planned",
+        customer_ids: [],
+        platforms: [],
+        outputs: [],
+        remark: null,
+        error: null,
+        task_id: null,
+        registered_time: null,
+        version: 1,
+    };
+    await repo.insert(row);
 
     return listByOrder(orderId);
 }

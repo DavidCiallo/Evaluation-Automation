@@ -14,7 +14,6 @@ import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
 import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { PoolAccountEntity } from "../../../shared/modules/account-pool/account-pool.entity";
-import { requiredPlatforms, platformLabel } from "../../../shared/modules/account-pool/account-pool.entity";
 import {
     ORDER_STAGES,
     ORDER_REQUIREMENT_LABEL,
@@ -176,9 +175,9 @@ async function evalRequirement(
             if (customers.length === 0) return done(false, "尚无客户名单，先确认客户");
             if (accounts.length === 0) return done(false, "尚未建立办签账号");
 
-            // 一位客户一个邮箱，所以先看客户是否都分到了邮箱，
-            // 再看这些邮箱有没有把本单需要的平台都勾上（法签要 fv + tls）。
-            const needed = requiredPlatforms(order.visa_type);
+            // 一位客户一个账号，所以判的是「客户都挂上了账号」。
+            // 平台由客服自选，这里只要求勾过至少一个——空着说明还没定方案；
+            // 至于该不该包含 FV/TLS，是业务判断，系统不替客服设标准答案。
             const byCustomer = new Map<string, PoolAccountEntity>();
             for (const a of accounts) {
                 for (const cid of a.customer_ids || []) {
@@ -188,16 +187,12 @@ async function evalRequirement(
             const missing: string[] = [];
             const noBox = customers.filter((c) => !byCustomer.has(c.id));
             if (noBox.length > 0) {
-                missing.push(`${noBox.length} 位客户没有办签邮箱：${noBox.map((c) => c.name || "未命名").join("、")}`);
+                missing.push(`${noBox.length} 位客户没有办签账号：${noBox.map((c) => c.name || "未命名").join("、")}`);
             }
             for (const customer of customers) {
                 const acct = byCustomer.get(customer.id);
-                if (!acct) continue;
-                const gap = needed.filter((p) => !(acct.platforms || []).includes(p));
-                if (gap.length > 0) {
-                    missing.push(
-                        `${customer.name || "未命名"} 的邮箱还没选 ${gap.map((p) => platformLabel(p)).join("、")} 平台`,
-                    );
+                if (acct && (acct.platforms || []).length === 0) {
+                    missing.push(`${customer.name || "未命名"} 的账号还没选平台`);
                 }
             }
             if (missing.length === 0) return done(true);
