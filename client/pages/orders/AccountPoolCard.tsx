@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Bot, Eye, EyeOff, KeyRound, Plus, Trash2 } from "lucide-react"
+import { Bot, Eye, EyeOff, KeyRound, Plus, Trash2, X } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/client/components/ui/card"
@@ -309,30 +309,56 @@ export function AccountPoolCard({
                             <span className="text-muted-foreground text-xs">产出：</span>
                             {a.outputs.length === 0 && <span className="text-muted-foreground text-xs">（无）</span>}
                             {a.outputs.map((o, i) => (
-                                <Input
-                                    /* 用下标做 key：内容拼接做 key 会在每次落库后重挂载，输入框被清空 */
-                                    key={i}
-                                    value={o}
-                                    placeholder="产出号，清空即删除"
-                                    disabled={busy || !!poolBlocked}
-                                    className="h-8 w-64"
-                                    onChange={(e) => {
-                                        const next = [...a.outputs]
-                                        next[i] = e.target.value
-                                        setAccounts((list) =>
-                                            list.map((x) => (x.id === a.id ? { ...x, outputs: next } : x)),
-                                        )
-                                    }}
-                                    onBlur={(e) => {
-                                        const v = e.target.value.trim()
-                                        // 清空即删除这一条
-                                        const next = v
-                                            ? a.outputs.map((x, j) => (j === i ? v : x))
-                                            : a.outputs.filter((_, j) => j !== i)
-                                        if (JSON.stringify(next) === JSON.stringify(a.outputs)) return
-                                        run(() => accountPoolApi.upsert({ id: a.id, outputs: next, auth }))
-                                    }}
-                                />
+                                <div key={i} className="flex items-center gap-1">
+                                    <Input
+                                        value={o}
+                                        placeholder="产出号"
+                                        disabled={busy || !!poolBlocked}
+                                        className="h-8 w-64"
+                                        onChange={(e) => {
+                                            const next = [...a.outputs]
+                                            next[i] = e.target.value
+                                            setAccounts((list) =>
+                                                list.map((x) => (x.id === a.id ? { ...x, outputs: next } : x)),
+                                            )
+                                        }}
+                                        onBlur={(e) => {
+                                            const v = e.target.value.trim()
+                                            if (!v || v === o) {
+                                                // 空值不落库，回到原值
+                                                if (!v) {
+                                                    setAccounts((list) =>
+                                                        list.map((x) =>
+                                                            x.id === a.id ? { ...x, outputs: a.outputs } : x,
+                                                        ),
+                                                    )
+                                                }
+                                                return
+                                            }
+                                            const next = a.outputs.map((x, j) => (j === i ? v : x))
+                                            run(() => accountPoolApi.upsert({ id: a.id, outputs: next, auth }))
+                                        }}
+                                    />
+                                    <button
+                                        disabled={busy || !!poolBlocked}
+                                        title={poolBlocked || "删除这条产出"}
+                                        className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                                        /* 用 mousedown：否则点 × 会先触发 input 的 blur 保存，
+                                           两个写请求叠在一起，这一行会闪一下空 */
+                                        onMouseDown={(e) => {
+                                            e.preventDefault()
+                                            run(() =>
+                                                accountPoolApi.upsert({
+                                                    id: a.id,
+                                                    outputs: a.outputs.filter((_, j) => j !== i),
+                                                    auth,
+                                                }),
+                                            )
+                                        }}
+                                    >
+                                        <X className="size-4" />
+                                    </button>
+                                </div>
                             ))}
                             <Input
                                 value={newOutput[a.id] ?? ""}
@@ -348,16 +374,6 @@ export function AccountPoolCard({
                                     run(() => accountPoolApi.upsert({ id: a.id, outputs: [...a.outputs, v], auth }))
                                 }}
                             />
-                            {a.outputs.length > 0 && (
-                                <button
-                                    disabled={busy || !!poolBlocked}
-                                    title={poolBlocked || "清空全部产出"}
-                                    className="text-muted-foreground hover:text-destructive text-xs disabled:opacity-50"
-                                    onClick={() => run(() => accountPoolApi.upsert({ id: a.id, outputs: [], auth }))}
-                                >
-                                    清空
-                                </button>
-                            )}
                         </div>
                     </div>
                 ))}
