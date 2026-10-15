@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Copy, FileCheck2, RotateCcw, Send } from "lucide-react"
+import { Copy, ExternalLink, FileCheck2, RotateCcw, Send } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/client/components/ui/card"
@@ -208,10 +208,21 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
                             )}
                             <div className="ml-auto flex items-center gap-1">
                                 {c.sign_url && (
-                                    <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => copy(c.customer_name, c.sign_url!)}>
-                                        <Copy className="size-3" />
-                                        复制链接
-                                    </Button>
+                                    <>
+                                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => copy(c.customer_name, c.sign_url!)}>
+                                            <Copy className="size-3" />
+                                            复制链接
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 px-2"
+                                            onClick={() => window.open(c.sign_url!, "_blank", "noopener")}
+                                        >
+                                            <ExternalLink className="size-3" />
+                                            打开
+                                        </Button>
+                                    </>
                                 )}
                                 <Button
                                     variant="ghost"

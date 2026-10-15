@@ -15,7 +15,7 @@ import type {
 } from "../../../shared/modules/confirmation/confirmation.entity";
 import { CONFIRMATION_STATUS_LABEL } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { ConfirmationSignerView } from "../../../shared/modules/confirmation/confirmation.interface";
-import { createContractSheet, isContractConfigured, internalSigners, fetchContractSigners, deleteContractSheet } from "../../lib/contract-client";
+import { createContractSheet, isContractConfigured, internalSigners, fetchContractSigners, fetchContractStatus, deleteContractSheet } from "../../lib/contract-client";
 import { buildContent, buildContentFromProfile } from "../form/content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
@@ -124,33 +124,41 @@ export async function areAllSigned(orderId: string): Promise<{ met: boolean; det
 /**
  * 向确认单服务核对签署状态并回写本地。
  *
- * 只有「客户本人（external）已签」才算数：内部签署人只是留痕，不要求每人签；
- * result="wrong" 表示客户对资料有异议，同样不算通过。
- * 单条查询失败不影响其余——服务抖动不该让整个列表报错。
+ * 判据是服务端算出来的整体 status，不是「客户签了没」。确认单要求客户和内部签署人
+ * 都签满（签发时传的 external_min / internal_min），只看客户会在员工还没签时
+ * 就显示「已确认」——曾扬那张就是客户签了、小律小柠都没签，本地却成了已确认。
+ *
+ * 已签客户时刻仍从 signers 取，用于展示；整体过没过以 status 为准。
+ * 单张查询失败不影响其余——服务抖动不该让整个列表报错。
  */
 export async function refreshSignedFromService(rows: ConfirmationEntity[]): Promise<number> {
     let refreshed = 0;
     for (const e of rows) {
         if (e.status !== "pending" || !e.token) continue;
-        let signers;
+
+        let state;
         try {
-            signers = await fetchContractSigners(e.token);
+            state = await fetchContractStatus(e.token);
         } catch {
             continue;
         }
-        const customer = signers.find((s) => s.signer_type === "external" && s.result === "ok");
-        if (!customer) continue;
+        if (!state || state.status !== "confirmed") continue;
+
+        let signedAt = 0;
+        try {
+            const signers = await fetchContractSigners(e.token);
+            signedAt = signers.find((s) => s.signer_type === "external" && s.result === "ok")?.signed_at || 0;
+        } catch {
+            // 拿不到客户签署时刻不影响结论，用当前时间兜底
+        }
+        const when = signedAt || Date.now();
 
         await repo.atomicPatch({ id: e.id }, (row) => {
             if (!row || row.status !== "pending") return null;
-            return {
-                status: "signed",
-                signed_time: customer.signed_at || Date.now(),
-                version: row.version + 1,
-            };
+            return { status: "signed", signed_time: when, version: row.version + 1 };
         });
         e.status = "signed";
-        e.signed_time = customer.signed_at || Date.now();
+        e.signed_time = when;
         refreshed++;
     }
     return refreshed;

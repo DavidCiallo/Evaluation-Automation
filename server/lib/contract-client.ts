@@ -91,6 +91,46 @@ export async function createContractSheet(payload: QuickPayload): Promise<Contra
     return { id: String(r.data?.id || ""), title: payload.title, url: String(r.data?.url || "") };
 }
 
+/** 确认单在服务端的整体状态。confirmed 表示签署人数已满足建单时的要求。 */
+export interface ContractStatus {
+    /** 服务端算出来的状态：pending / confirmed 等 */
+    status: string;
+    /** 已签人数 */
+    signed: number;
+    /** 应签总人数（含内部签署人） */
+    signer_total: number;
+}
+
+/**
+ * 查一张确认单的整体状态。
+ *
+ * 用 query 而不是 signers：query 返回的 status 是服务端按 internal_min / external_min
+ * 算出来的结论（见服务端 recomputeStatus），已经含了内部签署人；
+ * 自己拿 signers 拼容易漏掉某一类签署人，判早了就说「已确认」。
+ *
+ * query 每页 10 条且没有按 id 查询的入参，只能翻页找。翻查上限兜住异常情况，
+ * 免得服务端 total 不对时死循环。
+ */
+export async function fetchContractStatus(id: string): Promise<ContractStatus | null> {
+    if (!id) return null;
+    const pageSize = 10;
+    for (let page = 1; page <= 50; page++) {
+        const r = await post<{ data: { list: any[]; total: number } }>("/api/contract/query", { page, status: "all" });
+        const list = r.data?.list || [];
+        for (const c of list) {
+            if (String(c?.id) === id) {
+                return {
+                    status: String(c.status || "pending"),
+                    signed: Number(c.signed || 0),
+                    signer_total: Number(c.signer_total || 0),
+                };
+            }
+        }
+        if (list.length === 0 || page * pageSize >= (r.data?.total || 0)) break;
+    }
+    return null;
+}
+
 /** 一位签署人的状态。duration 由主签署人（客户）决定，内部签署人不影响结论。 */
 export interface ContractSigner {
     name: string;

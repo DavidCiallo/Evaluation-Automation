@@ -9,7 +9,7 @@
  * 避免与 order.service / application.service 形成循环。
  */
 import Repository from "../../lib/repository";
-import { isCustomerSigned } from "../../lib/contract-client";
+import { isCustomerSigned, fetchContractStatus } from "../../lib/contract-client";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
 import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
@@ -71,26 +71,34 @@ const REQUIRED_CUSTOMER_FIELDS: Array<{ key: keyof OrderCustomerInfo; label: str
 /**
  * 向确认单服务核对签署状态并回写本地。
  * 与 confirmation.service 的同名逻辑重复，是为了避开循环依赖（它依赖订单）；
- * 判定口径必须与其一致：只认客户本人（external）已签。
+ * 判定口径必须与其一致：以服务端算出来的整体 status 为准，即客户和内部签署人都签满。
+ * 只看客户本人会在员工还没签时就放行「信息确认」阶段。
  * 单条查询失败不影响其余——服务抖动不该让阶段判定整体报错。
  */
 async function refreshConfirmedFromService(rows: ConfirmationEntity[]): Promise<void> {
     for (const e of rows) {
         if (e.status !== "pending" || !e.token) continue;
-        let r: { signed: boolean; signedAt: number };
+        let state;
         try {
-            r = await isCustomerSigned(e.token);
+            state = await fetchContractStatus(e.token);
         } catch {
             continue;
         }
-        if (!r.signed) continue;
-        const at = r.signedAt || Date.now();
+        if (!state || state.status !== "confirmed") continue;
+
+        let at = 0;
+        try {
+            at = (await isCustomerSigned(e.token)).signedAt || 0;
+        } catch {
+            // 拿不到客户签署时刻不影响结论，用当前时间兜底
+        }
+        const when = at || Date.now();
         await confirmationRepo.atomicPatch({ id: e.id }, (row) => {
             if (!row || row.status !== "pending") return null;
-            return { status: "signed", signed_time: at, version: row.version + 1 };
+            return { status: "signed", signed_time: when, version: row.version + 1 };
         });
         e.status = "signed";
-        e.signed_time = at;
+        e.signed_time = when;
     }
 }
 
