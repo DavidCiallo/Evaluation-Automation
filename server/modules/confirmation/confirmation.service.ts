@@ -15,7 +15,7 @@ import type {
 } from "../../../shared/modules/confirmation/confirmation.entity";
 import { CONFIRMATION_STATUS_LABEL } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { ConfirmationSignerView } from "../../../shared/modules/confirmation/confirmation.interface";
-import { createContractSheet, isContractConfigured, internalSigners, fetchContractSigners } from "../../lib/contract-client";
+import { createContractSheet, isContractConfigured, internalSigners, fetchContractSigners, deleteContractSheet } from "../../lib/contract-client";
 import { buildContent, buildContentFromProfile } from "../form/content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
@@ -84,8 +84,14 @@ export async function buildSnapshot(customer: OrderCustomerInfo): Promise<Confir
 
 // ---------- 客服侧 ----------
 
+/**
+ * 订单下的确认单列表（不含已撤销的）。
+ *
+ * 撤销是「作废重来」，已撤销的行留在库里是为了可追查（谁、何时、什么原因），
+ * 但客服看到的列表只应该有当前有效的单——否则撤销后一刷新又冒出来，越堆越多。
+ */
 export async function listByOrder(orderId: string): Promise<ConfirmationDTO[]> {
-    const rows = await repo.find({ order_id: orderId });
+    const rows = (await repo.find({ order_id: orderId })).filter((e) => e.status !== "revoked");
     // 客服打开列表时顺带核对一次服务端，否则已签的单会一直显示「待确认」
     await refreshSignedFromService(rows);
     return rows.sort((a, b) => a.create_time - b.create_time).map((e) => toDTO(e));
@@ -295,10 +301,26 @@ async function contentForCustomer(
     throw `${name || "未命名"} 没有绑定任何表单提交，也没有客户档案，没有资料可核对`;
 }
 
-export async function revoke(id: string, reason: string, by: string): Promise<ConfirmationDTO> {
+/**
+ * 撤销确认单：先删掉服务端单据（客户手上的链接随即失效），再在本系统标记 revoked。
+ *
+ * 服务端删不掉时不拦撤销——已有签署记录的单，API key 按设计就删不了
+ * （只有管理端 UI 能强制删）。这时本地照常撤销，把服务端那句话作为响应的 message
+ * 带回去，客服据此知道服务端那张单还在。
+ */
+export async function revoke(id: string, reason: string, by: string): Promise<{ confirmation: ConfirmationDTO; warning: string | null }> {
     const cur = await repo.findOne({ id });
     if (!cur) throw "confirmation not found";
     if (cur.status === "revoked") throw "该确认单已撤销";
+
+    let warning: string | null = null;
+    if (cur.external_ref) {
+        try {
+            await deleteContractSheet(cur.external_ref);
+        } catch (e) {
+            warning = `确认单服务上未能删除：${e instanceof Error ? e.message : String(e)}`;
+        }
+    }
 
     await repo.atomicPatch({ id }, (row) => {
         if (!row) return null;
@@ -311,7 +333,7 @@ export async function revoke(id: string, reason: string, by: string): Promise<Co
         };
     });
     const updated = await repo.findOne({ id });
-    return toDTO(updated!);
+    return { confirmation: toDTO(updated!), warning };
 }
 
 // ---------- 客户侧（凭 token） ----------

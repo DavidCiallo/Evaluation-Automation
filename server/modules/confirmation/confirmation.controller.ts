@@ -23,7 +23,9 @@ async function issue(request: ConfirmationIssueRequest) {
 async function revoke(request: ConfirmationRevokeRequest) {
     const req = ConfirmationRevokeRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
-    return { confirmation: await svc.revoke(req.id, req.reason, by) };
+    const { confirmation, warning } = await svc.revoke(req.id, req.reason, by);
+    // 服务端没删掉时把原因带回去，客服需要知道那张单还在
+    return { confirmation, message: warning || undefined };
 }
 
 async function signers(request: ConfirmationSignersRequest) {

@@ -130,8 +130,14 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
         if (!reason || !reason.trim()) return
         setBusy(true)
         try {
-            await confirmationApi.revoke({ id, reason: reason.trim(), auth })
-            toast.success("已撤销")
+            const res = await confirmationApi.revoke({ id, reason: reason.trim(), auth })
+            // 本地撤销成功，但服务端那张单可能删不掉（已有签署记录）。
+            // 这不是失败，所以用警告而不是错误——但必须让客服知道它还挂着。
+            if (res?.message) {
+                toast.info(`已撤销，但${res.message}`)
+            } else {
+                toast.success("已撤销")
+            }
             await load()
         } catch (e: any) {
             toast.error(e?.message || "撤销失败")
@@ -200,28 +206,23 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
                                     {new Date(c.signed_time).toLocaleString("zh-CN", { hour12: false })}
                                 </span>
                             )}
-                            {c.revoked_reason && (
-                                <span className="text-destructive text-xs">撤销原因：{c.revoked_reason}</span>
-                            )}
                             <div className="ml-auto flex items-center gap-1">
-                                {c.sign_url && c.status !== "revoked" && (
+                                {c.sign_url && (
                                     <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => copy(c.customer_name, c.sign_url!)}>
                                         <Copy className="size-3" />
                                         复制链接
                                     </Button>
                                 )}
-                                {c.status !== "revoked" && (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-muted-foreground h-7 px-2"
-                                        onClick={() => revoke(c.id)}
-                                        disabled={busy}
-                                    >
-                                        <RotateCcw className="size-3" />
-                                        撤销
-                                    </Button>
-                                )}
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-muted-foreground h-7 px-2"
+                                    onClick={() => revoke(c.id)}
+                                    disabled={busy}
+                                >
+                                    <RotateCcw className="size-3" />
+                                    撤销
+                                </Button>
                             </div>
                         </div>
                         <SignerLines id={c.id} />

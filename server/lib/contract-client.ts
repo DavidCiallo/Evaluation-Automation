@@ -102,6 +102,18 @@ export interface ContractSigner {
 }
 
 /**
+ * 删除一张确认单（服务端做的是软删除：置 delete_time 并把签署记录一起标记）。
+ *
+ * 接口是 /del 不是 /delete。它按 API key 走受限分支，**已有任何签署记录的单删不掉**
+ * （服务端 allowSigned=false，只有管理端 UI 能强制删），会返回「已有签署记录的确认单不能删除」。
+ * 那句话原样抛出去——客服需要知道是为什么删不掉，而不是一个笼统的失败。
+ */
+export async function deleteContractSheet(id: string): Promise<void> {
+    if (!id) return;
+    await post("/api/contract/del", { id });
+}
+
+/**
  * 查一张确认单的签署状态。
  * 这是判断「客户签没签」的唯一权威来源——客户在服务端页面上签字，
  * 本系统收不到任何推送，只能问。
