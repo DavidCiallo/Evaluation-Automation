@@ -79,9 +79,13 @@ export async function syncSubmissionsToContracts(maxAgeMinutes: number | null = 
             continue;
         }
 
-        const content = buildContent(s.fields);
-        if (!content) {
-            result.failed.push({ name: s.submitter_name, reason: "未取到字段" });
+        // 正文由 LLM 生成，失败就不建单：宁可这一条留着下次重试，
+        // 也不能拿一份内容不全的正文去让客户签字。
+        let content: string;
+        try {
+            content = await buildContent(s.fields);
+        } catch (e: any) {
+            result.failed.push({ name: s.submitter_name, reason: e?.message || String(e) });
             continue;
         }
 

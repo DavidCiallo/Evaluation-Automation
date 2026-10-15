@@ -216,7 +216,14 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
     const failed: string[] = [];
     for (const c of targets) {
         const name = c.name || "";
-        const content = await contentForCustomer(name, c, submissions);
+        // 正文生成失败（LLM 未配置/超时/返回空）就不签这张单。
+        // 先建的那几张保持有效，不回头撤销——它们的内容是完整的。
+        let content: string | null = null;
+        try {
+            content = await contentForCustomer(name, c, submissions);
+        } catch (e) {
+            throw `未能为「${name || "未命名"}」生成确认单正文：${e instanceof Error ? e.message : String(e)}。已拒绝签发。`;
+        }
         if (!content) {
             failed.push(`${name || "未命名"}（无表单提交，档案也没资料）`);
             continue;
@@ -259,8 +266,10 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
 }
 
 /**
- * 客户 → 确认单正文。优先用该客户已提交的表单（字段最全），
+ * 客户 → 确认单正文。优先用该客户已提交的表单（字段最全）交给 LLM 生成，
  * 没有提交时退回客户档案——否则还没填表的客户一张都签不出来。
+ *
+ * LLM 失败或未配置时向上抛错，调用方据此拒绝签发这张单。
  */
 async function contentForCustomer(
     name: string,
@@ -269,8 +278,10 @@ async function contentForCustomer(
 ): Promise<string | null> {
     if (name) {
         const hit = submissions.find((s) => s.submitter_name === name);
-        const fromForm = hit ? buildContent(hit.fields) : null;
-        if (fromForm) return fromForm;
+        if (hit) {
+            const fromForm = await buildContent(hit.fields);
+            if (fromForm) return fromForm;
+        }
     }
 
     let profile: CustomerEntity | null = null;
