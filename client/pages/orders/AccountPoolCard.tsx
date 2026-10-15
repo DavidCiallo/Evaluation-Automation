@@ -455,45 +455,6 @@ export function AccountPoolCard({
                         </div>
 
                         {a.error && <p className="text-destructive text-xs">{a.error}</p>}
-
-                        <div className="bg-border h-px" />
-
-                        {/* 预约位置：先填预期（想约哪），约到了填实际；填了实际才算这一步完成 */}
-                        <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-                            <div className="space-y-1">
-                                <span className="text-muted-foreground text-xs">预期位置</span>
-                                <Input
-                                    defaultValue={a.expected_place}
-                                    placeholder="想约的位置"
-                                    disabled={busy || !!poolBlocked}
-                                    className="h-8 w-40"
-                                    onBlur={(e) => {
-                                        const v = e.target.value.trim()
-                                        if (v === a.expected_place) return
-                                        run(() => accountPoolApi.upsert({ id: a.id, expected_place: v, auth }))
-                                    }}
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <span className="text-muted-foreground text-xs">实际位置</span>
-                                <Input
-                                    defaultValue={a.actual_place}
-                                    placeholder="约到的位置"
-                                    disabled={busy || !!poolBlocked}
-                                    className={`h-8 w-40 ${a.actual_place.trim() ? "" : "border-destructive/60"}`}
-                                    onBlur={(e) => {
-                                        const v = e.target.value.trim()
-                                        if (v === a.actual_place) return
-                                        run(() => accountPoolApi.upsert({ id: a.id, actual_place: v, auth }))
-                                    }}
-                                />
-                            </div>
-                            <div className="flex h-8 items-center self-end text-xs">
-                                <span className={a.actual_place.trim() ? "text-emerald-600" : "text-muted-foreground"}>
-                                    {a.actual_place.trim() ? "已约到" : "待约到"}
-                                </span>
-                            </div>
-                        </div>
                     </div>
                 ))}
             </CardContent>

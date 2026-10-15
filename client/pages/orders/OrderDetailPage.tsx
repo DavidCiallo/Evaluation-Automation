@@ -28,6 +28,7 @@ import { OrderStageBar } from "./StageBar"
 import { SendMaterialsDialog } from "./SendMaterialsDialog"
 import { ConfirmationCard } from "./ConfirmationCard"
 import { AccountPoolCard } from "./AccountPoolCard"
+import { AppointmentCard } from "./AppointmentCard"
 
 ensureClientPluginsRegistered()
 
@@ -267,6 +268,9 @@ export function OrderDetailPage() {
                     stages={order.stages}
                     reload={load}
                 />
+
+                {/* 行2.7：预约位置（注册填表后、行程安排前） */}
+                <AppointmentCard orderId={order.id} reload={load} />
 
                 {/* 行3：行程单（宽）↔ 核心信息 */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-3">
