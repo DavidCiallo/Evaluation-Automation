@@ -140,9 +140,13 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
         }
     }
 
-    const copy = async (url: string) => {
+    // 复制给客户的整段话：标题让他知道这是什么单，链接后面跟一句操作说明。
+    // 标题按后端的建单口径拼，和确认单服务上显示的保持一致。
+    const copy = async (customerName: string, url: string) => {
+        const title = `NoWorry签证信息确认 - ${customerName || "未命名"}`
+        const text = `${title}，${url}，该表单信息将用于签证约位账号注册，请仔细检查后在页面下方点击确认信息无误`
         try {
-            await navigator.clipboard.writeText(url)
+            await navigator.clipboard.writeText(text)
             toast.success("链接已复制，可发给客户")
         } catch {
             toast.error("复制失败，请手动选择链接")
@@ -201,7 +205,7 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
                             )}
                             <div className="ml-auto flex items-center gap-1">
                                 {c.sign_url && c.status !== "revoked" && (
-                                    <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => copy(c.sign_url!)}>
+                                    <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => copy(c.customer_name, c.sign_url!)}>
                                         <Copy className="size-3" />
                                         复制链接
                                     </Button>
