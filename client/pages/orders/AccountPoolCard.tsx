@@ -9,7 +9,7 @@ import { accountPoolApi, robotTaskApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import { stageBlockReason, stageNotStartedReason } from "@/client/pages/orders/StageBar"
 import type { PoolAccountDTO, PoolPlatform } from "../../../shared/modules/account-pool/account-pool.entity"
-import { POOL_PLATFORMS } from "../../../shared/modules/account-pool/account-pool.entity"
+import { POOL_PLATFORMS, PLATFORM_OUTPUT } from "../../../shared/modules/account-pool/account-pool.entity"
 import type { OrderStageView } from "../../../shared/modules/order/stage"
 
 /**
@@ -39,8 +39,13 @@ export function AccountPoolCard({
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
     const [revealed, setRevealed] = useState<Record<string, string>>({})
-    /** 各账号「+ 加入产出号」输入框里还没提交的草稿 */
-    const [newOutput, setNewOutput] = useState<Record<string, string>>({})
+    /** 各账号「+ 加入链接」输入框里还没提交的草稿 */
+    const [newLink, setNewLink] = useState<Record<string, string>>({})
+
+    const customerName = (id: string) => customers.find((c) => c.id === id)?.name || id
+    /** 勾了要产物的平台才显示对应输入框；VFS/西班牙只注册，不显示。 */
+    const needsFv = (a: PoolAccountDTO) => a.platforms.some((p) => PLATFORM_OUTPUT[p] === "fv_number")
+    const needsTls = (a: PoolAccountDTO) => a.platforms.some((p) => PLATFORM_OUTPUT[p] === "tls_link")
 
     const load = async () => {
         setLoading(true)
@@ -293,117 +298,202 @@ export function AccountPoolCard({
                                 </div>
                             </div>
 
-                            {/* 产出：这个号下已经拿到的号，客服手工登记 */}
-                            <div className="space-y-1">
-                                <span className="text-muted-foreground text-xs">产出</span>
-                                <div className="flex flex-wrap items-center gap-1">
-                                    {a.outputs.length === 0 && (
-                                        <span className="text-muted-foreground text-xs">未登记</span>
+                            {/* 产物按平台算：FV 号一人一个，TLS 链接一个账号一条，
+                                VFS/西班牙只要注册不要产物 */}
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground text-xs">产物</span>
+                                    {a.outputs_ready ? (
+                                        <span className="text-xs text-emerald-600">已齐</span>
+                                    ) : (
+                                        <span className="text-destructive text-xs">{a.outputs_missing.join("；")}</span>
                                     )}
-                                    {a.outputs.map((o, i) => (
-                                        <div key={i} className="flex items-center gap-1">
-                                            <Input
-                                                value={o}
-                                                placeholder="产出号"
-                                                disabled={busy || !!poolBlocked}
-                                                className="h-8 w-44"
-                                                onChange={(e) => {
-                                                    const next = [...a.outputs]
-                                                    next[i] = e.target.value
-                                                    setAccounts((list) =>
-                                                        list.map((x) => (x.id === a.id ? { ...x, outputs: next } : x)),
-                                                    )
-                                                }}
-                                                onBlur={(e) => {
-                                                    const v = e.target.value.trim()
-                                                    if (!v || v === o) {
-                                                        // 空值不落库，回到原值
-                                                        if (!v) {
-                                                            setAccounts((list) =>
-                                                                list.map((x) =>
-                                                                    x.id === a.id ? { ...x, outputs: a.outputs } : x,
-                                                                ),
+                                </div>
+
+                                {needsFv(a) && (
+                                    <div className="space-y-1">
+                                        <span className="text-muted-foreground text-xs">FV 号</span>
+                                        <div className="flex flex-col gap-1">
+                                            {/* 一个人一个号，所以按客户列，缺的框标红 */}
+                                            {a.customer_ids.map((cid) => {
+                                                const value = a.fv_numbers?.[cid] ?? ""
+                                                return (
+                                                    <div key={cid} className="flex items-center gap-2">
+                                                        <span className="w-16 truncate text-xs">
+                                                            {customerName(cid)}
+                                                        </span>
+                                                        <Input
+                                                            defaultValue={value}
+                                                            placeholder="FV 号"
+                                                            disabled={busy || !!poolBlocked}
+                                                            className={`h-8 w-44 ${value.trim() ? "" : "border-destructive/60"}`}
+                                                            onBlur={(e) => {
+                                                                const v = e.target.value.trim()
+                                                                if (v === value) return
+                                                                run(() =>
+                                                                    accountPoolApi.upsert({
+                                                                        id: a.id,
+                                                                        fv_numbers: { ...a.fv_numbers, [cid]: v },
+                                                                        auth,
+                                                                    }),
+                                                                )
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )
+                                            })}
+                                            {a.customer_ids.length === 0 && (
+                                                <span className="text-muted-foreground text-xs">
+                                                    先挂客户，再填各自的 FV 号
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {needsTls(a) && (
+                                    <div className="space-y-1">
+                                        <span className="text-muted-foreground text-xs">TLS 链接</span>
+                                        <div className="flex flex-col gap-1">
+                                            {a.tls_links.map((l, i) => (
+                                                <div key={i} className="flex items-center gap-1">
+                                                    <Input
+                                                        defaultValue={l}
+                                                        placeholder="签署链接"
+                                                        disabled={busy || !!poolBlocked}
+                                                        className="h-8 w-64"
+                                                        onBlur={(e) => {
+                                                            const v = e.target.value.trim()
+                                                            if (v === l) return
+                                                            const next = a.tls_links.map((x, j) => (j === i ? v : x))
+                                                            run(() =>
+                                                                accountPoolApi.upsert({ id: a.id, tls_links: next, auth }),
                                                             )
-                                                        }
-                                                        return
-                                                    }
-                                                    const next = a.outputs.map((x, j) => (j === i ? v : x))
-                                                    run(() => accountPoolApi.upsert({ id: a.id, outputs: next, auth }))
-                                                }}
-                                            />
-                                            <button
+                                                        }}
+                                                    />
+                                                    <button
+                                                        disabled={busy || !!poolBlocked}
+                                                        title={poolBlocked || "删除这条链接"}
+                                                        className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                                                        /* 用 mousedown：否则点 × 会先触发 input 的 blur 保存，
+                                                           两个写请求叠在一起，这一行会闪一下空 */
+                                                        onMouseDown={(e) => {
+                                                            e.preventDefault()
+                                                            run(() =>
+                                                                accountPoolApi.upsert({
+                                                                    id: a.id,
+                                                                    tls_links: a.tls_links.filter((_, j) => j !== i),
+                                                                    auth,
+                                                                }),
+                                                            )
+                                                        }}
+                                                    >
+                                                        <X className="size-4" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            <Input
+                                                value={newLink[a.id] ?? ""}
+                                                placeholder="+ 加入链接，回车确认"
+                                                className="h-8 w-64"
                                                 disabled={busy || !!poolBlocked}
-                                                title={poolBlocked || "删除这条产出"}
-                                                className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                                                /* 用 mousedown：否则点 × 会先触发 input 的 blur 保存，
-                                                   两个写请求叠在一起，这一行会闪一下空 */
-                                                onMouseDown={(e) => {
-                                                    e.preventDefault()
+                                                onChange={(e) => setNewLink((s) => ({ ...s, [a.id]: e.target.value }))}
+                                                onKeyDown={(e) => {
+                                                    if (e.key !== "Enter") return
+                                                    const v = e.currentTarget.value.trim()
+                                                    if (!v) return
+                                                    setNewLink((s) => ({ ...s, [a.id]: "" }))
                                                     run(() =>
                                                         accountPoolApi.upsert({
                                                             id: a.id,
-                                                            outputs: a.outputs.filter((_, j) => j !== i),
+                                                            tls_links: [...a.tls_links, v],
                                                             auth,
                                                         }),
                                                     )
                                                 }}
-                                            >
-                                                <X className="size-4" />
-                                            </button>
+                                            />
                                         </div>
-                                    ))}
-                                    <Input
-                                        value={newOutput[a.id] ?? ""}
-                                        placeholder="+ 加入产出号，回车确认"
-                                        className="h-8 w-48"
-                                        disabled={busy || !!poolBlocked}
-                                        onChange={(e) => setNewOutput((s) => ({ ...s, [a.id]: e.target.value }))}
-                                        onKeyDown={(e) => {
-                                            if (e.key !== "Enter") return
-                                            const v = e.currentTarget.value.trim()
-                                            if (!v) return
-                                            setNewOutput((s) => ({ ...s, [a.id]: "" }))
-                                            run(() => accountPoolApi.upsert({ id: a.id, outputs: [...a.outputs, v], auth }))
-                                        }}
-                                    />
-                                </div>
+                                    </div>
+                                )}
+
+                                {!needsFv(a) && !needsTls(a) && (
+                                    <span className="text-muted-foreground text-xs">
+                                        本账号的平台只要求注册，不需要登记产物
+                                    </span>
+                                )}
                             </div>
 
-                            <div className="ml-auto space-y-1">
-                                {/* 空标签占位：让按钮和左边的输入框底部对齐 */}
-                                <span className="text-muted-foreground text-xs">&nbsp;</span>
-                                <div className="flex items-center gap-1">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8"
-                                        disabled={busy || !!poolBlocked || a.status === "registered" || !a.email || !a.has_password || a.customer_ids.length === 0}
-                                        title={poolBlocked || "交给机器人注册并填表"}
-                                        onClick={() =>
-                                            run(
-                                                () => robotTaskApi.dispatch({ order_id: orderId, account_id: a.id, auth }),
-                                                "已派发注册填表任务",
-                                            )
-                                        }
-                                    >
-                                        <Bot className="size-3.5" />
-                                        派发注册
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-muted-foreground h-8 px-2"
-                                        disabled={busy || !!poolBlocked}
-                                        title={poolBlocked || "删除这个账号"}
-                                        onClick={() => run(() => accountPoolApi.remove({ id: a.id, auth }), "已删除账号")}
-                                    >
-                                        <Trash2 className="size-3.5" />
-                                    </Button>
-                                </div>
+                            {/* 靠上对齐：产物一多（多个客户各自一个 FV 号）按钮会浮到整块中间 */}
+                            <div className="ml-auto flex items-start gap-1 self-start pt-5">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    disabled={busy || !!poolBlocked || a.status === "registered" || !a.email || !a.has_password || a.customer_ids.length === 0}
+                                    title={poolBlocked || "交给机器人注册并填表"}
+                                    onClick={() =>
+                                        run(
+                                            () => robotTaskApi.dispatch({ order_id: orderId, account_id: a.id, auth }),
+                                            "已派发注册填表任务",
+                                        )
+                                    }
+                                >
+                                    <Bot className="size-3.5" />
+                                    派发注册
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-muted-foreground h-8 px-2"
+                                    disabled={busy || !!poolBlocked}
+                                    title={poolBlocked || "删除这个账号"}
+                                    onClick={() => run(() => accountPoolApi.remove({ id: a.id, auth }), "已删除账号")}
+                                >
+                                    <Trash2 className="size-3.5" />
+                                </Button>
                             </div>
                         </div>
 
                         {a.error && <p className="text-destructive text-xs">{a.error}</p>}
+
+                        <div className="bg-border h-px" />
+
+                        {/* 预约位置：先填预期（想约哪），约到了填实际；填了实际才算这一步完成 */}
+                        <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+                            <div className="space-y-1">
+                                <span className="text-muted-foreground text-xs">预期位置</span>
+                                <Input
+                                    defaultValue={a.expected_place}
+                                    placeholder="想约的位置"
+                                    disabled={busy || !!poolBlocked}
+                                    className="h-8 w-40"
+                                    onBlur={(e) => {
+                                        const v = e.target.value.trim()
+                                        if (v === a.expected_place) return
+                                        run(() => accountPoolApi.upsert({ id: a.id, expected_place: v, auth }))
+                                    }}
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <span className="text-muted-foreground text-xs">实际位置</span>
+                                <Input
+                                    defaultValue={a.actual_place}
+                                    placeholder="约到的位置"
+                                    disabled={busy || !!poolBlocked}
+                                    className={`h-8 w-40 ${a.actual_place.trim() ? "" : "border-destructive/60"}`}
+                                    onBlur={(e) => {
+                                        const v = e.target.value.trim()
+                                        if (v === a.actual_place) return
+                                        run(() => accountPoolApi.upsert({ id: a.id, actual_place: v, auth }))
+                                    }}
+                                />
+                            </div>
+                            <div className="flex h-8 items-center self-end text-xs">
+                                <span className={a.actual_place.trim() ? "text-emerald-600" : "text-muted-foreground"}>
+                                    {a.actual_place.trim() ? "已约到" : "待约到"}
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 ))}
             </CardContent>

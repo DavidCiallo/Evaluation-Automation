@@ -22,6 +22,7 @@ export type OrderStageId =
     | "info_confirmation" // 信息确认：每位客户回签自己的资料确认单
     | "account_allocation" // 账号分配：决定几个办签账号、哪位客户填在哪个号
     | "registration" // 注册填表：机器人注册账号并按计划填表
+    | "appointment" // 预约位置：为每个账号约到具体位置（先填预期，约到了填实际）
     | "itinerary" // 行程安排：客户同意 + 行程单
     | "flight" // 机票办理：乘客证件齐备并提交 ctrip
     | "materials" // 材料制作：各客户必备材料收齐
@@ -35,6 +36,7 @@ export type OrderRequirementKey =
     | "confirmations_signed" // 每位客户都已回签信息确认单
     | "accounts_allocated" // 每位客户都挂到了具体办签账号上
     | "accounts_registered" // 所有账号已注册且客户填表完成
+    | "appointments_booked" // 每个账号都已录入实际预约位置
     | "itinerary_consent" // 客户已同意按行程办理（客服确认）
     | "itinerary_exists" // 至少一份行程单或机票任务
     | "pax_documents" // 每位机票乘客证件与联系人信息齐备
@@ -98,6 +100,15 @@ export const ORDER_STAGES: OrderStageMeta[] = [
         requirements: ["accounts_registered"],
     },
     {
+        id: "appointment",
+        label: "预约位置",
+        description: "为每个办签账号约到具体位置：先填预期位置，约到了填实际位置",
+        optional: false,
+        waivable: true,
+        // 只认实际位置：预期位置是「想要哪」，报了不算约到
+        requirements: ["appointments_booked"],
+    },
+    {
         id: "itinerary",
         label: "行程安排",
         description: "客户同意行程方案并生成行程单",
@@ -145,6 +156,7 @@ export const ORDER_REQUIREMENT_LABEL: Record<OrderRequirementKey, string> = {
     confirmations_signed: "每位客户都已回签信息确认单",
     accounts_allocated: "每位客户都已分配到办签账号",
     accounts_registered: "所有账号已注册且客户填表完成",
+    appointments_booked: "每个账号都已约到位置",
     itinerary_consent: "客户已同意行程方案",
     itinerary_exists: "已生成行程单或已建机票任务",
     pax_documents: "乘客证件与联系人信息齐备",

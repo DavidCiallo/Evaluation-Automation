@@ -31,7 +31,12 @@ export const accountPoolRoutes = {
             password?: string;
             label?: string;
             platforms?: PoolPlatform[];
-            outputs?: string[];
+            /** FV 号，key = 客户条目 id */
+            fv_numbers?: Record<string, string>;
+            /** TLS 链接，账号级 */
+            tls_links?: string[];
+            expected_place?: string;
+            actual_place?: string;
             remark?: string;
             auth?: string;
         },

@@ -14,6 +14,7 @@ import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
 import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { PoolAccountEntity } from "../../../shared/modules/account-pool/account-pool.entity";
+import { outputGaps } from "../../../shared/modules/account-pool/account-pool.entity";
 import {
     ORDER_STAGES,
     ORDER_REQUIREMENT_LABEL,
@@ -214,6 +215,9 @@ async function evalRequirement(
             const registered = accounts.filter((a) => a.status === "registered");
             const failed = accounts.filter((a) => a.status === "failed");
             const missing = accounts.filter((a) => !a.email || !a.password);
+            // 产物按平台算：FV 号看每位客户、TLS 看有没有链接，VFS/西班牙不要产物
+            const names = new Map((customers || []).map((c) => [c.id, c.name || "未命名"]));
+            const gaps = accounts.flatMap((a) => outputGaps(a as any, (id) => names.get(id) || id));
 
             const parts: string[] = [];
             if (registered.length < accounts.length) {
@@ -221,9 +225,27 @@ async function evalRequirement(
             }
             if (failed.length > 0) parts.push(`${failed.length} 个注册失败`);
             if (missing.length > 0) parts.push(`${missing.length} 个账号缺邮箱或密码`);
+            parts.push(...gaps);
 
             if (parts.length === 0) return done(true);
             return done(false, parts.join("；"));
+        }
+
+        case "appointments_booked": {
+            const accounts = await accountPoolRepo.find({ order_id: order.id });
+            if (accounts.length === 0) return done(false, "尚未建立办签账号");
+
+            // 只认实际位置：预期位置是「想约哪」，报了不等于约到
+            const booked = accounts.filter((a) => String(a.actual_place || "").trim());
+            if (booked.length === accounts.length) return done(true);
+
+            const pending = accounts.filter((a) => !String(a.actual_place || "").trim());
+            const asked = pending.filter((a) => String(a.expected_place || "").trim()).length;
+            const detail =
+                asked > 0
+                    ? `已约到 ${booked.length}/${accounts.length} 个账号的位置（另有 ${asked} 个已填预期位置待约）`
+                    : `已约到 ${booked.length}/${accounts.length} 个账号的位置`;
+            return done(false, detail);
         }
 
         case "itinerary_consent": {

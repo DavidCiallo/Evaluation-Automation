@@ -47,10 +47,26 @@ export async function listByOrder(orderId: string): Promise<PoolAccountEntity[]>
     return rows.sort((a, b) => (a.seq || 0) - (b.seq || 0));
 }
 
-/** 找订单下的账号并转 DTO。 */
+/**
+ * 找订单下的账号并转 DTO。
+ * 客户名要查订单名单——产物缺口提示里要写人名（「缺 FV 号：卢清影」）而不是 id。
+ */
 export async function listDTO(orderId: string, withSecret = false): Promise<PoolAccountDTO[]> {
     const rows = await listByOrder(orderId);
-    return rows.map((r) => toPoolAccountDTO(r, withSecret));
+    return toDTOs(rows, orderId, withSecret);
+}
+
+/** 批量转 DTO，共用一次客户名单查询。 */
+export async function toDTOs(rows: PoolAccountEntity[], orderId: string, withSecret = false): Promise<PoolAccountDTO[]> {
+    const names = await nameLookup(orderId);
+    return rows.map((r) => toPoolAccountDTO(r, withSecret, names));
+}
+
+/** 客户条目 id → 姓名。 */
+async function nameLookup(orderId: string): Promise<(id: string) => string> {
+    const customers = await customersOf(orderId);
+    const byId = new Map(customers.map((c) => [c.id, c.name || "未命名"]));
+    return (id) => byId.get(id) || id;
 }
 
 /**
@@ -82,9 +98,13 @@ export async function findOne(id: string): Promise<PoolAccountEntity | null> {
     return (await repo.findOne({ id })) as PoolAccountEntity | null;
 }
 
-/** 转 DTO 的统一入口，控制器不必各自 import 实体函数。 */
-export function toDTO(e: PoolAccountEntity, withSecret = false): PoolAccountDTO {
-    return toPoolAccountDTO(e, withSecret);
+/**
+ * 转 DTO 的统一入口。
+ * 传了 orderId 就能把产物缺口里的客户 id 换成姓名；不传则原样显示 id。
+ */
+export async function toDTO(e: PoolAccountEntity, withSecret = false, orderId?: string): Promise<PoolAccountDTO> {
+    const names = orderId ? await nameLookup(orderId) : undefined;
+    return toPoolAccountDTO(e, withSecret, names);
 }
 
 /**
@@ -142,7 +162,10 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
         status: "planned",
         customer_ids: [],
         platforms: [],
-        outputs: [],
+        fv_numbers: {},
+        tls_links: [],
+        expected_place: "",
+        actual_place: "",
         remark: null,
         error: null,
         task_id: null,
@@ -157,7 +180,17 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
 /** 手动填写或修改账号。 */
 export async function upsertAccount(
     id: string,
-    patch: { email?: string; password?: string; label?: string; platforms?: PoolPlatform[]; outputs?: string[]; remark?: string },
+    patch: {
+        email?: string;
+        password?: string;
+        label?: string;
+        platforms?: PoolPlatform[];
+        fv_numbers?: Record<string, string>;
+        tls_links?: string[];
+        expected_place?: string;
+        actual_place?: string;
+        remark?: string;
+    },
 ): Promise<PoolAccountEntity> {
     const row = await findOne(id);
     if (!row) throw new Error("账号不存在");
@@ -174,7 +207,10 @@ export async function upsertAccount(
         );
     }
     if (patch.platforms !== undefined) await repo.update({ id }, { platforms: patch.platforms });
-    if (patch.outputs !== undefined) await repo.update({ id }, { outputs: patch.outputs });
+    if (patch.fv_numbers !== undefined) await repo.update({ id }, { fv_numbers: patch.fv_numbers });
+    if (patch.tls_links !== undefined) await repo.update({ id }, { tls_links: patch.tls_links });
+    if (patch.expected_place !== undefined) await repo.update({ id }, { expected_place: patch.expected_place });
+    if (patch.actual_place !== undefined) await repo.update({ id }, { actual_place: patch.actual_place });
     if (patch.password !== undefined) await repo.update({ id }, { password: patch.password });
     if (patch.label !== undefined) await repo.update({ id }, { label: patch.label });
     if (patch.remark !== undefined) await repo.update({ id }, { remark: patch.remark });

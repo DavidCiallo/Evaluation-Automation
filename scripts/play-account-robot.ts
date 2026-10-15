@@ -14,6 +14,7 @@
  * 用 --order=<Order.id> 指定订单；省略则自动挑一个信息确认已完成的订单。
  */
 import { config } from "dotenv";
+import { platformLabel } from "../shared/modules/account-pool/account-pool.entity";
 config();
 
 const BASE = `http://localhost:${process.env.SERVER_PORT || 2900}/api`;
@@ -109,7 +110,9 @@ step(1, "按本单所需平台建号，客户在每个号上登记");
 const planned: any = await call("/account-pool/plan", { order_id: orderId });
 console.log(`共 ${planned.list.length} 个账号`);
 for (const a of planned.list) {
-    console.log(`  ${a.platform_label} [${a.status_label}] 邮箱=${a.email || "（未填）"} 承载=${a.customer_ids.length} 位`);
+    console.log(
+        `  [${a.platforms.map(platformLabel).join("/") || "未指定"}] [${a.status_label}] 邮箱=${a.email || "（未填）"} 承载=${a.customer_ids.length} 位`,
+    );
 }
 
 s = await stagesOf(orderId);

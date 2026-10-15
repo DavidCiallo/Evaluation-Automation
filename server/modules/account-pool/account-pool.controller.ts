@@ -11,14 +11,14 @@ import * as svc from "./account-pool.service";
 async function list(request: AccountPoolListRequest) {
     const req = AccountPoolListRequest.self(request);
     const rows = await svc.listByOrder(req.order_id);
-    const list = await svc.attachMailboxLabels(rows.map((r) => svc.toDTO(r, req.with_secret)));
+    const list = await svc.attachMailboxLabels(await svc.listDTO(req.order_id, req.with_secret));
     return { list, total: list.length };
 }
 
 async function plan(request: AccountPoolPlanRequest) {
     const req = AccountPoolPlanRequest.self(request);
     const rows = await svc.planAccounts(req.order_id);
-    return { list: rows.map((r) => svc.toDTO(r)) };
+    return { list: await svc.toDTOs(rows, req.order_id) };
 }
 
 async function upsert(request: AccountPoolUpsertRequest) {
@@ -28,22 +28,26 @@ async function upsert(request: AccountPoolUpsertRequest) {
         password: req.password,
         label: req.label,
         platforms: req.platforms,
-        outputs: req.outputs,
+        fv_numbers: req.fv_numbers,
+        tls_links: req.tls_links,
+        expected_place: req.expected_place,
+        actual_place: req.actual_place,
         remark: req.remark,
     });
-    return { account: svc.toDTO(row) };
+    return { account: await svc.toDTO(row, false, row.order_id) };
 }
 
 async function assign(request: AccountPoolAssignRequest) {
     const req = AccountPoolAssignRequest.self(request);
     const rows = await svc.assignCustomers(req.order_id, req.account_id, req.customer_ids);
-    return { list: rows.map((r) => svc.toDTO(r)) };
+    return { list: await svc.toDTOs(rows, req.order_id) };
 }
 
 async function remove(request: AccountPoolRemoveRequest) {
     const req = AccountPoolRemoveRequest.self(request);
     const rows = await svc.removeAccount(req.id);
-    return { list: rows.map((r) => svc.toDTO(r)) };
+    // 删除返回的是同订单剩下的账号；orderId 从任意一行取，空列表时无从取也无所谓
+    return { list: rows.length > 0 ? await svc.toDTOs(rows, rows[0].order_id) : [] };
 }
 
 export const accountPoolMount = {

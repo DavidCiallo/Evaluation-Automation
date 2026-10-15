@@ -69,7 +69,12 @@ export class AccountPoolUpsertRequest {
     public password?: string;
     public label?: string;
     public platforms?: PoolPlatform[];
-    public outputs?: string[];
+    /** FV 号，key = 客户条目 id */
+    public fv_numbers?: Record<string, string>;
+    /** TLS 链接，账号级 */
+    public tls_links?: string[];
+    public expected_place?: string;
+    public actual_place?: string;
     public remark?: string;
     public auth?: string;
 
@@ -87,7 +92,15 @@ export class AccountPoolUpsertRequest {
         this.password = data.password !== undefined ? String(data.password) : undefined;
         this.label = data.label !== undefined ? String(data.label) : undefined;
         this.platforms = data.platforms;
-        this.outputs = Array.isArray(data.outputs) ? data.outputs.map(String) : undefined;
+        if (data.fv_numbers !== undefined) {
+            if (!data.fv_numbers || typeof data.fv_numbers !== "object") throw new Error("fv_numbers 必须是对象");
+            const out: Record<string, string> = {};
+            for (const [k, v] of Object.entries(data.fv_numbers)) out[String(k)] = String(v ?? "");
+            this.fv_numbers = out;
+        }
+        this.tls_links = Array.isArray(data.tls_links) ? data.tls_links.map(String) : undefined;
+        this.expected_place = data.expected_place !== undefined ? String(data.expected_place) : undefined;
+        this.actual_place = data.actual_place !== undefined ? String(data.actual_place) : undefined;
         this.remark = data.remark !== undefined ? String(data.remark) : undefined;
         this.auth = data.auth;
     }

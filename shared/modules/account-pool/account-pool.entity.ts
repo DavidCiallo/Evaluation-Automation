@@ -25,18 +25,36 @@ export const POOL_ACCOUNT_STATUS_LABEL: Record<PoolAccountStatus, string> = {
 };
 
 /** 办签平台。预留 other 给还没纳入字典的平台。 */
-export type PoolPlatform = "fv" | "tls" | "vfs" | "other";
+export type PoolPlatform = "fv" | "tls" | "vfs" | "es" | "other";
 
 export const POOL_PLATFORMS: { value: PoolPlatform; label: string }[] = [
     { value: "fv", label: "FV" },
     { value: "tls", label: "TLS" },
     { value: "vfs", label: "VFS" },
+    { value: "es", label: "西班牙" },
     { value: "other", label: "其他" },
 ];
 
 export function platformLabel(value: string | null | undefined): string {
     return POOL_PLATFORMS.find((p) => p.value === value)?.label || "未指定";
 }
+
+/**
+ * 平台产出什么。决定「产物齐了」怎么判，也决定界面上录哪几个框。
+ *
+ *   FV   → FV 号，**每位客户一个**（一个人一个号）
+ *   TLS  → 签署链接，**每个账号一个**（一个邮箱组一单，链接是账号级的）
+ *   其余 → 只注册，不要产物（VFS、西班牙填完表就结束）
+ */
+export type PlatformOutput = "fv_number" | "tls_link" | "none";
+
+export const PLATFORM_OUTPUT: Record<PoolPlatform, PlatformOutput> = {
+    fv: "fv_number",
+    tls: "tls_link",
+    vfs: "none",
+    es: "none",
+    other: "none",
+};
 
 /**
  * 订单签证类型 → 这个邮箱要去注册的平台（建号时预勾，客服可改）。
@@ -48,11 +66,39 @@ export function platformLabel(value: string | null | undefined): string {
 const PLATFORMS_BY_VISA: Record<string, PoolPlatform[]> = {
     fr: ["fv", "tls"],
     schengen: ["vfs"],
-    es: ["vfs"],
+    es: ["es"],
 };
 
 export function requiredPlatforms(visaType: string | null | undefined): PoolPlatform[] {
     return PLATFORMS_BY_VISA[String(visaType || "")] || ["fv"];
+}
+
+/**
+ * 这个账号的产物齐了没，不齐就差什么。
+ *
+ * 只对**已勾选**的平台提要求：没勾 FV 就不该因为缺 FV 号被判不齐。
+ * 返回的缺口写成给人看的话，直接上界面——「缺 FV 号」不如「卢清影还没 FV 号」有用。
+ */
+export function outputGaps(
+    account: {
+        platforms: PoolPlatform[];
+        customer_ids: string[];
+        fv_numbers: Record<string, string>;
+        tls_links: string[];
+    },
+    customerName: (id: string) => string,
+): string[] {
+    const gaps: string[] = [];
+    const platforms = account.platforms || [];
+    if (platforms.some((p) => PLATFORM_OUTPUT[p] === "fv_number")) {
+        const missing = (account.customer_ids || []).filter((id) => !String(account.fv_numbers?.[id] || "").trim());
+        if (missing.length > 0) gaps.push(`缺 FV 号：${missing.map(customerName).join("、")}`);
+    }
+    if (platforms.some((p) => PLATFORM_OUTPUT[p] === "tls_link")) {
+        const has = (account.tls_links || []).some((l) => String(l || "").trim());
+        if (!has) gaps.push("缺 TLS 链接");
+    }
+    return gaps;
 }
 
 export interface PoolAccountEntity {
@@ -91,10 +137,16 @@ export interface PoolAccountEntity {
     /** 要去注册的平台标签，建号时按签证类型预勾，客服可勾选修改 */
     platforms: PoolPlatform[];
     /**
-     * 产物：这个邮箱注册出来的号（fv 号、application 号等）。
-     * 暂时由客服手工登记，之后由注册器回调写入。
+     * FV 号：key = 订单客户条目 id（OrderCustomerInfo.id）。
+     * 一个人一个号，所以按客户记，不是按账号记——一个账号下有几位客户就有几个号。
      */
-    outputs: string[];
+    fv_numbers: Record<string, string>;
+    /** TLS 链接：一个账号组一单，链接是账号级的，故不绑客户。 */
+    tls_links: string[];
+    /** 预期位置：客服先填想要约的位置（如「上海」）。 */
+    expected_place: string;
+    /** 实际位置：真约到了填这里；填了才算本账号预约完成。 */
+    actual_place: string;
     /** 人工补录或回调回来的备注 */
     remark: string | null;
     /** 注册失败原因 */
@@ -126,7 +178,14 @@ export interface PoolAccountDTO {
     status: PoolAccountStatus;
     status_label: string;
     customer_ids: string[];
-    outputs: string[];
+    fv_numbers: Record<string, string>;
+    tls_links: string[];
+    expected_place: string;
+    actual_place: string;
+    /** 产物是否齐全（按本账号勾选的平台判：FV 号看每位客户、TLS 看有没有链接） */
+    outputs_ready: boolean;
+    /** 不齐时差什么，直接给界面提示用 */
+    outputs_missing: string[];
     remark: string | null;
     error: string | null;
     task_id: string | null;
@@ -139,8 +198,15 @@ export interface PoolAccountDTO {
  * 转 DTO。withSecret=true 时才回传明文密码——
  * 界面默认不显示，需要时客服显式点「查看密码」再取。
  */
-export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false): PoolAccountDTO {
+export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false, customerName?: (id: string) => string): PoolAccountDTO {
     const platforms = e.platforms || [];
+    const own = {
+        platforms,
+        customer_ids: e.customer_ids || [],
+        fv_numbers: e.fv_numbers || {},
+        tls_links: e.tls_links || [],
+    };
+    const gaps = outputGaps(own, customerName || ((id) => id));
     const dto: PoolAccountDTO = {
         id: e.id,
         order_id: e.order_id,
@@ -156,7 +222,12 @@ export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false): Pool
         status: e.status,
         status_label: POOL_ACCOUNT_STATUS_LABEL[e.status] || e.status,
         customer_ids: e.customer_ids || [],
-        outputs: e.outputs || [],
+        fv_numbers: e.fv_numbers || {},
+        tls_links: e.tls_links || [],
+        expected_place: e.expected_place || "",
+        actual_place: e.actual_place || "",
+        outputs_ready: gaps.length === 0,
+        outputs_missing: gaps,
         remark: e.remark ?? null,
         error: e.error ?? null,
         task_id: e.task_id ?? null,
