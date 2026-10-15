@@ -39,6 +39,8 @@ export function AccountPoolCard({
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
     const [revealed, setRevealed] = useState<Record<string, string>>({})
+    /** 各账号「+ 加入产出号」输入框里还没提交的草稿 */
+    const [newOutput, setNewOutput] = useState<Record<string, string>>({})
 
     const load = async () => {
         setLoading(true)
@@ -302,36 +304,47 @@ export function AccountPoolCard({
                             )}
                         </div>
 
-                        {/* 成品：这个号下已经拿到的号，客服手工登记 */}
+                        {/* 产出：这个号下已经拿到的号，客服手工登记 */}
                         <div className="flex flex-wrap items-center gap-2 pl-1">
                             <span className="text-muted-foreground text-xs">产出：</span>
                             {a.outputs.length === 0 && <span className="text-muted-foreground text-xs">（无）</span>}
                             {a.outputs.map((o, i) => (
                                 <Input
-                                    key={`${o}-${i}`}
-                                    defaultValue={o}
+                                    /* 用下标做 key：内容拼接做 key 会在每次落库后重挂载，输入框被清空 */
+                                    key={i}
+                                    value={o}
+                                    placeholder="产出号，清空即删除"
                                     disabled={busy || !!poolBlocked}
                                     className="h-8 w-64"
+                                    onChange={(e) => {
+                                        const next = [...a.outputs]
+                                        next[i] = e.target.value
+                                        setAccounts((list) =>
+                                            list.map((x) => (x.id === a.id ? { ...x, outputs: next } : x)),
+                                        )
+                                    }}
                                     onBlur={(e) => {
                                         const v = e.target.value.trim()
-                                        if (v === o) return
-                                        const next = [...a.outputs]
                                         // 清空即删除这一条
-                                        if (!v) next.splice(i, 1)
-                                        else next[i] = v
+                                        const next = v
+                                            ? a.outputs.map((x, j) => (j === i ? v : x))
+                                            : a.outputs.filter((_, j) => j !== i)
+                                        if (JSON.stringify(next) === JSON.stringify(a.outputs)) return
                                         run(() => accountPoolApi.upsert({ id: a.id, outputs: next, auth }))
                                     }}
                                 />
                             ))}
                             <Input
-                                placeholder="+ 加入产出号"
+                                value={newOutput[a.id] ?? ""}
+                                placeholder="+ 加入产出号，回车确认"
                                 className="h-8 w-64"
                                 disabled={busy || !!poolBlocked}
+                                onChange={(e) => setNewOutput((s) => ({ ...s, [a.id]: e.target.value }))}
                                 onKeyDown={(e) => {
                                     if (e.key !== "Enter") return
                                     const v = e.currentTarget.value.trim()
                                     if (!v) return
-                                    e.currentTarget.value = ""
+                                    setNewOutput((s) => ({ ...s, [a.id]: "" }))
                                     run(() => accountPoolApi.upsert({ id: a.id, outputs: [...a.outputs, v], auth }))
                                 }}
                             />
