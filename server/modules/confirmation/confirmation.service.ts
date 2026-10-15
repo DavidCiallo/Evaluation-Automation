@@ -20,7 +20,7 @@ import { buildContent, buildContentFromProfile } from "../form/content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest";
-import type { StandardPluginData, OrderCustomerInfo } from "../../../shared/modules/order/plugins/standard.manifest";
+import type { StandardPluginData, OrderCustomerInfo, FormAssignment } from "../../../shared/modules/order/plugins/standard.manifest";
 import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 
 const repo: Repository<ConfirmationEntity> = Repository.instance("Confirmation");
@@ -211,22 +211,18 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
 
     const deadline = Date.now() + DEADLINE_DAYS * 86400000;
     const submissions = await submissionRepo.find({}, { limit: 500 });
+    const assignments = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData | undefined)?.forms || [];
 
     let created = 0;
-    const failed: string[] = [];
     for (const c of targets) {
         const name = c.name || "";
-        // 正文生成失败（LLM 未配置/超时/返回空）就不签这张单。
+        // 正文生成失败（没绑定表单、LLM 未配置/超时/返回空）就不签这张单。
         // 先建的那几张保持有效，不回头撤销——它们的内容是完整的。
-        let content: string | null = null;
+        let content: string;
         try {
-            content = await contentForCustomer(name, c, submissions);
+            content = await contentForCustomer(name, c, submissions, assignments);
         } catch (e) {
             throw `未能为「${name || "未命名"}」生成确认单正文：${e instanceof Error ? e.message : String(e)}。已拒绝签发。`;
-        }
-        if (!content) {
-            failed.push(`${name || "未命名"}（无表单提交，档案也没资料）`);
-            continue;
         }
 
         const sheet = await createContractSheet({
@@ -260,28 +256,32 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
         created++;
     }
 
-    if (created === 0 && failed.length > 0) throw `未能签发：${failed.join("、")}`;
-
     return { list: await listByOrder(orderId), created };
 }
 
 /**
- * 客户 → 确认单正文。优先用该客户已提交的表单（字段最全）交给 LLM 生成，
- * 没有提交时退回客户档案——否则还没填表的客户一张都签不出来。
+ * 客户 → 确认单正文。
  *
- * LLM 失败或未配置时向上抛错，调用方据此拒绝签发这张单。
+ * 优先用这张单里**已经绑定**的表单提交。绑定关系记在订单的 standard.forms 上
+ * （customer_id → item_id），是客服在界面上挑定的，比按姓名反查可靠得多：
+ * 客户叫曾扬、表单里只填了「曾」时，按姓名查永远查不到，而绑定的 item_id 是准的。
+ *
+ * 没有绑定再退回客户档案。两者都没有就没有事实可写，直接抛错拒绝签发——
+ * 确认单是给客户签字核对的，正文里只有个姓名等于什么都没确认。
  */
 async function contentForCustomer(
     name: string,
     customer: OrderCustomerInfo,
     submissions: SubmissionEntity[],
-): Promise<string | null> {
-    if (name) {
-        const hit = submissions.find((s) => s.submitter_name === name);
-        if (hit) {
-            const fromForm = await buildContent(hit.fields);
-            if (fromForm) return fromForm;
+    assignments: FormAssignment[],
+): Promise<string> {
+    for (const a of assignments) {
+        if (a.customer_id !== customer.id || a.status !== "completed") continue;
+        const hit = submissions.find((s) => s.key === a.item_id);
+        if (!hit) {
+            throw `订单里绑定的表单提交（${a.item_id || "无 item_id"}）在本地找不到，无法生成确认单正文`;
         }
+        return await buildContent(hit.fields);
     }
 
     let profile: CustomerEntity | null = null;
@@ -292,8 +292,7 @@ async function contentForCustomer(
         if (fromProfile) return fromProfile;
     }
 
-    // 档案也没有时，至少把姓名写进正文，客户仍可在签署页补全其余资料
-    return name ? `中文姓名：${name}` : null;
+    throw `${name || "未命名"} 没有绑定任何表单提交，也没有客户档案，没有资料可核对`;
 }
 
 export async function revoke(id: string, reason: string, by: string): Promise<ConfirmationDTO> {
