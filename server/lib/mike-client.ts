@@ -9,6 +9,7 @@
  * 配置变更通过 revision 识别并自动重建 token。
  */
 import { getIntegration, getIntegrationRevision } from "./integration-settings";
+import { maybeSamePerson } from "./name-match";
 
 interface MikeConfig {
     baseUrl: string;
@@ -144,25 +145,41 @@ class MikeClient {
     /**
      * 按姓名找提交：先收窄到时间窗，再「精确优先、失配退模糊」。
      *
-     * 客户在简表里常只写姓（"曾"），麦客里的记录却是全名（"曾杨"），
-     * 精确相等会把这种唯一可用的命中直接丢掉，所以失配时必须退到模糊。
-     * 但服务端的 keyword 还会命中别的内容（搜"曾"会带回"高麒云"），
-     * 所以模糊结果一律再按「姓名包含关键字」过一遍。
+     * 两条模糊方向都要管：
+     *  - 客户只写了姓（"曾"），记录是全名（"曾杨"）——keyword 本身能命中；
+     *  - 表单里只填了姓（记录"曾"），客户是全名（"曾扬"）——keyword 是子串匹配，
+     *    拿"曾扬"去搜永远搜不到叫"曾"的记录，必须再拿姓单独搜一遍才可能进来。
      *
-     * 时间窗对两支都生效：同一姓名往年填过很常见（曾煜桓 2025/10/14 有一条），
-     * 若精确命中不受窗口约束，就会为一份一年前的记录放弃上周新填的那份。
+     * 时间窗对两支都生效：同一姓名往年填过很常见（曾扬 2025/10/14 有一条），
+     * 若精确命中不受窗口约束，就会为一年前的记录放弃上周新填的那份。
      */
     private async search(name: string, opts: { formId?: string; withinDays?: number; limit?: number }): Promise<MikeSubmission[]> {
         const target = (name || "").trim();
         if (!target) return [];
-        const { list } = await this.getSubmissions({ formId: opts.formId, keyword: target, limit: opts.limit || 100 });
 
         const since = opts.withinDays ? Date.now() - opts.withinDays * 86400_000 : 0;
-        const fresh = since ? list.filter((s) => s.submit_time >= since) : list;
+        const keep = (s: MikeSubmission) => !since || s.submit_time >= since;
 
-        const exact = fresh.filter((s) => s.submitter_name.trim() === target);
-        const pool = exact.length > 0 ? exact : fresh.filter((s) => s.submitter_name.includes(target));
-        return pool.sort((a, b) => b.submit_time - a.submit_time);
+        const seen = new Map<string, MikeSubmission>();
+        const scan = (rows: MikeSubmission[]) => {
+            for (const s of rows) {
+                if (seen.has(s.key) || !keep(s)) continue;
+                if (maybeSamePerson(target, s.submitter_name)) seen.set(s.key, s);
+            }
+        };
+
+        scan((await this.getSubmissions({ formId: opts.formId, keyword: target, limit: opts.limit || 100 })).list);
+
+        // 表单里只填了姓时，上面的 keyword 搜不到（"曾扬" 匹配不上 "曾"），得拿姓再搜一遍
+        if (seen.size === 0 && target.length > 1) {
+            for (const part of [target.slice(0, 1), target]) {
+                scan((await this.getSubmissions({ formId: opts.formId, keyword: part, limit: opts.limit || 100 })).list);
+            }
+        }
+
+        const rows = [...seen.values()];
+        const exact = rows.filter((s) => s.submitter_name.trim() === target);
+        return (exact.length > 0 ? exact : rows).sort((a, b) => b.submit_time - a.submit_time);
     }
 
     /** 按表单+姓名取全部匹配提交（姓名精确相等优先，失配时模糊，最近一周）。 */

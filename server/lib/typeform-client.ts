@@ -7,6 +7,7 @@
  * 环境变量仅作兜底；配置变更通过 revision 识别并自动重建 token。
  */
 import { getIntegration, getIntegrationRevision } from "./integration-settings";
+import { maybeSamePerson } from "./name-match";
 
 interface TypeformConfig {
     baseUrl: string;
@@ -287,25 +288,32 @@ class TypeformClient {
 
         const since = Date.now() - 7 * 86400_000;
         const found = new Map<string, { item_id: string; code: string; name: string; submit_time: number }>();
-        // 一次 10 条，翻几页就够：search 已经过滤过，命中通常集中在首页
-        for (let page = 1; page <= 5; page++) {
-            const data = await this.request<{ records: Array<{ item_id: string; code: string; data: RecordItem[] }>; total: number }>(
-                "/api/record/all",
-                { form_name: formName, page, search: target },
-            );
-            const records = data.records || [];
-            for (const r of records) {
-                const cell = (r.data || []).find((d) => d.field_id === nameFieldId);
-                const nm = String(cell?.field_value ?? "").trim();
-                if (!nm || found.has(r.item_id)) continue;
-                const t = cell?.update_time || cell?.create_time || 0;
-                if (t < since) continue;
-                // 精确或「客户只写了姓」的部分匹配都收，最终由客服在弹窗里确认
-                if (nm !== target && !nm.includes(target)) continue;
-                found.set(r.item_id, { item_id: r.item_id, code: r.code, name: nm, submit_time: t });
+
+        const scan = async (search: string) => {
+            // 一次 10 条，翻几页就够：search 已经过滤过，命中通常集中在首页
+            for (let page = 1; page <= 5; page++) {
+                const data = await this.request<{ records: Array<{ item_id: string; code: string; data: RecordItem[] }>; total: number }>(
+                    "/api/record/all",
+                    { form_name: formName, page, search },
+                );
+                const records = data.records || [];
+                for (const r of records) {
+                    const cell = (r.data || []).find((d) => d.field_id === nameFieldId);
+                    const nm = String(cell?.field_value ?? "").trim();
+                    if (!nm || found.has(r.item_id)) continue;
+                    const t = cell?.update_time || cell?.create_time || 0;
+                    if (t < since) continue;
+                    // 精确或「任一方只填了姓」都算候选，具体选哪条由客服在弹窗里确认
+                    if (!maybeSamePerson(target, nm)) continue;
+                    found.set(r.item_id, { item_id: r.item_id, code: r.code, name: nm, submit_time: t });
+                }
+                if (records.length < 10) break;
             }
-            if (records.length < 10) break;
-        }
+        };
+
+        await scan(target);
+        // 表单里只填了姓时，上面的 search 搜不到（"曾扬" 匹配不上 "曾"），得拿姓再搜一遍
+        if (found.size === 0 && target.length > 1) await scan(target.slice(0, 1));
 
         const rows = [...found.values()];
         const exact = rows.filter((r) => r.name === target);
