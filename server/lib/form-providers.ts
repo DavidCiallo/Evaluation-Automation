@@ -81,11 +81,35 @@ const surveyProvider: FormProviderDef = {
         return forms.map((f) => ({ key: f.form_name, name: f.form_name, provider: "survey" as const, records_num: f.records_num }));
     },
 
-    async listMatches() {
-        return []; // 简表发链接收集，无站外提交可挑
+    /**
+     * 简表也支持「先匹配」：客户或客服可能已经填过这份表，
+     * 能搜到就直接复用那条记录，不用再发一次链接让人重填。
+     * 与麦客同样的口径：限最近一周，精确优先、失配退模糊
+     * （客户只写「曾」、记录是「曾杨」时也能搜出来），
+     * 具体选哪条由客服在弹窗里确认。
+     */
+    async listMatches({ form_key, customer_name }) {
+        const hits = await typeformClient.searchByName(form_key, customer_name);
+        return hits.map((h) => ({ key: h.item_id, submitter_name: h.name, submit_time: h.submit_time, form_name: form_key }));
     },
 
-    async createAssignment({ form_key, customer_name }) {
+    async createAssignment({ form_key, customer_name, submission_key }) {
+        // 指定了已有记录：直接复用，不新建
+        if (submission_key) {
+            const hits = await typeformClient.searchByName(form_key, customer_name);
+            const hit = hits.find((h) => h.item_id === submission_key);
+            if (hit) {
+                const baseUrl = getIntegration("survey").baseUrl;
+                return {
+                    external_id: hit.item_id,
+                    code: hit.code,
+                    url: `${baseUrl}/fill?t=${hit.item_id}#code:${hit.code}`,
+                    completed: true,
+                    completed_time: hit.submit_time || Date.now(),
+                    matched_name: hit.name,
+                };
+            }
+        }
         const { item_id, code } = await typeformClient.createFormItem(form_key, { name: customer_name });
         const baseUrl = getIntegration("survey").baseUrl;
         // URL 的 t 必须用 item_id（而非 field_id），否则客户打开时会创建全新空白 item，预填数据丢失

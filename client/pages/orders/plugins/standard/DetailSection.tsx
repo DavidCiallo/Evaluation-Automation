@@ -407,9 +407,9 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
 
 // ---------- 第二栏：表单收集 ----------
 
-/** 表单提供方（survey=简表 · 发链接；mike=麦客 · 匹配站外已填提交）。 */
+/** 表单提供方（survey=简表 · 先匹配已有记录，没有则发链接；mike=麦客 · 匹配站外已填提交）。 */
 const PROVIDER_TABS: Array<{ id: "survey" | "mike"; label: string; action: string }> = [
-    { id: "survey", label: "简表", action: "生成表单链接" },
+    { id: "survey", label: "简表", action: "匹配或生成链接" },
     { id: "mike", label: "麦客", action: "匹配已有提交" },
 ]
 
@@ -450,8 +450,8 @@ function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssig
     )
 }
 
-/** 麦客提交挑选弹窗：列出该客户在该表单下的全部提交，默认选「与订单时间最接近」的一份。 */
-function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, customerName, onAssigned }: {
+/** 提交挑选弹窗：列出该客户在该表单下的全部提交，默认选「与订单时间最接近」的一份。 */
+function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, customerName, provider, onAssigned }: {
     open: boolean
     onClose: () => void
     order: any
@@ -459,6 +459,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
     formKey: string
     customerId: string
     customerName: string
+    provider: "survey" | "mike"
     onAssigned: () => void
 }) {
     const [loading, setLoading] = useState(true)
@@ -475,7 +476,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
             id: order.id,
             plugin_id: STANDARD_PLUGIN_ID,
             action: "search-form-submissions",
-            payload: { form_name: formKey, customer_id: customerId, provider: "mike" },
+            payload: { form_name: formKey, customer_id: customerId, provider },
             auth,
         })
             .then((res: any) => {
@@ -494,10 +495,10 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                 id: order.id,
                 plugin_id: STANDARD_PLUGIN_ID,
                 action: "assign-form",
-                payload: { form_name: formKey, customer_id: customerId, provider: "mike", submission_key: selected || null },
+                payload: { form_name: formKey, customer_id: customerId, provider, submission_key: selected || null },
                 auth,
             })
-            toast.success(selected ? "已关联所选提交" : "已创建分配（暂无匹配提交）")
+            toast.success(selected ? "已关联所选提交" : provider === "mike" ? "已创建分配（暂无匹配提交）" : "已生成新的填写链接")
             onAssigned()
             onClose()
         } catch (e: any) {
@@ -517,16 +518,18 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
         <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>选择麦客提交</DialogTitle>
+                    <DialogTitle>{provider === "mike" ? "选择麦客提交" : "选择简表记录"}</DialogTitle>
                     <DialogDescription>
-                        {customerName} 在「{formKey.length > 20 ? formKey.slice(0, 20) + "…" : formKey}」下的全部提交，默认推荐与订单时间最接近的一份。
+                        {customerName} 在「{formKey.length > 20 ? formKey.slice(0, 20) + "…" : formKey}」下最近一周的记录，默认推荐与订单时间最接近的一份。选中的记录会直接复用，不再让客户重填。
                     </DialogDescription>
                 </DialogHeader>
                 <div className="max-h-72 space-y-1.5 overflow-y-auto">
-                    {loading && <p className="text-muted-foreground p-2 text-xs">搜索站外提交中…</p>}
+                    {loading && <p className="text-muted-foreground p-2 text-xs">搜索已有记录中…</p>}
                     {!loading && matches.length === 0 && (
                         <p className="text-muted-foreground p-2 text-xs">
-                            未找到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。
+                            {provider === "mike"
+                                ? "最近一周没有匹配到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。"
+                                : "最近一周没有匹配到同名记录。点确认会新建一条填写链接发给客户。"}
                         </p>
                     )}
                     {matches.map((m) => (
@@ -549,7 +552,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                         <Button size="sm" variant="outline">取消</Button>
                     </DialogClose>
                     <Button size="sm" onClick={confirm} disabled={busy || loading}>
-                        {selected ? "关联所选提交" : "仍要创建分配"}
+                        {selected ? "关联所选记录" : provider === "mike" ? "仍要创建分配" : "生成新链接"}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -574,7 +577,7 @@ function FormCollectionSection({
     const [formErrors, setFormErrors] = useState<Array<{ provider: string; message: string }>>([])
     const [loadingForms, setLoadingForms] = useState(false)
     /** 麦客提交挑选弹窗 */
-    const [picker, setPicker] = useState<{ formKey: string; customerId: string; customerName: string } | null>(null)
+    const [picker, setPicker] = useState<{ formKey: string; customerId: string; customerName: string; provider: "survey" | "mike" } | null>(null)
 
     // 动态加载全部提供方的表单列表（简表 + 麦客）
     const loadForms = () => {
@@ -620,29 +623,10 @@ function FormCollectionSection({
             toast.error("请选择表单和客户")
             return
         }
-        // 麦客：先拉该客户的站外提交列表供挑选（自动推荐与订单时间最接近的一份）
-        if (provider === "mike") {
-            const cust = customers.find((c) => c.id === selCustomer)
-            setPicker({ formKey: selForm, customerId: selCustomer, customerName: cust?.name || "" })
-            return
-        }
-        setBusy(true)
-        try {
-            await orderApi.pluginAction({
-                id: order.id,
-                plugin_id: STANDARD_PLUGIN_ID,
-                action: "assign-form",
-                payload: { form_name: selForm, customer_id: selCustomer, provider },
-                auth,
-            })
-            toast.success("表单链接已生成")
-            setSelForm("")
-            reload()
-        } catch (e: any) {
-            toast.error(`分配失败: ${e?.message || ""}`)
-        } finally {
-            setBusy(false)
-        }
+        // 两家都先搜已有记录：搜到就复用，省得客户重填一遍；
+        // 简表搜不到时在弹窗里点确认会新建链接。
+        const cust = customers.find((c) => c.id === selCustomer)
+        setPicker({ formKey: selForm, customerId: selCustomer, customerName: cust?.name || "", provider })
     }
 
     const checkCompletion = async (formId: string) => {
@@ -825,7 +809,7 @@ function FormCollectionSection({
                 </div>
             )}
 
-            {/* 麦客提交挑选 */}
+            {/* 已有记录挑选（简表 / 麦客通用） */}
             {picker && (
                 <MikeSubmitPicker
                     open
@@ -835,6 +819,7 @@ function FormCollectionSection({
                     formKey={picker.formKey}
                     customerId={picker.customerId}
                     customerName={picker.customerName}
+                    provider={picker.provider}
                     onAssigned={() => { setSelForm(""); reload() }}
                 />
             )}

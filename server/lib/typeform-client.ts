@@ -264,6 +264,54 @@ class TypeformClient {
         return result;
     }
 
+    /**
+     * 按姓名搜索该表单下已有的填写记录（限最近一周；精确优先，失配退模糊）。
+     *
+     * /api/record/all 的 search 会在姓名字段上做包含匹配，但也会命中别的字段
+     * （搜"曾"会带回不姓曾的人），所以拿到结果后一律回到姓名字段自己再核一遍。
+     * 命中返回的 item_id + code 可直接当作已完成的填写项复用，不必再让客户重填。
+     *
+     * 限定一周：更早的记录多半是上一趟行程填的，认下来会把旧数据挂到本单。
+     */
+    async searchByName(
+        formName: string,
+        name: string,
+    ): Promise<Array<{ item_id: string; code: string; name: string; submit_time: number }>> {
+        const target = (name || "").trim();
+        if (!target) return [];
+        const fieldId = await this.getFirstFieldId(formName);
+        if (!fieldId) return [];
+
+        const nameFieldId = this.findNameFieldId((await this.request<HistoryResult>("/api/record/history", { id: fieldId })).fields);
+        if (!nameFieldId) return [];
+
+        const since = Date.now() - 7 * 86400_000;
+        const found = new Map<string, { item_id: string; code: string; name: string; submit_time: number }>();
+        // 一次 10 条，翻几页就够：search 已经过滤过，命中通常集中在首页
+        for (let page = 1; page <= 5; page++) {
+            const data = await this.request<{ records: Array<{ item_id: string; code: string; data: RecordItem[] }>; total: number }>(
+                "/api/record/all",
+                { form_name: formName, page, search: target },
+            );
+            const records = data.records || [];
+            for (const r of records) {
+                const cell = (r.data || []).find((d) => d.field_id === nameFieldId);
+                const nm = String(cell?.field_value ?? "").trim();
+                if (!nm || found.has(r.item_id)) continue;
+                const t = cell?.update_time || cell?.create_time || 0;
+                if (t < since) continue;
+                // 精确或「客户只写了姓」的部分匹配都收，最终由客服在弹窗里确认
+                if (nm !== target && !nm.includes(target)) continue;
+                found.set(r.item_id, { item_id: r.item_id, code: r.code, name: nm, submit_time: t });
+            }
+            if (records.length < 10) break;
+        }
+
+        const rows = [...found.values()];
+        const exact = rows.filter((r) => r.name === target);
+        return (exact.length > 0 ? exact : rows).sort((a, b) => b.submit_time - a.submit_time);
+    }
+
     /** 获取表单的第一个 field_id（用于构造填写URL）。 */
     async getFirstFieldId(formName: string): Promise<string | null> {
         // 通过 record/all 接口间接获取：传入 form_name，取第一条记录的 field_id

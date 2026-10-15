@@ -141,15 +141,33 @@ class MikeClient {
         return { list, total: json.pagination?.total ?? list.length };
     }
 
-    /** 按表单+姓名取全部匹配提交（姓名精确相等优先，组内按提交时间倒序）。 */
-    async findSubmissionsByName(formId: string, name: string): Promise<MikeSubmission[]> {
+    /**
+     * 按姓名找提交：先收窄到时间窗，再「精确优先、失配退模糊」。
+     *
+     * 客户在简表里常只写姓（"曾"），麦客里的记录却是全名（"曾杨"），
+     * 精确相等会把这种唯一可用的命中直接丢掉，所以失配时必须退到模糊。
+     * 但服务端的 keyword 还会命中别的内容（搜"曾"会带回"高麒云"），
+     * 所以模糊结果一律再按「姓名包含关键字」过一遍。
+     *
+     * 时间窗对两支都生效：同一姓名往年填过很常见（曾煜桓 2025/10/14 有一条），
+     * 若精确命中不受窗口约束，就会为一份一年前的记录放弃上周新填的那份。
+     */
+    private async search(name: string, opts: { formId?: string; withinDays?: number; limit?: number }): Promise<MikeSubmission[]> {
         const target = (name || "").trim();
         if (!target) return [];
-        const { list } = await this.getSubmissions({ formId, keyword: target, limit: 100 });
-        if (list.length === 0) return [];
-        const exact = list.filter((s) => s.submitter_name.trim() === target);
-        const pool = exact.length > 0 ? exact : list;
+        const { list } = await this.getSubmissions({ formId: opts.formId, keyword: target, limit: opts.limit || 100 });
+
+        const since = opts.withinDays ? Date.now() - opts.withinDays * 86400_000 : 0;
+        const fresh = since ? list.filter((s) => s.submit_time >= since) : list;
+
+        const exact = fresh.filter((s) => s.submitter_name.trim() === target);
+        const pool = exact.length > 0 ? exact : fresh.filter((s) => s.submitter_name.includes(target));
         return pool.sort((a, b) => b.submit_time - a.submit_time);
+    }
+
+    /** 按表单+姓名取全部匹配提交（姓名精确相等优先，失配时模糊，最近一周）。 */
+    async findSubmissionsByName(formId: string, name: string): Promise<MikeSubmission[]> {
+        return this.search(name, { formId, withinDays: 7 });
     }
 
     /** 按表单+姓名精确匹配最近一次提交（name 精确相等优先，其次包含）。 */
@@ -178,11 +196,7 @@ class MikeClient {
      * 钉死一张会漏掉大多数真实提交。
      */
     async findSubmissionsByNameAnyForm(name: string, limit = 100): Promise<MikeSubmission[]> {
-        const target = (name || "").trim();
-        if (!target) return [];
-        const { list } = await this.getSubmissions({ keyword: target, limit });
-        const exact = list.filter((s) => s.submitter_name.trim() === target);
-        return (exact.length > 0 ? exact : list).sort((a, b) => b.submit_time - a.submit_time);
+        return this.search(name, { withinDays: 7, limit });
     }
 }
 
