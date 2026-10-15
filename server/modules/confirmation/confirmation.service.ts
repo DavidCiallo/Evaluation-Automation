@@ -226,7 +226,7 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
         }
 
         const sheet = await createContractSheet({
-            title: `${order.order_name || "订单"} - ${name || "未命名"} 信息确认`,
+            title: `NoWorry签证信息确认 - ${name || "未命名"}`,
             content,
             deadline,
             external_names: [name || "申请人"],
