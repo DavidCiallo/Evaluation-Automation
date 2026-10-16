@@ -1,10 +1,3 @@
-/**
- * 标准订单插件（服务端）。
- * 三栏结构：
- *   第一栏 — onMessage 提取草稿；confirm 确认订单信息（多客户）
- *   第二栏 — assign-form / update-form-status 表单分配
- *   第三栏 — generate-itinerary / save-itinerary 行程单
- */
 import { nanoid } from "nanoid";
 import Repository from "../../../../lib/repository";
 import type { OrderEntity } from "../../../../../shared/modules/order/order.entity";
@@ -48,11 +41,6 @@ import { getStageWaivers } from "../../stage.service";
 const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
 
-/**
- * 从会话中拾取「客户疑似同意行程」信号，合并进既有同意记录。
- * 只更新 detected 部分，绝不触碰客服已确认的 confirmed（撤销须走显式动作）。
- * 返回 null 表示无新增信号、无需写库。
- */
 async function detectItineraryConsent(order: OrderEntity): Promise<ItineraryConsent | null> {
     if (!order.chat_id) return null;
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -67,10 +55,6 @@ async function detectItineraryConsent(order: OrderEntity): Promise<ItineraryCons
     return { ...current, detected: true, detected_time: Date.now(), detected_evidence: evidence };
 }
 
-/**
- * 按客户姓名解析/创建档案 id：先模糊匹配同名档案，命中复用；否则新建档案。
- * 供订单 confirm 对「新增客户」自动落档（信息可空，仅姓名）。
- */
 async function resolveCustomerIdByName(name: string): Promise<string | null> {
     const q = name.trim().toLowerCase();
     if (!q) return null;
@@ -92,7 +76,6 @@ async function resolveCustomerIdByName(name: string): Promise<string | null> {
     return created.id;
 }
 
-/** 将意图提取结果映射为标准插件草稿（多客户）。 */
 function extractionToDraft(ex: IntentDraftData, orderName: string): OrderInfoDraft {
     const customer: OrderCustomerInfo = {
         id: nanoid(8),
@@ -110,11 +93,9 @@ function extractionToDraft(ex: IntentDraftData, orderName: string): OrderInfoDra
     };
 }
 
-/** 兼容旧版 draft（单客户字段 price/type/departure/destination 或 content）。 */
 function migrateLegacyDraft(std: StandardPluginData, orderName: string): OrderInfoDraft | null {
     const legacy = std.draft as any;
     if (!legacy) return null;
-    // 新结构已有 customers
     if (Array.isArray(legacy.customers)) return legacy as OrderInfoDraft;
     // 旧结构单字段
     const legacyContent = legacy.content as string | undefined;
@@ -142,7 +123,6 @@ function migrateLegacyDraft(std: StandardPluginData, orderName: string): OrderIn
     };
 }
 
-/** 兼容旧版 confirmed（单客户字段）。 */
 function migrateLegacyConfirmed(std: StandardPluginData): OrderInfoConfirmed | null {
     const legacy = std.confirmed as any;
     if (!legacy) return null;
@@ -177,7 +157,6 @@ async function resolveAgentNames(agentIds: string[]): Promise<string[]> {
     const accounts = await accountRepo.find({ wechat_id: { $in: unique } });
     const map = new Map<string, string>();
     for (const a of accounts) if (a.wechat_id) map.set(a.wechat_id, a.name || a.wechat_id);
-    // 内置客服选项不在账号表里，合同上要写中文名而不是 xiaoning
     for (const id of unique) if (!map.has(id) && isKnownAgent(id)) map.set(id, agentLabel(id));
     return unique.map((id) => map.get(id) || id);
 }
@@ -187,7 +166,6 @@ function fmtDate(ts: number | null | undefined): string {
     return new Date(ts).toLocaleDateString("zh-CN");
 }
 
-/** 生成合同文档（Markdown，适配多客户）。 */
 async function buildContract(order: OrderEntity): Promise<{ content: string; filename: string }> {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
     const draft = migrateLegacyDraft(std, order.order_name);
@@ -235,11 +213,9 @@ ${remarks}
     return { content, filename: `contract_${order.id}.md` };
 }
 
-// ============ 行程单 ============
 
 const MONTH_ABBRS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** 将 YYYY-MM-DD 转成行程表展示用的 DD-MMM 短格式（如 24-Sep）。 */
 function fmtShortDate(dateStr: string): string {
     const m = String(dateStr || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (!m) return dateStr || "";
@@ -248,7 +224,6 @@ function fmtShortDate(dateStr: string): string {
     return `${Number(m[3])}-${MONTH_ABBRS[month]}`;
 }
 
-/** 展开日期范围（含首尾），返回 YYYY-MM-DD 数组；非法输入返回空数组。 */
 function expandDateRange(start: string, end: string): string[] {
     const a = new Date(`${start}T00:00:00`);
     const b = new Date(`${end}T00:00:00`);
@@ -262,7 +237,6 @@ function expandDateRange(start: string, end: string): string[] {
     return out;
 }
 
-/** 无 LLM 时的兜底：按日期范围生成空骨架行，客服手动填写。 */
 function blankRows(dates: string[]): ItineraryRow[] {
     return dates.map((d, i) => ({
         date: fmtShortDate(d),
@@ -291,7 +265,6 @@ async function generateItineraryRows(input: ItineraryGenerateInput): Promise<{ t
         .replace(/\{countries\}/g, countries)
         .replace(/\{departure\}/g, departure)
         .replace(/\{day_count\}/g, String(dates.length));
-    // 客户补充要求放在 user 消息而非配置模板里：即使库里已存有旧版自定义 prompt，也能生效
     const requirements = (input.requirements || "").trim();
     const raw = await llmChat(
         [
@@ -303,14 +276,11 @@ async function generateItineraryRows(input: ItineraryGenerateInput): Promise<{ t
                     : `请生成 ${dates.length} 天的行程。`,
             },
         ],
-        // 使用思考型模型时，输出预算需同时容纳 reasoning 与正文；太小的 maxTokens
-        // 会让模型在 reasoning 阶段就用尽额度，返回空 content（finish_reason="length"），导致解析失败。
         { temperature: 0.4, maxTokens: 16000 },
     );
     const parsed = extractJson(raw);
     if (!parsed || !Array.isArray(parsed.rows)) throw "AI 生成失败，请重试或手动填写";
 
-    // 规范化：与日期范围对齐，缺行补空行、多行截断
     const rows: ItineraryRow[] = dates.map((d, i) => {
         const r = parsed.rows[i];
         return {
@@ -325,7 +295,6 @@ async function generateItineraryRows(input: ItineraryGenerateInput): Promise<{ t
     return { title: parsed.title ? String(parsed.title) : `${countries} ${dates.length}日行程`, rows };
 }
 
-/** 构建行程单 markdown 表格文本（后续转 Word 也基于同一份 rows 数据）。 */
 export function buildItineraryMarkdown(it: ItineraryEntry, customerName: string): string {
     const header = `| Date | Day | City / Route | Touring Spots & Activities | Accommodation | Transportation |`;
     const sep = `|------|-----|--------------|---------------------------|---------------|----------------|`;
@@ -347,9 +316,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
     manifest: standardManifest,
 
     actions: {
-        /** 直接改写订单信息：payload = { order_name?, price?, currency?, customers? }。
-         *  拆单时名单已定稿，此后只是修改而非「确认」，因此写回 draft。
-         *  仍按姓名建/绑档案——客服新增的客户也需要 customer_id 才能往下走。 */
         "edit-order-info": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const draft = migrateLegacyDraft(std, order.order_name);
@@ -378,8 +344,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 throw "订单价格必须是非负数字";
             }
 
-            // price/currency 用 hasOwnProperty 判断而非 ??：编辑界面里「清空价格」
-            // 传的是显式 null，用 ?? 会被当成「没传」而保留旧值，清不掉。
             const next: OrderInfoDraft = {
                 order_name: payload?.order_name ?? draft?.order_name ?? order.order_name ?? "",
                 price: "price" in (payload || {}) ? payload.price : (draft?.price ?? null),
@@ -391,7 +355,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { draft: next };
         },
 
-        /** 列出系统客户档案（订单信息卡客户选择器数据源）。 */
         "list-customers": async () => {
             const all = await customerRepo.findAllIgnoreDelete();
             const list = all
@@ -406,8 +369,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { list };
         },
 
-        /** 生成行程单（AI 或空模板）。payload = { customer_id, date_start, date_end, countries, departure, requirements }。
-         *  返回 result 而不落库，交由前端预览并可编辑，确认后再 save-itinerary。 */
         "generate-itinerary": async (order: OrderEntity, payload: any) => {
             if (!payload?.customer_id || !payload?.date_start || !payload?.date_end) {
                 throw "customer_id, date_start, date_end are required";
@@ -424,7 +385,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { title, rows };
         },
 
-        /** 保存行程单（新建或更新）。payload = { itinerary_id?, customer_id, title, countries, departure, rows }。 */
         "save-itinerary": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.customer_id || !Array.isArray(payload.rows)) {
                 throw "customer_id and rows are required";
@@ -436,8 +396,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 ? itineraries.find((it) => it.id === payload.itinerary_id)
                 : undefined;
 
-            // 行程单必须挂在真实客户上：否则会留下指向不存在客户的「幽灵行程」，
-            // 界面上无法归属、也无法随客户删除而清理。
             const customers = std.draft?.customers || std.confirmed?.customers || [];
             if (!customers.some((c) => c.id === payload.customer_id)) {
                 throw "所选客户不属于本订单，请从订单信息的客户名单中选择";
@@ -495,7 +453,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { itinerary: entry };
         },
 
-        /** 删除行程单。payload = { itinerary_id } */
         "delete-itinerary": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.itinerary_id) throw "itinerary_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -504,10 +461,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { itineraries };
         },
 
-        // ============ 机票任务（ctrip 系统） ============
 
-        /** 创建 ctrip 机票任务。payload = { from, to, from_name?, to_name?, date, return_date?, pax: TripPax[] }
-         *  首位乘客为联系人（电话/区号/邮箱必填，ctrip 规则）。 */
         "create-trip-task": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const { from, to, date } = payload || {};
             if (!from || !to || !date) throw "from, to, date are required";
@@ -573,7 +527,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { trip };
         },
 
-        /** 批量同步 ctrip 任务状态。payload = {} */
         "sync-trip-tasks": async (order: OrderEntity, _payload: any, ctx: PluginContext) => {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const tripTasks = std.tripTasks || [];
@@ -594,7 +547,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { tasks: tripTasks, changed };
         },
 
-        /** 拉取 ctrip 产物 PDF 并挂到乘客的客户材料（category=机票预订）。payload = { trip_id } */
         "attach-trip-files": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.trip_id) throw "trip_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -614,7 +566,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                         !trip.attachments.some((a) => a.name === f.name),
                 );
                 for (const f of matched) {
-                    // 下载 → 落盘 → File 记录
                     const buf = await ctripClient.downloadFile(f.name);
                     const { storage_name, content_type } = saveToDisk(buf, f.name);
                     const fileDto = await createFileRecord({
@@ -624,7 +575,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                         size: buf.length,
                         uploaded_by: "ctrip",
                     });
-                    // 找/建该客户的「机票预订」材料行并挂文件
                     const existing = await materialService.listByOrder(order.id, pax.customer_id);
                     let line = existing.find((m) => m.category === "机票预订");
                     if (!line) {
@@ -640,13 +590,11 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { trip, attached };
         },
 
-        /** IATA 城市表（创建机票任务时出发/目的地联想）。payload = {} */
         "list-trip-cities": async () => {
             const cities = await ctripClient.getCities();
             return { cities };
         },
 
-        /** 删除本地机票任务记录（不删 ctrip 侧任务）。payload = { trip_id } */
         "delete-trip-task": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.trip_id) throw "trip_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -655,7 +603,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { tripTasks };
         },
 
-        /** 导出行程单 markdown。payload = { itinerary_id } */
         "export-itinerary": async (order: OrderEntity, payload: any) => {
             if (!payload?.itinerary_id) throw "itinerary_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -673,7 +620,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return buildContract(order);
         },
 
-        /** 列出某客户在某麦客表单下的全部可选提交（按时间倒序，供挑选）。payload = { form_name, customer_id, provider? } */
         "search-form-submissions": async (order: OrderEntity, payload: any) => {
             if (!payload?.form_name || !payload?.customer_id) throw "form_name and customer_id are required";
             const providerDef = getFormProvider(payload.provider || "mike");
@@ -682,8 +628,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const customerName = customers.find((c) => c.id === payload.customer_id)?.name || "";
             const listed = await providerDef.listMatches({ form_key: payload.form_name, customer_name: customerName });
             const matches = listed.matches;
-            // 推荐项：提交时间与订单创建时间最接近的一份。
-            // 退而给最近提交时不做推荐——那些不是同名记录，猜错了等于替客服认人。
             let suggested: string | null = null;
             if (matches.length > 0 && !listed.fallback) {
                 const anchor = order.create_time || Date.now();
@@ -694,19 +638,14 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { matches, suggested, customer_name: customerName, fallback: !!listed.fallback };
         },
 
-        /** 分配表单。payload = { form_name, customer_id, provider?, submission_key? }（provider: survey=简表 | mike=麦客捕获，缺省 survey）。
-         *  survey：调简表 API 生成填写链接并预填姓名；mike：按提交 key 或「与订单时间最接近的同名提交」匹配。 */
         "assign-form": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_name || !payload?.customer_id) throw "form_name and customer_id are required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const forms = std.forms || [];
             const providerDef = getFormProvider(payload.provider);
 
-            // 找到客户姓名用于预填（survey）或匹配提交（mike）
             const customers = std.draft?.customers || std.confirmed?.customers || [];
             const customer = customers.find((c) => c.id === payload.customer_id);
-            // 客户必须属于本订单：否则会写出指向不存在客户的表单分配，
-            // 界面无法展示、表单回收也无处归档。
             if (!customer) throw "所选客户不属于本订单，请从订单信息的客户名单中选择";
             if (forms.some((f) => f.customer_id === payload.customer_id && f.form_name === payload.form_name)) {
                 throw "该客户已分配此表单";
@@ -733,19 +672,16 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 matched_name: created.matched_name,
             };
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: [...forms, assignment] });
-            // 麦客：本地提交收件箱中标记该 key 已被引用
             if (providerDef.id === "mike" && created.external_id) {
                 await claimSubmission(created.external_id, assignment.id).catch(() => {});
             }
             return { assignment };
         },
 
-        /** 搜索本地摄入的麦客提交（待匹配收件箱）。payload = { keyword?, form_name?, limit? } */
         "search-mike-submissions": async (_order: OrderEntity, payload: any) => {
             const { mikeClient } = await import("../../../../lib/mike-client");
             if (!mikeClient.isConfigured()) return { list: [], live: false };
             const kw = String(payload?.keyword || "").trim();
-            // 优先实时搜索（数据始终最新），失败时回退本地快照
             try {
                 const { list } = await mikeClient.getSubmissions({ keyword: kw || undefined, limit: Number(payload?.limit) || 50 });
                 return { list, live: true };
@@ -759,7 +695,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             }
         },
 
-        /** 手动把麦客提交关联到表单分配。payload = { form_id, submission_key, submitter_name?, submit_time? } */
         "link-mike-submission": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_id || !payload?.submission_key) throw "form_id and submission_key are required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -785,13 +720,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { forms: updatedForms };
         },
 
-        /**
-         * 自动绑定麦克提交：按客户姓名跨全部表单找同名提交，命中就建表单分配。
-         *
-         * 订单确认信息后异步跑一次。找不到提交的客户不建分配——
-         * 建了也没有 url 可发，只会在界面上留一条空记录；等客服手动分配即可。
-         * payload = { only_missing? }
-         */
         "auto-bind-mike": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const { mikeClient } = await import("../../../../lib/mike-client");
             if (!mikeClient.isConfigured()) return { bound: [], skipped: [], reason: "not_configured" };
@@ -801,7 +729,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const customers = std.draft?.customers || std.confirmed?.customers || [];
             if (customers.length === 0) return { bound: [], skipped: [], reason: "no_customers" };
 
-            // 已经绑过麦克的客户不再重复绑（除非显式要求全量重跑）
             const onlyMissing = payload?.only_missing !== false;
             const boundIds = new Set(
                 forms.filter((f) => f.provider === "mike").map((f) => f.customer_id),
@@ -817,7 +744,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 try {
                     hit = (await mikeClient.findSubmissionsByNameAnyForm(name))[0] || null;
                 } catch {
-                    // 网络/接口异常不该拖垮整批，继续试下一个客户
                     continue;
                 }
                 if (!hit) { skipped.push(name); continue; }
@@ -846,12 +772,10 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { bound: added, skipped };
         },
 
-        /** 列出全部表单提供方的可用表单。payload = {} */
         "list-forms": async () => {            const { forms, errors } = await listAllForms();
             return { forms, errors };
         },
 
-        /** 更新表单状态。payload = { form_id, status } */
         "update-form-status": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_id || !payload?.status) throw "form_id and status are required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -862,7 +786,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { forms };
         },
 
-        /** 检查表单完成状态（survey 回查 item；mike 重新匹配提交）。payload = { form_id } */
         "check-form-completion": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_id) throw "form_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -889,7 +812,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { completed: re.completed, completedTime: re.completed ? re.completed_time || Date.now() : null };
         },
 
-        /** 获取表单填写数据。payload = { form_id } */
         "get-form-data": async (order: OrderEntity, payload: any) => {
             if (!payload?.form_id) throw "form_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -903,7 +825,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { data };
         },
 
-        /** 移除表单分配。payload = { form_id } */
         "remove-form": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_id) throw "form_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
@@ -912,7 +833,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { forms };
         },
 
-        /** 主动生成草稿：从最近消息提取，写入 draft（如提取到）。 */
         "generate-draft": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const messages = await loadRecentMessages(order.chat_id, 20);
             const { draft } = await extractDraft(messages);
@@ -922,9 +842,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { draft: mapped };
         },
 
-        // ============ 客户同意（方案 C：模型提示 + 客服确认） ============
 
-        /** 重新扫描会话，刷新「疑似同意」提示。payload = {} */
         "detect-itinerary-consent": async (order: OrderEntity, _payload: any, ctx: PluginContext) => {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const current = (std.itineraryConsent as ItineraryConsent) || emptyItineraryConsent();
@@ -941,7 +859,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { consent: next };
         },
 
-        /** 客服确认客户已同意行程（权威依据）。payload = { note? } */
         "confirm-itinerary-consent": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const current = (std.itineraryConsent as ItineraryConsent) || emptyItineraryConsent();
@@ -960,7 +877,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { consent: next };
         },
 
-        /** 撤销客户同意（客户反悔或误操作）。payload = { reason? } */
         "revoke-itinerary-consent": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const current = (std.itineraryConsent as ItineraryConsent) || emptyItineraryConsent();
@@ -976,9 +892,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { consent: next };
         },
 
-        // ============ 阶段豁免 ============
 
-        /** 跳过某可选阶段（不适用于本单，如客户自行购票）。payload = { stage, reason } */
         "waive-stage": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const stage = String(payload?.stage || "") as OrderStageId;
             const meta = ORDER_STAGES.find((s) => s.id === stage);
@@ -993,7 +907,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { stage_waivers: waivers };
         },
 
-        /** 取消阶段豁免，恢复该阶段要求。payload = { stage } */
         "unwaive-stage": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const stage = String(payload?.stage || "") as OrderStageId;
             const waivers = { ...getStageWaivers(order) };
@@ -1006,9 +919,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { stage_waivers: waivers };
         },
 
-        // ============ 阶段查询 ============
 
-        /** 重新计算并返回阶段视图（详情页刷新用）。payload = {} */
         "eval-stages": async (order: OrderEntity) => {
             const { evaluateOrderStages } = await import("../../stage.service");
             const evaluation = await evaluateOrderStages(order);
@@ -1016,19 +927,11 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         },
     },
 
-    /**
-     * 动作准入声明。内核在派发前统一校验：
-     *   at      — 该动作所属阶段；要求其**前序**阶段全部完成或跳过
-     *   require — 该阶段内必须已满足的准入项（用于不等整阶段完成的动作）
-     * 未声明的动作不做阶段准入（只读查询、清理、以及阶段之外的元动作）。
-     */
     actionGates: {
-        // 订单信息阶段：名单与价格在拆单时落定，此后是直接编辑，没有「确认」这一步
         "edit-order-info": { at: "order_info" },
         "list-customers": {},
         "generate-contract": { at: "order_info", require: ["customers_present"] },
 
-        // 表单收集：须先有确认过的客户名单，否则无从分配
         "assign-form": { at: "form_collection", require: ["customers_present"] },
         "update-form-status": { at: "form_collection" },
         "check-form-completion": { at: "form_collection" },
@@ -1040,13 +943,10 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "auto-bind-mike": { at: "form_collection", require: ["customers_present"] },
         "list-forms": {},
 
-        // 信息确认：签发确认单须先有确认过的客户名单，回签由客户在外部页面完成
         "issue-confirmation": { at: "info_confirmation", require: ["customers_present"] },
         "revoke-confirmation": { at: "info_confirmation" },
         "list-confirmations": {},
 
-        // 账号分配 / 注册填表：改动都要在客户已确认资料之后，
-        // 否则可能按错的资料注册出账号。
         "plan-accounts": { at: "account_allocation", require: ["confirmations_signed"] },
         "upsert-account": { at: "account_allocation" },
         "assign-account": { at: "account_allocation" },
@@ -1055,20 +955,17 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "dispatch-robot-task": { at: "registration", require: ["accounts_allocated"] },
         "list-robot-tasks": {},
 
-        // 材料制作：行程/机票/材料在同一阶段内，生成/保存行程须客户已同意
         "generate-itinerary": { at: "materials", require: ["itinerary_consent"] },
         "save-itinerary": { at: "materials", require: ["itinerary_consent"] },
         "delete-itinerary": { at: "materials" },
         "export-itinerary": { at: "materials" },
 
-        // 机票任务属于行程单的一部分，仍须行程已就绪（有行程单或已建任务）
         "create-trip-task": { at: "materials", require: ["itinerary_exists"] },
         "sync-trip-tasks": { at: "materials" },
         "attach-trip-files": { at: "materials" },
         "delete-trip-task": { at: "materials" },
         "list-trip-cities": {},
 
-        // 阶段外的元动作：同意与豁免本身是推进阶段的前提，不设准入
         "detect-itinerary-consent": {},
         "confirm-itinerary-consent": {},
         "revoke-itinerary-consent": {},
@@ -1087,8 +984,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         const hasDraft = !!std.draft;
         const result: PluginMessageResult = {};
 
-        // 同意信号独立于办签意图：客户对行程方案说「就按这个办」通常不含办签关键词，
-        // 若跟着意图提取一起被过滤掉，行程阶段将永远等不到同意。
         const consent = await detectItineraryConsent(order);
         if (consent) result.dataPatch = { itineraryConsent: consent };
 

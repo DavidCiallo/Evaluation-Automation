@@ -23,7 +23,6 @@ async function detail(request: CustomerDetailRequest) {
 
 async function create(request: CustomerCreateRequest) {
     const req = CustomerCreateRequest.self(request);
-    // 手机/护照查重：命中则拒绝并提示（前端可引导直接复用）
     const dup = await svc.findDuplicate({ phone: req.phone, passport_no: req.passport_no });
     if (dup) {
         throw `已存在客户档案：${dup.name}（手机/护照号重复）`;
@@ -45,7 +44,6 @@ async function remove(request: CustomerDeleteRequest) {
     return { ok: true };
 }
 
-/** 客户名下全部已上传文件（聚合视图）。 */
 async function files(request: CustomerDetailRequest) {
     const req = CustomerDetailRequest.self(request);
     const customer = await svc.findOne(req.id);

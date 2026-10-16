@@ -11,7 +11,6 @@ const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSn
 export async function listChats(opts: { agentId?: string; status: "all" | "pending"; page: number }) {
     const PAGE = 30;
     const offset = (opts.page - 1) * PAGE;
-    // If filtering by agent, scan via ChatMember first
     let chats: ChatEntity[] = [];
     if (opts.agentId) {
         const myMembers = await memberRepo.find({ wechat_id: opts.agentId, role: "agent" });
@@ -27,12 +26,10 @@ export async function listChats(opts: { agentId?: string; status: "all" | "pendi
         chats = await chatRepo.find({}, { limit: PAGE, offset });
     }
 
-    // Load snapshots for the page of chats
     const chatIds = chats.map((c) => c.id);
     const snapshotRows = await snapshotRepo.find({ chat_id: { $in: chatIds } } as any);
     const snapshotMap = new Map(snapshotRows.map((s) => [s.chat_id, s]));
 
-    // For chats missing a snapshot, build from conversation history
     const missingIds = chatIds.filter((id) => !snapshotMap.has(id));
     if (missingIds.length > 0) {
         const { getExemption, computeExemptUnread } = await import("../exemption/exemption.service");
@@ -74,8 +71,6 @@ export async function listChats(opts: { agentId?: string; status: "all" | "pendi
     const out: any[] = [];
     for (const c of chats) {
         const snap = snapshotMap.get(c.id);
-        // Pending is derived from exemption-aware unread_count (not last_from_role,
-        // which is still used for the [客服]/[客户] prefix display).
         const isPending = snap ? (snap.unread_count || 0) > 0 : false;
         if (opts.status === "pending" && !isPending) continue;
 

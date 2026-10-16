@@ -8,7 +8,6 @@ export async function listByChat(chatId: string, limit = 50, before?: number | n
     if (before) where.send_time = { $lt: before };
     const fetchN = limit + 1;
     const rows = await repo.find(where, { limit: fetchN });
-    // find() returns newest-first; reverse for chronological display
     rows.sort((a, b) => a.send_time - b.send_time);
     const hasMore = rows.length > limit;
     const trimmed = hasMore ? rows.slice(1) : rows; // drop oldest when paginating

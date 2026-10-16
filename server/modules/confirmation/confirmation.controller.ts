@@ -24,7 +24,6 @@ async function revoke(request: ConfirmationRevokeRequest) {
     const req = ConfirmationRevokeRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
     const { confirmation, warning } = await svc.revoke(req.id, req.reason, by);
-    // 服务端没删掉时把原因带回去，客服需要知道那张单还在
     return { confirmation, message: warning || undefined };
 }
 
@@ -33,12 +32,11 @@ async function signers(request: ConfirmationSignersRequest) {
     return { list: await svc.listSigners(req.id) };
 }
 
-/** 客户侧免鉴权：凭 token 读资料 */async function fetch_(request: ConfirmationFetchRequest) {
+async function fetch_(request: ConfirmationFetchRequest) {
     const req = ConfirmationFetchRequest.self(request);
     return await svc.fetchByToken(req.token);
 }
 
-/** 客户侧免鉴权：凭 token 提交确认 */
 async function submit(request: ConfirmationSubmitRequest) {
     const req = ConfirmationSubmitRequest.self(request);
     return await svc.submitByToken(req.token, req.snapshot, req.external_ref);

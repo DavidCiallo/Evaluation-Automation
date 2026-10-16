@@ -1,13 +1,7 @@
-/**
- * 标准插件 — 表单数据转录：把表客表单的键值对映射为客户资料结构化字段（LLM 优先，规则兜底）。
- * 输入统一为 FormProvider 的 FormDataItem[]（mike 的 meta 行先过滤）。
- * 供演示数据脚本使用（界面不再提供转录入口）。
- */
 import { isLlmConfigured, llmChat, extractJson } from "../../../../lib/llm";
 import { getConfigValue } from "../../../config/config.service";
 import type { FormDataItem } from "../../../../lib/form-providers";
 
-/** 客户资料字段白名单：转录只允许产出这些键。 */
 const TRANSCRIBABLE_KEYS = ["name", "gender", "dob", "passport_no", "passport_expiry", "visa_country", "visa_type", "departure"] as const;
 export type TranscribableKey = (typeof TRANSCRIBABLE_KEYS)[number];
 
@@ -18,7 +12,6 @@ export interface TranscribeResult {
     used_llm: boolean;
 }
 
-/** 过滤 meta 行与空值，截断防 prompt 超长。 */
 function usefulData(data: FormDataItem[], cap = 120): Array<{ name: string; value: string }> {
     const out: Array<{ name: string; value: string }> = [];
     for (const d of data) {
@@ -31,7 +24,6 @@ function usefulData(data: FormDataItem[], cap = 120): Array<{ name: string; valu
     return out;
 }
 
-/** 各种常见日期写法 → YYYY-MM-DD；无法解析返回 null。 */
 export function normalizeDate(raw: string): string | null {
     const s = String(raw || "").trim();
     if (!s) return null;
@@ -42,7 +34,6 @@ export function normalizeDate(raw: string): string | null {
     return null;
 }
 
-/** 规则兜底：字段名模式 → 客户资料字段。 */
 const RULE_PATTERNS: Array<{ key: TranscribableKey; patterns: RegExp[] }> = [
     { key: "name", patterns: [/申请人?中文姓名/, /^姓名$/, /^客户姓名$/, /^中文姓名$/, /申请人姓名/] },
     { key: "gender", patterns: [/^性别$/, /^申请人性别$/] },
@@ -94,7 +85,6 @@ const DEFAULT_TRANSCRIBE_PROMPT = `你是签证业务数据录入助手。下面
 表单数据：
 {fields_json}`;
 
-/** 表客表单转录：LLM 映射 + 规则兜底合成。 */
 export async function transcribeFormData(data: FormDataItem[]): Promise<TranscribeResult> {
     const rows = usefulData(data);
     const rulePatch = ruleTranscribe(rows);
@@ -136,7 +126,6 @@ export async function transcribeFormData(data: FormDataItem[]): Promise<Transcri
         }
     }
 
-    // 合成：LLM 值优先，规则值补缺
     const patch: Partial<Record<TranscribableKey, string>> = { ...rulePatch };
     for (const key of TRANSCRIBABLE_KEYS) {
         if (llmPatch[key]) patch[key] = llmPatch[key];

@@ -38,7 +38,7 @@ async function detail(request: OrderDetailRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-/** 取消整单（需填原因）。 */
+/** 取消整单。 */
 async function cancel(request: OrderCancelRequest) {
     const req = OrderCancelRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
@@ -47,7 +47,7 @@ async function cancel(request: OrderCancelRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-/** 恢复被取消的订单。 */
+/** 恢复已取消订单。 */
 async function reopen(request: OrderReopenRequest) {
     const req = OrderReopenRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
@@ -90,7 +90,6 @@ async function createFromChat(request: OrderCreateFromChatRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-/** 无会话建单（手动/邮件渠道）。 */
 async function create(request: OrderCreateRequest) {
     const req = OrderCreateRequest.self(request);
     const order = await svc.createManualOrder({

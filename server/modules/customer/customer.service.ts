@@ -1,8 +1,3 @@
-/**
- * 客户档案服务（轻量CRM）。
- * 职责：客户 CRUD、姓名/手机/护照/邮箱模糊检索。
- * 不改动任何订单逻辑 —— 只做「这个人是谁」的档案。
- */
 import Repository from "../../lib/repository";
 import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 import { CustomerDTO } from "../../../shared/modules/customer/customer.entity";
@@ -14,10 +9,6 @@ import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
 const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 
-/**
- * 客户名下所有订单里已上传的材料（聚合视图：按「订单-客户条目」分组）。
- * 客户条目 id 是订单内的，所以要先在所有订单里找指向这位档案的条目。
- */
 export async function listCustomerFiles(customerId: string): Promise<{
     order_id: string;
     order_name: string;
@@ -61,7 +52,6 @@ const UPDATEABLE_FIELDS = [
     "source",
 ] as const;
 
-// ---------- 查询 ----------
 
 export async function list(keyword: string, page = 1): Promise<{ list: CustomerEntity[]; total: number }> {
     const all = await customerRepo.findAllIgnoreDelete();
@@ -87,7 +77,6 @@ export async function findOne(id: string): Promise<CustomerEntity | null> {
     return customerRepo.findOne({ id });
 }
 
-/** 查重：同一手机号或护照号只应有一个档案（供前端建档前校验）。 */
 export async function findDuplicate(payload: { phone?: string | null; passport_no?: string | null }): Promise<CustomerEntity | null> {
     if (payload.phone) {
         const byPhone = await customerRepo.findOne({ phone: payload.phone });
@@ -100,7 +89,6 @@ export async function findDuplicate(payload: { phone?: string | null; passport_n
     return null;
 }
 
-// ---------- 写入 ----------
 
 export async function create(payload: Record<string, any>): Promise<CustomerDTO> {
     const entity = await customerRepo.insert({

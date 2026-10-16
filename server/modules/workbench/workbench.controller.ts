@@ -35,7 +35,6 @@ async function chat(request: WorkbenchChatRequest) {
     };
 }
 
-// Lazy summary endpoint re-uses intent route — keep workbench.chat for initial load
 export { summarizeChat as _summarize };
 
 export const workbenchMount = {

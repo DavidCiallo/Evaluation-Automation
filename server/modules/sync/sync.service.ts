@@ -7,7 +7,6 @@ import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import type { AccountEntity } from "../../../shared/modules/account/account.entity";
 
-/** 会话源 SDK 地址/间隔/消息源均来自「系统配置 → 外围系统接入」，每次读取时解析。 */
 const LOCAL_SDK_HOST = "http://127.0.0.1:8899";
 
 function sdkHost(): string {
@@ -25,19 +24,11 @@ function syncSource(): "sdk" | "qixioma" {
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let currentSeq = 0;
 let isPolling = false;
-/** 启动中的轮询器 promise；用于串行化并发的启动请求。 */
 let startPromise: Promise<void> | null = null;
-/** 当前运行中的消息源；未运行为 null。 */
 let runningSource: "sdk" | "qixioma" | null = null;
-/** 当前生效的轮询间隔（毫秒）；用于判断设置变更是否需要重启。 */
 let activeIntervalMs = 0;
-/**
- * 停用代次：每次 stopPoller 自增。启动流程持有启动时的代次，
- * 中途发现代次已变即放弃装定时器——否则「启动中收到停用」会漏掉。
- */
 let stopGeneration = 0;
 
-/** True when the configured SDK host points to a real (non-localhost) endpoint. */
 function hasLiveSdk(): boolean {
     return sdkHost() !== LOCAL_SDK_HOST;
 }
@@ -50,7 +41,6 @@ export function getPollerStatus(): { running: boolean; seq: number; source: "wx"
     return { running: intervalId !== null, seq: currentSeq, source: hasLiveSdk() ? "wx" : "mock", running_source: runningSource };
 }
 
-// ---------- ingest ----------
 
 const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
 const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
@@ -63,14 +53,12 @@ async function ensureChat(roomid: string, fromId: string, tolist: string[]): Pro
     const chatIdStr = isPrivate ? "private_" + [...unique].sort().join("_") : roomid;
     const exist = await chatRepo.findOne({ chat_id: chatIdStr });
 
-    // Add any new members to an existing chat
     async function ensureMembers(chatInternalId: string) {
         const existingMembers = await memberRepo.find({ chat_id: chatInternalId });
         const knownMap = new Map(existingMembers.map((m: any) => [m.wechat_id, m]));
         for (const ident of unique) {
             const existing = knownMap.get(ident);
             if (existing) {
-                // Update name for existing members still using raw ID as name
                 if (existing.name === existing.wechat_id) {
                     const resolved = await resolveMemberName(ident);
                     if (resolved && resolved !== ident) {
@@ -93,7 +81,6 @@ async function ensureChat(roomid: string, fromId: string, tolist: string[]): Pro
 
     if (exist) {
         await ensureMembers(exist.id);
-        // For private chats, update chat name from customer name if still a raw ID
         if (isPrivate && /^[a-zA-Z0-9_, ]+$/.test(exist.name) && exist.name.includes(",")) {
             for (const ident of unique) {
                 const role = await resolveRole(ident);
@@ -110,7 +97,6 @@ async function ensureChat(roomid: string, fromId: string, tolist: string[]): Pro
     }
 
     const now = Date.now();
-    // For private chats, try to use customer nickname as chat name
     let name = isPrivate ? unique.join(", ") : roomid;
     if (isPrivate) {
         for (const ident of unique) {
@@ -138,18 +124,15 @@ async function resolveRole(wechatId: string): Promise<"agent" | "customer"> {
     const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
     const acc = await accountRepo.findOne({ wechat_id: wechatId });
     if (acc) return "agent";
-    // Heuristic: agents seeded with prefix agent_ in mock mode
     if (wechatId.startsWith("agent_")) return "agent";
     return "customer";
 }
 
 async function resolveMemberName(wechatId: string): Promise<string | null> {
-    // 1. Try internal Account table first (agents)
     const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
     const acc = await accountRepo.findOne({ wechat_id: wechatId });
     if (acc?.name) return acc.name;
 
-    // 2. For external contacts (wmXXX), call WeCom API — skip non-external IDs
     if (!wechatId.startsWith("wm")) return null;
     try {
         const { getExternalContact, isWxConfigured } = await import("../../lib/wx");
@@ -168,7 +151,6 @@ async function resolveMemberName(wechatId: string): Promise<string | null> {
 }
 
 export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: string; convId: string } | null> {
-    // Dedup by msg_id
     const dup = await conversationRepo.findOne({ msg_id: ev.msgid });
     if (dup) return null;
 
@@ -176,7 +158,6 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
     const role = await resolveRole(ev.from);
     const msgType = ev.msgtype || "text";
 
-    // Resolve content: download images to local cache, store URL as content
     let content = ev.text?.content || ev.image?.sdkfileid || "";
     if (msgType === "image" && ev.image?.sdkfileid) {
         try {
@@ -185,7 +166,6 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
             if (filename) {
                 content = `/api/media/${filename}`;
             }
-            // else: keep raw sdkfileid as fallback
         } catch (e) {
             console.error("[sync] image download failed:", e);
         }
@@ -202,13 +182,9 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
         send_time: ev.msgtime || Date.now(),
     });
 
-    // Update chat last_send_time
     const sendTime = ev.msgtime || Date.now();
     await chatRepo.update({ id: chatInternalId }, { last_send_time: sendTime });
 
-    // Update snapshot so home/list can skip per-chat conversation queries.
-    // Exemption-aware: an exempted customer message does NOT increment unread,
-    // so it never marks the chat as pending.
     const isCustomerMsg = role === "customer";
     let exempted = false;
     if (isCustomerMsg) {
@@ -231,7 +207,6 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
                     : (existing.unread_count || 0) + 1
                 : 0,
         };
-        // Refresh cached customer info if this is a new customer message
         if (role === "customer" && !existing.customer_name) {
             const members = await memberRepo.find({ chat_id: chatInternalId });
             const customer = members.find((m: any) => m.role === "customer");
@@ -242,7 +217,6 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
         }
         await snapshotRepo.update({ chat_id: chatInternalId }, patch);
     } else {
-        // First message: resolve customer info from members
         const members = await memberRepo.find({ chat_id: chatInternalId });
         const customer = members.find((m: any) => m.role === "customer");
         await snapshotRepo.insert({
@@ -258,8 +232,6 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
         });
     }
 
-    // 群聊即订单：仅群聊建单，并依次执行启用插件的 onMessage 钩子
-    // （标准插件更新草稿/追加备注）。单聊不建单，远古群聊无新消息不回填。
     try {
         const { ensureOrderForChat, runMessageHooks } = await import("../order/order.service");
         const order = await ensureOrderForChat(chatInternalId);
@@ -270,22 +242,18 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
     return { chatInternalId, convId: row.id };
 }
 
-// ---------- snapshot backfill ----------
 
-/** On startup: ensure every filtered (agent+customer) chat has a snapshot. */
 async function backfillMissingSnapshots(): Promise<void> {
     const memberRepo = Repository.instance<ChatMemberEntity>("ChatMember");
     const conversationRepo = Repository.instance<ConversationEntity>("Conversation");
     const snapshotRepo = Repository.instance<ChatSnapshotEntity>("ChatSnapshot");
 
-    // Exemption-aware unread so freshly backfilled snapshots honor the rules
     const { getExemption, computeExemptUnread } = await import("../exemption/exemption.service");
     const ex = await getExemption();
 
     const existingSnaps = await snapshotRepo.findAllIgnoreDelete();
     const snapSet = new Set(existingSnaps.map((s) => s.chat_id));
 
-    // Build filtered set: chats with both agent and customer members
     const allMembers = await memberRepo.findAllIgnoreDelete();
     const agentChats = new Set(allMembers.filter((m) => m.role === "agent").map((m) => m.chat_id));
     const customerChats = new Set(allMembers.filter((m) => m.role === "customer").map((m) => m.chat_id));
@@ -301,14 +269,12 @@ async function backfillMissingSnapshots(): Promise<void> {
 
     const convRows = await conversationRepo.find({ chat_id: { $in: missingIds } } as any);
 
-    // Group conversations by chat_id
     const convGroup = new Map<string, ConversationEntity[]>();
     for (const row of convRows) {
         const arr = convGroup.get(row.chat_id);
         if (arr) arr.push(row); else convGroup.set(row.chat_id, [row]);
     }
 
-    // Build customer name map from the member rows we already have
     const customerMap = new Map<string, ChatMemberEntity>();
     for (const m of allMembers) {
         if (m.role === "customer" && !customerMap.has(m.chat_id)) {
@@ -322,7 +288,6 @@ async function backfillMissingSnapshots(): Promise<void> {
         const msgs = convGroup.get(chatId);
 
         if (msgs && msgs.length > 0) {
-            // Chat has messages — create full snapshot
             msgs.sort((a, b) => (a.send_time || 0) - (b.send_time || 0));
             const last = msgs[msgs.length - 1];
             const unreadCount = computeExemptUnread(msgs, ex, chatId);
@@ -339,7 +304,6 @@ async function backfillMissingSnapshots(): Promise<void> {
                 customer_avatar: cust?.avatar || null,
             });
         } else {
-            // Chat has no messages yet — create empty snapshot so it appears in the list
             await snapshotRepo.insert({
                 chat_id: chatId,
                 last_content: "",
@@ -358,21 +322,10 @@ async function backfillMissingSnapshots(): Promise<void> {
     console.log(`[snapshot] backfill done: ${created} snapshots created (total filtered: ${filteredIds.length})`);
 }
 
-/**
- * Recompute unread_count for every snapshot against the CURRENT exemption
- * config. Invoked after the exemption config changes so that pending/unread
- * state immediately reflects the new rules.
- *
- * Uses atomicPatch (single locked read-modify-write pass) rather than
- * per-row update() — which would be O(n^2) on the JSONL store — and rather
- * than truncate+batchInsert, which would drop delete_time and open a race
- * window. Returning null from the patch fn leaves a row untouched.
- */
 export async function recomputeSnapshotUnread(): Promise<void> {
     const { getExemption, computeExemptUnread } = await import("../exemption/exemption.service");
     const ex = await getExemption();
 
-    // Group all conversations by chat_id once
     const convRows = await conversationRepo.findAllIgnoreDelete();
     const convGroup = new Map<string, any[]>();
     for (const row of convRows) {
@@ -393,9 +346,7 @@ export async function recomputeSnapshotUnread(): Promise<void> {
     console.log(`[snapshot] recompute: updated unread_count for ${changed} snapshot(s)`);
 }
 
-// ---------- image backfill ----------
 
-/** One-time: download images for existing messages that still have raw sdkfileid as content. */
 async function backfillMissingImages(): Promise<void> {
     try {
         const { isWxConfigured } = await import("../../lib/wx");
@@ -425,12 +376,10 @@ async function backfillMissingImages(): Promise<void> {
     }
 }
 
-// ---------- metadata refresh ----------
 
 const METADATA_REFRESH_MS = Number(process.env.METADATA_REFRESH_MS || 10 * 60 * 1000); // 10 min
 let metadataIntervalId: ReturnType<typeof setInterval> | null = null;
 
-/** Refresh customer names and group chat names from WeCom API. */
 async function refreshChatMetadata(): Promise<void> {
     try {
         const { getExternalContact, isWxConfigured } = await import("../../lib/wx");
@@ -439,7 +388,6 @@ async function refreshChatMetadata(): Promise<void> {
         const ext = getExternalContact();
         if (!ext) return;
 
-        // 1. Refresh customer member names
         const allMembers = await memberRepo.findAllIgnoreDelete();
         const customers = allMembers.filter((m: any) => m.role === "customer");
 
@@ -463,11 +411,9 @@ async function refreshChatMetadata(): Promise<void> {
                     }
                 }
             } catch {
-                // Skip individual failures
             }
         }
 
-        // 2. Refresh group chat names for chats with raw wechat_id names
         const allChats = await chatRepo.findAllIgnoreDelete();
         let chatNameUpdated = 0;
         for (const chat of allChats) {
@@ -484,11 +430,9 @@ async function refreshChatMetadata(): Promise<void> {
                     }
                 }
             } catch {
-                // Skip individual failures
             }
         }
 
-        // 3. Update snapshot customer_name for any changed members
         if (nameUpdated > 0) {
             const updatedMembers = await memberRepo.findAllIgnoreDelete();
             const snapshotRepo2 = Repository.instance<ChatSnapshotEntity>("ChatSnapshot");
@@ -512,7 +456,6 @@ async function refreshChatMetadata(): Promise<void> {
     }
 }
 
-// ---------- poller ----------
 
 async function pollOnceFromSDK(): Promise<void> {
     if (isPolling) return;
@@ -533,7 +476,6 @@ async function pollOnceFromSDK(): Promise<void> {
             currentSeq = body.current_seq;
         }
     } catch (err) {
-        // console.error("[Poller] SDK fetch failed:", err);
     } finally {
         isPolling = false;
     }
@@ -543,9 +485,6 @@ async function pollOnceFromMock(): Promise<void> {
     if (isPolling) return;
     isPolling = true;
     try {
-        // Per tick: emit up to 3 events. generateNextEvent internally:
-        //   - first drains due agent replies from the pending queue
-        //   - otherwise may emit a new customer message (and schedules a future reply)
         for (let i = 0; i < 3; i++) {
             const ev = generateNextEvent(Date.now());
             if (ev) await ingestMessage(ev);
@@ -556,16 +495,9 @@ async function pollOnceFromMock(): Promise<void> {
     }
 }
 
-// ---------- 企小码（qixioma）消息源 ----------
 
 let qixiomaSkipped = 0;
 
-/**
- * 从企小码 Web2API 增量拉取消息。每轮拉第 1 页（新消息在前），
- * 逐条经 ingestMessage（msg_id 去重），遇到连续已入库的消息即停。
- * 字段容错：sender/chatName 缺失（上游数据修复中）的消息跳过不落库，
- * 因此在数据修复完成前切换到该源是安全的（不会产生脏会话）。
- */
 async function pollOnceFromQixioma(): Promise<void> {
     if (isPolling) return;
     isPolling = true;
@@ -582,7 +514,6 @@ async function pollOnceFromQixioma(): Promise<void> {
                 continue;
             }
             consecutiveKnown = 0;
-            // 字段缺失：跳过（上游 sender/chatName/msgtime 修复中）
             if (!m.sender || !m.chatName) {
                 qixiomaSkipped++;
                 continue;
@@ -609,11 +540,7 @@ async function pollOnceFromQixioma(): Promise<void> {
 
 export async function startPoller(): Promise<void> {
     if (intervalId) return;
-    // 设置变更触发的重启是「先停后起」，两次快速变更可能并发进来；
-    // 用启动中的 promise 串行化，避免起出两个定时器。
     if (startPromise) return startPromise;
-    // 启动过程含多个 await（种子数据、首次拉取），期间可能收到停用/改源请求；
-    // 用代次号让过期的启动流程自行放弃，否则停用之后定时器还会被装上。
     const gen = stopGeneration;
     startPromise = doStartPoller(gen).finally(() => { startPromise = null; });
     return startPromise;
@@ -629,8 +556,6 @@ async function doStartPoller(gen: number): Promise<void> {
     if (source !== "qixioma") {
         await ensureSeedData();
         await backfillMissingSnapshots();
-        // Align every snapshot's unread_count with the current exemption config
-        // (no-op write when nothing changed, e.g. empty config).
         await recomputeSnapshotUnread();
         await backfillMissingImages();
         if (cancelled()) return;
@@ -640,21 +565,17 @@ async function doStartPoller(gen: number): Promise<void> {
     const useLive = source === "qixioma" ? false : hasLiveSdk();
     const fn = source === "qixioma" ? pollOnceFromQixioma : useLive ? pollOnceFromSDK : pollOnceFromMock;
     const label = source === "qixioma" ? "qixioma" : useLive ? "wx-sdk" : "mock";
-    // 先记状态再拉一次，避免首次拉取期间接口读到「未运行」
     runningSource = source === "qixioma" ? "qixioma" : "sdk";
     activeIntervalMs = interval;
     intervalId = setInterval(() => {
         fn().catch((e) => console.error("[Poller] tick error", e));
     }, interval);
     console.log(`[Poller] started (source=${label}, interval=${interval}ms)`);
-    // Kick once immediately（失败不影响已运行的定时器）
     await fn().catch((e) => console.error("[Poller] initial tick failed", e));
     if (cancelled()) return;
 
-    // Start metadata refresh (customer names + group chat names)
     if (useLive) {
         console.log(`[metadata] refresh scheduled every ${METADATA_REFRESH_MS / 1000}s`);
-        // Kick once after a short delay to not block startup
         setTimeout(() => refreshChatMetadata().catch(() => {}), 5000);
         metadataIntervalId = setInterval(() => {
             refreshChatMetadata().catch((e) => console.error("[metadata] tick error", e));
@@ -663,7 +584,6 @@ async function doStartPoller(gen: number): Promise<void> {
 }
 
 export function stopPoller(): void {
-    // 让进行中的启动流程作废（见 startPoller 的代次号说明）
     stopGeneration++;
     if (intervalId) {
         clearInterval(intervalId);
@@ -679,14 +599,9 @@ export function stopPoller(): void {
     }
 }
 
-/**
- * 按当前设置重启轮询器：系统配置里改了「消息源 / SDK 地址 / 轮询间隔 / 启用开关」
- * 后调用，无需重启进程。运行中的源与实际设置不一致时也会重启。
- */
 export async function restartPoller(): Promise<void> {
     const want = getIntegration("sdk");
     const running = intervalId !== null;
-    // 开关、消息源、间隔任一变化都要重启才能生效
     const needRestart = want.pollerEnabled !== running
         || (want.pollerEnabled && (runningSource !== want.source || activeIntervalMs !== want.intervalMs));
     if (!needRestart) return;
@@ -695,12 +610,10 @@ export async function restartPoller(): Promise<void> {
         console.log("[Poller] disabled by settings");
         return;
     }
-    // 等待在途的启动流程结束，再按新设置启动
     if (startPromise) await startPromise.catch(() => {});
     await startPoller();
 }
 
-// 会话源设置变更时自动重启轮询器（消息源/地址/间隔/开关生效，无需重启进程）
 onIntegrationChanged((id) => {
     if (id === "sdk") {
         restartPoller().catch((e) => console.error("[Poller] restart failed:", e));

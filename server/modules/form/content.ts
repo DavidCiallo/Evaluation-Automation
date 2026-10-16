@@ -1,22 +1,5 @@
-/**
- * 表单提交 → 确认单正文（LLM 生成）。
- *
- * 麦客建单（submission-sync）与订单签发确认单（confirmation）都从这里取正文，
- * 保证同一份提交在两处渲染出同一段文字。
- *
- * 正文由 LLM 基于表单的**原始字段**生成，而不是从固定的字段对照表里挑几行拼出来：
- * 客户提交的字段名五花八门、还会随表单改版漂移，硬编码的表只认那几十个，
- * 行程、单位、邀请人之类的长字段全被丢掉，确认单上看不到。
- *
- * 但确认单是给客户签字核对的文本，事实必须来自提交本身。所以约束写死在提示词里：
- * LLM 只做整理和措辞，不得新增、推断或补全任何一个值。缺什么就留空。
- *
- * LLM 不可用或调用失败时**抛出异常、拒绝签发**：宁可不签，
- * 也不能拿一份可能漏字段的正文去让客户签字。
- */
 import { isLlmConfigured, llmChat } from "../../lib/llm";
 
-/** 提交 → 提交给 LLM 的字段清单（全部非空字段）。 */
 function rawRows(fields: Array<{ name: string; value: string }>): Array<{ name: string; value: string }> {
     const rows: Array<{ name: string; value: string }> = [];
     for (const f of fields) {
@@ -48,7 +31,6 @@ const SYSTEM_PROMPT = `你在为出国签证代办业务整理「客户信息确
 8. 「本人承诺信息真实」「已阅读并同意免责声明」这类勾选确认项不要写进正文——
    那是客户自己刚做过的表态，不是需要他核对的信息。`;
 
-/** 提交 → 确认单正文（LLM 生成）。失败即抛错，由调用方拒绝签发。 */
 export async function buildContent(fields: Array<{ name: string; value: string }>): Promise<string> {
     const rows = rawRows(fields);
     if (rows.length === 0) throw "该提交没有任何字段内容，无法生成确认单正文";
@@ -71,10 +53,6 @@ export async function buildContent(fields: Array<{ name: string; value: string }
     return content;
 }
 
-/**
- * 客户档案 → 确认单正文（没有表单提交时的兜底）。
- * 字段比表单少，客户在签署页补填即可；有空白可核对，也好过签不出来。
- */
 export function buildContentFromProfile(p: {
     name?: string | null;
     gender?: string | null;

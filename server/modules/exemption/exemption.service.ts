@@ -30,7 +30,6 @@ export interface CompiledExemption {
 
 let cache: CompiledExemption | null = null;
 
-// ----- normalization & validation -----
 
 function cleanStrArr(arr: any): string[] {
     if (!Array.isArray(arr)) return [];
@@ -95,9 +94,7 @@ function compile(config: ExemptionConfig): CompiledExemption {
     };
 }
 
-// ----- public API -----
 
-/** Load (and cache) the compiled exemption config. */
 export async function getExemption(): Promise<CompiledExemption> {
     if (cache) return cache;
     const raw = await getConfigValue<ExemptionConfig>(CONFIG_KEY);
@@ -106,10 +103,8 @@ export async function getExemption(): Promise<CompiledExemption> {
     return cache;
 }
 
-/** Persist a new exemption config, invalidate cache and refresh metric caches. */
 export async function updateExemption(input: ExemptionConfig): Promise<ExemptionConfig> {
     const config = normalizeConfig(input);
-    // Validate that every regex compiles before persisting
     for (const r of config.rules) {
         if (r.regex) {
             try {
@@ -121,21 +116,13 @@ export async function updateExemption(input: ExemptionConfig): Promise<Exemption
     }
     await setConfigValue(CONFIG_KEY, config);
     cache = null;
-    // Dynamic import to avoid a static circular dependency (metric → exemption).
     const { refreshMetricCaches } = await import("../metric/metric.service");
     refreshMetricCaches();
-    // Re-derive every snapshot's exemption-aware unread_count so pending state
-    // reflects the new rules immediately. Dynamic import: exemption → sync would
-    // otherwise form a static cycle (exemption → config → sync).
     const { recomputeSnapshotUnread } = await import("../sync/sync.service");
     await recomputeSnapshotUnread();
     return config;
 }
 
-/**
- * 切换单个会话的豁免状态（工作台“豁免此会话”入口）。
- * 复用 updateExemption 以触发缓存失效、指标刷新与快照 unread 重算。
- */
 export async function setChatExemption(chatId: string, exempt: boolean): Promise<ExemptionConfig> {
     const ex = await getExemption();
     const set = new Set(ex.config.chats);
@@ -144,7 +131,6 @@ export async function setChatExemption(chatId: string, exempt: boolean): Promise
     return updateExemption({ ...ex.config, chats: [...set] });
 }
 
-// ----- matching helpers (synchronous, operate on a compiled snapshot) -----
 
 function ruleHasConditions(r: CompiledRule): boolean {
     return r.contains.length > 0 || r.not_contains.length > 0 || r.regex !== null;
@@ -158,7 +144,6 @@ export function isExemptCustomer(ex: CompiledExemption, wechatId: string): boole
     return ex.custSet.has(wechatId);
 }
 
-/** True if a customer message matches ANY enabled rule. */
 export function isExemptCustomerMessage(ex: CompiledExemption, content: string): boolean {
     if (!content) return false;
     const lower = content.toLowerCase();
@@ -172,7 +157,6 @@ export function isExemptCustomerMessage(ex: CompiledExemption, content: string):
     return false;
 }
 
-/** Combined check used by the metrics walk for a customer message. */
 export function shouldSkipCustomerMessage(
     ex: CompiledExemption,
     chatId: string,
@@ -182,12 +166,6 @@ export function shouldSkipCustomerMessage(
     return isExemptChat(ex, chatId) || isExemptCustomer(ex, fromId) || isExemptCustomerMessage(ex, content);
 }
 
-/**
- * Exemption-aware "unread" count for a chat: the number of customer messages
- * sent after the last agent message that are NOT exempted. Exempted customer
- * messages (exempt chat / exempt customer / rule-matched content) do not
- * count as unread, so they never mark the chat as pending.
- */
 export function computeExemptUnread(
     msgs: Array<{ from_role: string; from_id: string; content: string; send_time: number }>,
     ex: CompiledExemption,
@@ -207,9 +185,7 @@ export function computeExemptUnread(
     return unread;
 }
 
-// ----- picker data sources -----
 
-/** Resolve display names for the currently selected chats/customers (for UI echo). */
 export async function resolveNames(config: ExemptionConfig): Promise<{
     chatNames: Record<string, string>;
     customerNames: Record<string, string>;
@@ -227,7 +203,6 @@ export async function resolveNames(config: ExemptionConfig): Promise<{
         await memberRepo.findEach({}, (m) => {
             if (m.role === "customer" && wanted.has(m.wechat_id)) {
                 const display = (m.remark || "").trim() || (m.name || "").trim() || m.wechat_id;
-                // Prefer a richer display name (remark > name) if seen across chats
                 const prev = customerNames[m.wechat_id];
                 if (!prev || prev === m.wechat_id) customerNames[m.wechat_id] = display;
             }
@@ -259,7 +234,6 @@ export async function searchCustomers(keyword: string): Promise<CustomerOption[]
         if (!existing) {
             byId.set(m.wechat_id, { name, remark });
         } else {
-            // A customer may appear in many chats; keep the richest info
             if (!existing.remark && remark) existing.remark = remark;
             if (!existing.name && name) existing.name = name;
         }

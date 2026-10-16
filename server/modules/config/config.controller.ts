@@ -2,7 +2,6 @@ import { configRoutes } from "../../../shared/modules/config/config.router";
 import { ConfigGetRequest, ConfigUpdateRequest, ConfigResetRequest } from "../../../shared/modules/config/config.interface";
 import { getBundle, setConfigValue, resetConfigValue, isEditableKey } from "./config.service";
 
-/** Config keys that affect derived metrics — changing them must recompute caches. */
 const METRIC_KEYS = new Set([
     "frt_threshold_sec",
     "rate30_threshold_sec",
@@ -36,8 +35,6 @@ async function update(request: ConfigUpdateRequest) {
         if (typeof req.value !== "string") throw `${req.key} must be string`;
         await setConfigValue(req.key, req.value);
     }
-    // Metric-related config changes must re-derive the cached metrics immediately.
-    // Dynamic import avoids a static cycle (metric.service imports config.service).
     if (METRIC_KEYS.has(req.key)) {
         const { refreshMetricCaches } = await import("../metric/metric.service");
         refreshMetricCaches();

@@ -47,7 +47,6 @@ async function assign(request: AccountPoolAssignRequest) {
 async function remove(request: AccountPoolRemoveRequest) {
     const req = AccountPoolRemoveRequest.self(request);
     const rows = await svc.removeAccount(req.id);
-    // 删除返回的是同订单剩下的账号；orderId 从任意一行取，空列表时无从取也无所谓
     return { list: rows.length > 0 ? await svc.toDTOs(rows, rows[0].order_id) : [] };
 }
 

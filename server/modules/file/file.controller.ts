@@ -28,10 +28,6 @@ async function remove(request: FileRemoveRequest) {
 export const fileMount = {
     routes: fileRoutes,
     handlers: { list, detail, remove },
-    /**
-     * 上传：multipart/form-data（field: file, uploaded_by）。
-     * 直接返回 Response（multipart 请求体在 mounthttp 之前被 app 层拦截调用本方法）。
-     */
     uploadMultipart: async (req: Request): Promise<Response> => {
         const wrapOk = (data: any) => new Response(JSON.stringify({ success: true, data }), {
             headers: { "Content-Type": "application/json" },

@@ -4,7 +4,6 @@ import { isWxConfigured } from "../../lib/wx";
 import { isLlmConfigured } from "../../lib/llm";
 import { isPollerRunning } from "../sync/sync.service";
 
-/** config 集合行形状：{key, value}。 */
 interface ConfigEntity {
     id: string;
     create_time: number;
@@ -100,7 +99,6 @@ export const DEFAULT_ITINERARY_PROMPT = `你是资深签证行程规划师，擅
 - 每条 row 的 date 必须是对应日期的 DD-MMM 短格式（如 24-Sep）
 - 所有字段必须为字符串，不得省略`;
 
-/** 表客表单转录 prompt（mike/survey 回填数据 → 客户资料结构化字段）。 */
 export const DEFAULT_FORM_TRANSCRIBE_PROMPT = `你是签证业务数据录入助手。下面是一份客户填写的表单数据（字段名→值）。
 请把表单内容映射为签证申请人的结构化字段，只输出 JSON，不要解释文字。
 
@@ -122,20 +120,17 @@ export const DEFAULT_FORM_TRANSCRIBE_PROMPT = `你是签证业务数据录入助
 表单数据：
 {fields_json}`;
 
-/** AI 邮件摘要 prompt。 */
 export const DEFAULT_EMAIL_SUMMARIZE_PROMPT = `你是签证客服助理。请阅读一封客户邮件并输出 JSON（不要解释文字）：
 {"summary":"两句话以内的中文摘要","intent":"分类，取值：咨询|材料|进度|投诉|其他"}
 - summary 提炼客户诉求与关键信息（人名/国家/日期/金额等）
 - intent 判断邮件主要意图`;
 
-/** AI 邮件回复起草 prompt。 */
 export const DEFAULT_EMAIL_REPLY_PROMPT = `你是签证客服。请根据原邮件写一封专业、友好的中文回复。
 要求：
 - 直接输出邮件正文 HTML（<p> 段落），不要 Markdown、不要前后缀说明
 - 语气礼貌简洁；涉及材料清单时用 <ul><li> 列出
 - 结尾署名留空（系统会追加客服签名）`;
 
-/** 材料清单模板：国家 × 签证类型 → 必备材料。支持给国家设置别名（如 法国→申根）。 */
 export interface MaterialTemplateEntry {
     country: string;
     aliases?: string[];
@@ -210,11 +205,7 @@ const DEFAULTS: Record<string, any> = {
     business_start_hour: 8,
     business_end_hour: 18,
     business_days: [1, 2, 3, 4, 5], // Mon–Fri (JS getDay(): 0=Sun…6=Sat)
-    // Per-agent working-hour overrides keyed by agent wechat_id. Each value is a
-    // partial { start_hour?, end_hour?, days? } merged on top of the defaults
-    // above; agents absent here simply use the default calendar.
     agent_business_hours: {},
-    // 材料清单模板字典：国家 × 签证类型 → 必备材料（按模板自动生成客户材料行）
     material_templates: DEFAULT_MATERIAL_TEMPLATES,
 };
 

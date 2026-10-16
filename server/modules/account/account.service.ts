@@ -43,12 +43,6 @@ export class AccountService {
         await accountRepository.delete({ id });
     }
 
-    /**
-     * Register a wechat_id as an agent account and backfill historical data:
-     * 1. Flip from_role of all past messages sent by this wechat_id to "agent"
-     * 2. Flip role of all chat member records for this wechat_id to "agent"
-     * 3. Recompute snapshots (unread_count etc.) for every affected chat
-     */
     static async backfillAgent(wechatId: string): Promise<{ chats: number }> {
         await conversationRepo.update({ from_id: wechatId } as any, { from_role: "agent" } as any);
         await memberRepo.update({ wechat_id: wechatId } as any, { role: "agent" } as any);
