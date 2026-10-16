@@ -1,10 +1,5 @@
 import crypto from "crypto";
 
-/**
- * 会话密钥必须显式配置 SECRET（至少 16 字符），缺失时启动即失败。
- * 历史上未配置时退化为 Date.now().toString(36)：既是可预测的弱密钥，
- * 又导致每次进程重启后全部在线 token 失效。
- */
 const secret = process.env.SECRET;
 if (!secret || secret.length < 16) {
     throw new Error("SECRET 环境变量必须设置且长度不小于 16（用于会话 token 加密），请在 .env 中配置");
@@ -17,15 +12,8 @@ if (noncelen < 6) {
 }
 
 const secretKey = crypto.createHash("sha256").update(secret).digest();
-/** AES 块 16 字节 = 32 个十六进制字符；每次加密生成全新随机 IV 并前置到密文。 */
 const IV_HEX_LEN = 32;
 
-/**
- * Token 加密：每次调用生成新的随机 IV，格式为 iv(hex) + 密文(hex)。
- * 修复旧的模块级固定 IV —— CBC 模式下同一 IV 会使相同前缀的明文产生相同密文。
- * 载荷为明文 `identity|expried`（旧的字符反转混淆一并移除）。
- * 注意：格式变更使升级前签发的 token 全部失效，用户需重新登录（预期行为）。
- */
 export function aesEncrypt(originalData: string): string {
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv("aes-256-cbc", secretKey, iv);

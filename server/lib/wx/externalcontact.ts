@@ -1,6 +1,5 @@
 import { WeComBin } from "./base";
 
-/** External contact (客户/外部联系人) endpoints used for resolving customer profile. */
 export class WeComExternalContact {
     constructor(private bin: WeComBin) {}
 

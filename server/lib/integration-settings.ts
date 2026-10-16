@@ -1,16 +1,3 @@
-/**
- * 外围系统接入设置：运行时解析 + 落库。
- *
- * 解析优先级：库内设置（Config 集合的 integrations 键）> 环境变量 > 内置默认值。
- * 环境变量只作兜底，沿用原有 .env 的部署无需改动。
- *
- * 客户端读取方式：
- *   await ensureIntegrationSettings()   // 首次调用从库里装载一次（幂等）
- *   const cfg = getIntegration("mike")  // 同步读取；未装载时退化为环境变量解析
- *
- * 库内设置存在 data/app.db（gitignored），密钥不会进仓库。
- * 密钥明文只在服务端流转：对外只暴露 has_secret / secret_source。
- */
 import Repository from "./repository";
 import type {
     IntegrationProviderId,
@@ -29,10 +16,8 @@ interface ConfigRow {
 
 const cfgRepo: Repository<ConfigRow> = Repository.instance("Config");
 
-/** 库内设置的存储键（单个键存全部提供方，读一次即够）。 */
 const STORE_KEY = "integrations";
 
-/** 未配置时的默认入口地址。 */
 const DEFAULT_BASE: Record<IntegrationProviderId, string> = {
     survey: "https://survey.noworrytourism.cn",
     mike: "https://mike.noworrytourism.cn",
@@ -44,18 +29,15 @@ const DEFAULT_BASE: Record<IntegrationProviderId, string> = {
 
 const DEFAULT_SDK_HOST = "http://127.0.0.1:8899";
 
-/** 单个提供方的库内设置（全部字段可选，缺省回落到 env/默认）。 */
 interface StoredEntry {
     enabled?: boolean;
     base_url?: string;
     account?: string;
     secret?: string;
     interval_ms?: number;
-    /** 字符串数组类的附加项（如确认单的内部签署人名单） */
     signers?: string;
 }
 
-/** 会话源库内设置。 */
 interface StoredSdkEntry {
     host?: string;
     interval_ms?: number;
@@ -69,25 +51,18 @@ let stored: StoredSettings = {};
 let loaded = false;
 let loading: Promise<void> | null = null;
 
-/**
- * 设置版本号：每次装载/保存/清空 +1。
- * 各外围客户端缓存已解析的地址与 token，用版本号判断是否需要重建配置
- * （否则界面改完地址必须重启进程才生效）。
- */
 let revision = 0;
 
 export function getIntegrationRevision(): number {
     return revision;
 }
 
-/** 提供方元数据：标签、说明、账号/密钥字段的界面文案、默认轮询间隔。 */
 const META: Record<IntegrationProviderId, {
     label: string;
     hint: string;
     accountLabel: string | null;
     secretLabel: string | null;
     defaultIntervalMs: number | null;
-    /** 该提供方是否有「内部签署人」这类自定义字段；null 表示前端不渲染 */
     signersLabel?: string | null;
 }> = {
     survey: {
@@ -135,7 +110,6 @@ const META: Record<IntegrationProviderId, {
     },
 };
 
-/** 环境变量默认值（兜底用；与 .env.example 对应）。 */
 function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { secret?: string; account?: string } {
     const num = (v: string | undefined) => {
         const n = Number(v);
@@ -152,7 +126,6 @@ function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { 
             return {
                 base_url: process.env.MIKE_BASE_URL || DEFAULT_BASE.mike,
                 secret: process.env.MIKE_PASSWORD || "",
-                // MIKE_INGEST=off 是旧开关，等价于默认关闭该提供方
                 enabled: process.env.MIKE_INGEST === "off" ? false : true,
                 interval_ms: num(process.env.MIKE_INGEST_INTERVAL_MS),
             };
@@ -166,7 +139,6 @@ function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { 
                 base_url: process.env.EMAIL_BASE_URL || DEFAULT_BASE.email,
                 account: process.env.EMAIL_EMAIL || "",
                 secret: process.env.EMAIL_PASSWORD || "",
-                // EMAIL_LINK=off 是旧开关，等价于默认关闭邮箱提供方
                 enabled: process.env.EMAIL_LINK === "off" ? false : true,
                 interval_ms: num(process.env.EMAIL_LINK_INTERVAL_MS),
             };
@@ -177,7 +149,6 @@ function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { 
                 signers: process.env.CONTRACT_INTERNAL_SIGNERS || "",
             };
         case "qixioma":
-            // 轮询间隔不在提供方上配置：企小码作为消息源时使用「会话源」的间隔
             return { base_url: process.env.QIXIOMA_BASE_URL || DEFAULT_BASE.qixioma };
         case "sdk":
             return {
@@ -189,7 +160,6 @@ function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { 
     }
 }
 
-/** 已解析的提供方设置（密钥为明文，仅服务端可见）。 */
 export interface ResolvedProvider {
     id: IntegrationProviderId;
     enabled: boolean;
@@ -198,11 +168,9 @@ export interface ResolvedProvider {
     secret: string;
     secretSource: SecretSource;
     intervalMs: number | null;
-    /** 已解析的附加名单（逗号分隔原样保存，由调用方按需切分） */
     signers: string;
 }
 
-/** 已解析的会话源设置。 */
 export interface ResolvedSdk {
     host: string;
     intervalMs: number;
@@ -243,7 +211,6 @@ function resolveSdk(): ResolvedSdk {
     };
 }
 
-/** 同步读取已解析的设置（未装载时按环境变量解析，不抛错）。 */
 export function getIntegration(id: IntegrationProviderId): ResolvedProvider;
 export function getIntegration(id: "sdk"): ResolvedSdk;
 export function getIntegration(id: IntegrationTargetId): ResolvedProvider | ResolvedSdk;
@@ -251,7 +218,6 @@ export function getIntegration(id: IntegrationTargetId): ResolvedProvider | Reso
     return id === "sdk" ? resolveSdk() : resolveProvider(id);
 }
 
-/** 从库中装载设置（幂等，只读一次）。 */
 export async function ensureIntegrationSettings(): Promise<void> {
     if (loaded) return;
     if (!loading) {
@@ -260,7 +226,6 @@ export async function ensureIntegrationSettings(): Promise<void> {
                 const row = await cfgRepo.findOne({ key: STORE_KEY });
                 stored = (row?.value && typeof row.value === "object") ? row.value as StoredSettings : {};
             } catch (e) {
-                // 库不可用时退化为纯环境变量解析
                 console.error("[integration] load settings failed:", e);
                 stored = {};
             }
@@ -271,7 +236,6 @@ export async function ensureIntegrationSettings(): Promise<void> {
     await loading;
 }
 
-/** 是否已有库内设置（用于界面提示「当前由环境变量提供」）。 */
 export function hasStoredSettings(): boolean {
     return Object.keys(stored).length > 0;
 }
@@ -285,17 +249,12 @@ function sanitizeBaseUrl(v: unknown): string {
 
 function sanitizeInterval(v: unknown): number {
     const n = Number(v);
-    // 5 秒是企微 SDK 轮询的既有默认值，以此为下限；上限避免写出「永不执行」的间隔
     if (!Number.isFinite(n) || n < 5_000 || n > 24 * 60 * 60 * 1000) {
         throw "轮询间隔需在 5 秒 ~ 24 小时之间（毫秒）";
     }
     return Math.round(n);
 }
 
-/**
- * 设置变更监听器：各后台任务在启动时注册自己的重启回调。
- * 这样本模块不必反向依赖 modules/ 下的具体任务，依赖方向保持 lib ← modules。
- */
 type ChangeListener = (id: IntegrationTargetId) => void;
 const listeners = new Set<ChangeListener>();
 
@@ -303,7 +262,6 @@ export function onIntegrationChanged(fn: ChangeListener): void {
     listeners.add(fn);
 }
 
-/** 通知后台任务设置已变更（轮询类任务据新的开关/间隔重启）。 */
 function notifyIntegrationChanged(id: IntegrationTargetId): void {
     for (const fn of listeners) {
         try {
@@ -314,7 +272,6 @@ function notifyIntegrationChanged(id: IntegrationTargetId): void {
     }
 }
 
-/** 更新单个目标（提供方或会话源）的设置。secret 省略/空串表示保持原值。 */
 export async function saveIntegration(id: IntegrationTargetId, patch: Record<string, any>): Promise<void> {
     await ensureIntegrationSettings();
     const entry: any = { ...(stored[id] || {}) };
@@ -356,7 +313,6 @@ export async function saveIntegration(id: IntegrationTargetId, patch: Record<str
     notifyIntegrationChanged(id);
 }
 
-/** 清空单个目标的库内设置，回到环境变量/默认值，并清除已保存的密钥。 */
 export async function clearIntegration(id: IntegrationTargetId): Promise<void> {
     await ensureIntegrationSettings();
     if (!stored[id]) return;
@@ -364,7 +320,6 @@ export async function clearIntegration(id: IntegrationTargetId): Promise<void> {
     delete next[id];
     stored = next;
     const row = await cfgRepo.findOne({ key: STORE_KEY });
-    // 全部清空时删掉整行，避免留下空对象（界面会据此判断是否仍由环境变量提供）
     if (row) {
         if (Object.keys(stored).length === 0) await cfgRepo.hardDelete({ key: STORE_KEY });
         else await cfgRepo.update({ id: row.id }, { value: stored });
@@ -373,7 +328,6 @@ export async function clearIntegration(id: IntegrationTargetId): Promise<void> {
     notifyIntegrationChanged(id);
 }
 
-/** 提供方是否已配置齐全（enabled 且必填项非空）。 */
 export function missingFields(p: ResolvedProvider): string[] {
     if (!p.enabled) return ["已停用"];
     const missing: string[] = [];
@@ -406,7 +360,6 @@ function toProviderView(p: ResolvedProvider): IntegrationProviderView {
     };
 }
 
-/** 组装给前端的完整视图（密钥脱敏）。 */
 export function integrationSettingsView(sdkRuntime: { running: boolean; runningSource: "sdk" | "qixioma" | null }): IntegrationSettingsView {
     const providers = (Object.keys(META) as IntegrationProviderId[]).map((id) => toProviderView(resolveProvider(id)));
     const sdk = resolveSdk();

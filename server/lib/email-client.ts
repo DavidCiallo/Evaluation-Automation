@@ -1,14 +1,3 @@
-/**
- * NW邮箱系统（email.noworrytourism.cn）客户端。
- * API：POST /api/auth/login（identify）→ token（请求头小写 token:）；
- *      POST /api/email/list {account?,page,limit} → {accounts,list,total}；
- *      POST /api/email/detail {id}；POST /api/email/send {email:{from,to,subject,html,attachments?}}；
- *      POST /api/email/attachment {id,index} → 文件流；POST /api/mailbox/list。
- * 发件域名白名单：noworrytourism.cn / ehex.cc / 163.com。
- *
- * 入口地址与账号来自「系统配置 → 外围系统接入」，环境变量仅作兜底；
- * 配置变更通过 revision 识别并自动重建 token。
- */
 import { getIntegration, getIntegrationRevision } from "./integration-settings";
 
 interface EmailConfig {
@@ -17,7 +6,6 @@ interface EmailConfig {
     password: string;
 }
 
-/** 邮件列表条目。 */
 export interface EmailListItem {
     id: string;
     account_id: string;
@@ -32,7 +20,6 @@ export interface EmailListItem {
     source: string;
 }
 
-/** 邮件详情。 */
 export interface EmailDetail extends EmailListItem {
     text: string;
     html: string;
@@ -50,7 +37,6 @@ export interface MailboxInfo {
     provider: string;
     forward_enabled: boolean;
     last_sync_time: number | null;
-    /** 邮箱系统里打的标签，原样带出 */
     labels: string[];
     domain: string;
 }
@@ -116,13 +102,11 @@ class EmailClient {
         return (json.data ?? json) as T;
     }
 
-    /** 收件账号列表（本地部分，如 hello0）。 */
     async listAccounts(): Promise<string[]> {
         const d = await this.post<any>("/api/email/list", { page: 1, limit: 1 });
         return d?.accounts || [];
     }
 
-    /** 邮件列表。account 不传则跨账号按时间倒序。 */
     async listEmails(opts?: { account?: string; keyword?: string; page?: number; limit?: number }): Promise<{ list: EmailListItem[]; total: number; accounts: string[] }> {
         const body: Record<string, any> = { page: opts?.page || 1, limit: opts?.limit || 30 };
         if (opts?.account) body.account = opts.account;
@@ -144,7 +128,6 @@ class EmailClient {
         return { list, total: Number(d?.total || 0), accounts: d?.accounts || [] };
     }
 
-    /** 邮件详情（含 text/html/attachments）。 */
     async getEmailDetail(id: string): Promise<EmailDetail | null> {
         const d = await this.post<any>("/api/email/detail", { id });
         if (!d || !d.id) return null;
@@ -168,7 +151,6 @@ class EmailClient {
         };
     }
 
-    /** 发送邮件。from 须为白名单域名；attachments 为 base64 内容（无 data-url 前缀）。 */
     async sendEmail(input: { from: string; to: string; subject: string; html: string; attachments?: Array<{ filename: string; content: string }> }): Promise<{ status: string }> {
         const payload: Record<string, any> = { from: input.from, to: input.to, subject: input.subject, html: input.html };
         if (input.attachments && input.attachments.length > 0) payload.attachments = input.attachments;
@@ -176,7 +158,6 @@ class EmailClient {
         return { status: String(d?.status || d?.data?.status || "sent") };
     }
 
-    /** 下载附件（index 对应详情 attachments 数组下标）。 */
     async downloadAttachment(id: string, index: number): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
         const cfg = this.ensureConfig();
         const token = await this.login();
@@ -196,7 +177,6 @@ class EmailClient {
         };
     }
 
-    /** 已配置的收件信箱（IMAP/API 型）。 */
     async listMailboxes(): Promise<MailboxInfo[]> {
         const d = await this.post<any>("/api/mailbox/list", {});
         return (d?.list || []).map((x: any) => ({
@@ -213,12 +193,6 @@ class EmailClient {
         }));
     }
 
-    /**
-     * 取一个还没被占用的信箱：指定域名、没标签、且没有生效中的授权。
-     *
-     * 「没标签」单独用不够——有的信箱已经发过授权却没打标签，
-     * 只按标签筛会把别人的号抢过来。
-     */
     async pickFreeMailbox(domain: string): Promise<MailboxInfo | null> {
         const boxes = await this.listMailboxes();
         const grants = await this.listGrants();
@@ -229,13 +203,11 @@ class EmailClient {
         return free[Math.floor(Math.random() * free.length)];
     }
 
-    /** 授权列表。 */
     async listGrants(): Promise<any[]> {
         const d = await this.post<any>("/api/mailbox/grant-list", {});
         return d?.list || [];
     }
 
-    /** 给信箱发一张限时访问授权，返回授权链接用的原始 token。 */
     async createGrant(input: { mailbox_id: string; days: number; note?: string; can_send?: boolean }): Promise<{ token: string; grant: any }> {
         const d = await this.post<any>("/api/mailbox/grant-create", {
             mailbox_id: input.mailbox_id,
@@ -246,7 +218,6 @@ class EmailClient {
         return { token: String(d?.token || ""), grant: d?.grant || null };
     }
 
-    /** 发件历史。 */
     async sendLog(page = 1, limit = 30): Promise<{ list: any[]; total: number }> {
         const d = await this.post<any>("/api/email/send-log/list", { page, limit });
         return { list: d?.list || [], total: Number(d?.total || 0) };

@@ -1,8 +1,3 @@
-/**
- * JSONL → SQLite 一次性迁移（幂等）。
- * 仅迁移 SQLite 侧为空（或无表）的集合；已有数据的集合跳过。
- * 服务启动时自动调用（repository.ts 首次取驱动前），也可手动执行 scripts/migrate-jsonl-to-sqlite.ts。
- */
 import path from "path";
 import fs from "fs";
 import { Database } from "bun:sqlite";
@@ -18,7 +13,6 @@ export function jsonlCollections(): string[] {
         .map((f) => f.replace(/\.jsonl$/, ""));
 }
 
-/** 迁移全部 JSONL 集合，返回 {migrated, skipped, rows}。 */
 export function migrateJsonlToSqlite(): { migrated: string[]; skipped: string[]; rows: number } {
     const migrated: string[] = [];
     const skipped: string[] = [];
@@ -50,7 +44,6 @@ export function migrateJsonlToSqlite(): { migrated: string[]; skipped: string[];
                 try {
                     batch.push(JSON.parse(trimmed));
                 } catch {
-                    // 跳过损坏行
                 }
             }
             if (batch.length === 0) {
@@ -88,7 +81,6 @@ export function migrateJsonlToSqlite(): { migrated: string[]; skipped: string[];
     return { migrated, skipped, rows };
 }
 
-/** 启动时调用：仅当 SQLite 库尚不存在且存在 JSONL 数据时执行一次迁移。 */
 export function autoMigrateOnBoot(): void {
     if (fs.existsSync(DB_PATH)) return;
     const collections = jsonlCollections();

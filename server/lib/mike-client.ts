@@ -1,13 +1,3 @@
-/**
- * 麦客表单捕获系统（mike.noworrytourism.cn，Maike Web2API）客户端。
- * 该系统存储客户在 mikecrm.com 填写的表单提交（由浏览器插件采集入库）。
- * API：POST /api/auth（仅密码，任意用户名）→ Bearer token；
- *      GET /api/forms、GET /api/submissions?form_id=&page=&limit=&keyword=。
- * token 内存缓存，过期后自动重新登录。
- *
- * 入口地址与口令来自「系统配置 → 外围系统接入」，环境变量仅作兜底；
- * 配置变更通过 revision 识别并自动重建 token。
- */
 import { getIntegration, getIntegrationRevision } from "./integration-settings";
 import { maybeSamePerson } from "./name-match";
 
@@ -16,7 +6,6 @@ interface MikeConfig {
     password: string;
 }
 
-/** 麦客表单定义。 */
 export interface MikeForm {
     formId: string;
     name: string;
@@ -24,7 +13,6 @@ export interface MikeForm {
     fields: Array<{ fieldId: string; name: string }>;
 }
 
-/** 麦客提交（归一化后）。submit_time 为解析后的时间戳。 */
 export interface MikeSubmission {
     key: string;
     form_id: string;
@@ -34,7 +22,6 @@ export interface MikeSubmission {
     fields: Array<{ fieldId: string; name: string; value: string }>;
 }
 
-/** "YYYY-MM-DD HH:mm:ss"（本地时区）→ 时间戳；解析失败返回 0。 */
 export function parseMikeTime(s: string | null | undefined): number {
     if (!s) return 0;
     const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
@@ -74,7 +61,6 @@ class MikeClient {
         }
     }
 
-    /** 登录拿 Bearer token（服务端 token 长期有效，缓存 24h）。 */
     async login(): Promise<string> {
         if (this.cachedToken && Date.now() < this.tokenExpiry) return this.cachedToken;
         const cfg = this.ensureConfig();
@@ -106,7 +92,6 @@ class MikeClient {
         return json;
     }
 
-    /** 全部麦客表单。 */
     async getForms(): Promise<MikeForm[]> {
         const json = await this.get<{ data: any[] }>("/api/forms", { limit: 200 });
         return (json.data || []).map((f) => ({
@@ -117,7 +102,6 @@ class MikeClient {
         })).filter((f) => f.formId);
     }
 
-    /** 分页拉取提交。keyword 匹配提交人姓名等。 */
     async getSubmissions(opts?: { formId?: string; keyword?: string; page?: number; limit?: number; from?: string; to?: string }): Promise<{ list: MikeSubmission[]; total: number }> {
         const json = await this.get<{ data: any[]; pagination?: { total?: number } }>("/api/submissions", {
             form_id: opts?.formId,
@@ -142,17 +126,6 @@ class MikeClient {
         return { list, total: json.pagination?.total ?? list.length };
     }
 
-    /**
-     * 按姓名找提交：先收窄到时间窗，再「精确优先、失配退模糊」。
-     *
-     * 两条模糊方向都要管：
-     *  - 客户只写了姓（"曾"），记录是全名（"曾杨"）——keyword 本身能命中；
-     *  - 表单里只填了姓（记录"曾"），客户是全名（"曾扬"）——keyword 是子串匹配，
-     *    拿"曾扬"去搜永远搜不到叫"曾"的记录，必须再拿姓单独搜一遍才可能进来。
-     *
-     * 时间窗对两支都生效：同一姓名往年填过很常见（曾扬 2025/10/14 有一条），
-     * 若精确命中不受窗口约束，就会为一年前的记录放弃上周新填的那份。
-     */
     private async search(name: string, opts: { formId?: string; withinDays?: number; limit?: number }): Promise<MikeSubmission[]> {
         const target = (name || "").trim();
         if (!target) return [];
@@ -170,7 +143,6 @@ class MikeClient {
 
         scan((await this.getSubmissions({ formId: opts.formId, keyword: target, limit: opts.limit || 100 })).list);
 
-        // 表单里只填了姓时，上面的 keyword 搜不到（"曾扬" 匹配不上 "曾"），得拿姓再搜一遍
         if (seen.size === 0 && target.length > 1) {
             for (const part of [target.slice(0, 1), target]) {
                 scan((await this.getSubmissions({ formId: opts.formId, keyword: part, limit: opts.limit || 100 })).list);
@@ -182,27 +154,20 @@ class MikeClient {
         return (exact.length > 0 ? exact : rows).sort((a, b) => b.submit_time - a.submit_time);
     }
 
-    /** 按表单+姓名取全部匹配提交（姓名精确相等优先，失配时模糊，最近一周）。 */
     async findSubmissionsByName(formId: string, name: string): Promise<MikeSubmission[]> {
         return this.search(name, { formId, withinDays: 7 });
     }
 
-    /**
-     * 该表单最近的提交，不看姓名。
-     * 客户可能用别的名字/英文名填表，同名搜不到时靠这个让客服自己认。
-     */
     async listRecentSubmissions(formId: string, limit = 20): Promise<MikeSubmission[]> {
         const { list } = await this.getSubmissions({ formId, limit });
         return list.sort((a, b) => b.submit_time - a.submit_time).slice(0, limit);
     }
 
-    /** 按表单+姓名精确匹配最近一次提交（name 精确相等优先，其次包含）。 */
     async findSubmissionByName(formId: string, name: string): Promise<MikeSubmission | null> {
         const list = await this.findSubmissionsByName(formId, name);
         return list[0] || null;
     }
 
-    /** 按 key 精确取一份提交（拉最近若干页查找；key 形如 "formId|姓名|时间"）。 */
     async findSubmissionByKey(key: string): Promise<MikeSubmission | null> {
         const formId = key.split("|")[0] || "";
         for (let page = 1; page <= 5; page++) {
@@ -214,13 +179,6 @@ class MikeClient {
         return null;
     }
 
-    /**
-     * 跨全部表单按姓名找提交。
-     *
-     * 不能先按签证类型挑表单：同一类型的提交散落在多张表里
-     * （申根签（中国）104 份、英国申根 51 份、国际申根 12 份），
-     * 钉死一张会漏掉大多数真实提交。
-     */
     async findSubmissionsByNameAnyForm(name: string, limit = 100): Promise<MikeSubmission[]> {
         return this.search(name, { withinDays: 7, limit });
     }

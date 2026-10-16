@@ -1,12 +1,3 @@
-/**
- * 企小码 Web2API（chat.noworrytourism.cn，Rust）客户端。
- * 企微会话由浏览器插件采集入库：GET /api/status、/api/contacts、
- * GET /api/messages?sender=&keyword=&page=&limit=（分页，total 在 pagination.total）。
- * 已知数据质量问题（修复中）：消息的 sender/chatName/msgtime 可能为 null。
- * 本客户端不做字段兜底——由调用方（sync 适配器）在字段缺失时跳过该消息。
- *
- * 入口地址来自「系统配置 → 外围系统接入」（会话源 · 企小码），环境变量仅作兜底。
- */
 import { getIntegration } from "./integration-settings";
 
 export interface QixiomaStatus {
@@ -33,7 +24,6 @@ export interface QixiomaMessage {
 }
 
 class QixiomaClient {
-    /** 每次读取都重新解析，配置改动无需重启进程。 */
     private get baseUrl(): string {
         return getIntegration("qixioma").baseUrl;
     }
@@ -56,7 +46,6 @@ class QixiomaClient {
         return json.data || null;
     }
 
-    /** 联系人表：wxid → {name, avatar}。 */
     async getContacts(): Promise<QixiomaContact[]> {
         const json = await this.get<{ data?: Record<string, { name?: string; avatar?: string | null }> }>("/api/contacts");
         const data = json.data || {};
@@ -67,7 +56,6 @@ class QixiomaClient {
         }));
     }
 
-    /** 分页拉取消息（按采集序，新消息在前）。 */
     async getMessages(opts?: { page?: number; limit?: number; sender?: string; keyword?: string }): Promise<{ list: QixiomaMessage[]; total: number }> {
         const json = await this.get<{ data?: any[]; pagination?: { total?: number } }>("/api/messages", {
             page: opts?.page || 1,

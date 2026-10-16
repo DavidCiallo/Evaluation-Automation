@@ -39,10 +39,6 @@ import { isWecomSeeded, seedFromWecomDb } from "../lib/seed-wecom";
 import { ensureIntegrationSettings, getIntegration } from "../lib/integration-settings";
 import { verifyToken } from "../lib/auth-guard";
 
-/**
- * multipart 上传不走 mounthttp（非 JSON 体），在此单独做与门禁一致的鉴权：
- * token 来自请求头（Authorization Bearer / token / x-api-key）。
- */
 function requireAuth(req: Request): string | null {
     const token =
         req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ||
@@ -55,16 +51,12 @@ function requireAuth(req: Request): string | null {
 const PORT = parseInt(process.env.SERVER_PORT || process.env.PORT || "2900");
 await initialize();
 
-// 外围系统接入设置必须先于任何后台任务装载：任务启动时读取开关/间隔/地址
 await ensureIntegrationSettings();
 
-// Boot: import from WeCom DB if configured and not yet seeded
 if (process.env.WECOM_DB_PATH && !isWecomSeeded()) {
     await seedFromWecomDb(process.env.WECOM_DB_PATH);
 }
 
-// Start poller: live SDK or mock fallback. Skip only when static seed data was loaded.
-// 轮询开关由「系统配置 → 外围系统接入 · 会话源」维护（默认 off，需要摄入时在界面开启）。
 const seeded = isWecomSeeded();
 const sdk = getIntegration("sdk");
 const hasLiveSdk = sdk.host !== "http://127.0.0.1:8899";
@@ -88,7 +80,6 @@ Bun.serve({
         const url = new URL(req.url);
         const pathName = url.pathname;
 
-        // Serve cached media files (images from WeCom SDK or uploaded materials)
         if (pathName.startsWith("/api/media/") && req.method === "GET") {
             const { serveCachedMedia, isInlineViewable } = await import("../lib/media");
             const filename = pathName.replace("/api/media/", "");
@@ -99,8 +90,6 @@ Bun.serve({
                         "Content-Type": file.contentType,
                         "Cache-Control": "public, max-age=86400",
                     };
-                    // 浏览器打不开的类型（doc/zip 等）直接下载，否则会开出一片乱码。
-                    // ?download=1 让图片也能按原文件名下载。
                     if (url.searchParams.get("download") === "1" || !isInlineViewable(filename)) {
                         const dl = url.searchParams.get("name") || filename;
                         headers["Content-Disposition"] = `attachment; filename*=UTF-8''${encodeURIComponent(dl)}`;
@@ -111,7 +100,6 @@ Bun.serve({
             return new Response("Not Found", { status: 404 });
         }
 
-        // Upload material files (multipart/form-data) — 模块化：文件上传统一走 /api/file/upload
         if (pathName === "/api/file/upload" && req.method === "POST") {
             if (!requireAuth(req)) {
                 return new Response(JSON.stringify({ success: false, message: "Authorization failed", data: null }), {
@@ -122,7 +110,6 @@ Bun.serve({
             return fileMount.uploadMultipart(req);
         }
 
-        // 兼容旧接口：订单材料上传也转交文件模块（迁移期保留）
         if (pathName === "/api/order/upload-material-file" && req.method === "POST") {
             if (!requireAuth(req)) {
                 return new Response(JSON.stringify({ success: false, message: "Authorization failed", data: null }), {

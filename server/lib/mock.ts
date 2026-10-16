@@ -1,12 +1,3 @@
-/**
- * Mock data generator — used when CORPID is not configured.
- * Produces realistic WeChat-like events: customer questions, agent replies,
- * and occasional visa-intent messages, so the dashboard and AI draft flow
- * are fully demonstrable without live credentials.
- *
- * Output shape mimics SDK_HOST poller payload:
- *   { msgid, from, tolist, roomid, msgtype, msgtime, text }
- */
 import Repository from "./repository";
 import type { ChatEntity, ChatMemberEntity } from "../../shared/modules/chat/chat.entity";
 import type { AccountEntity } from "../../shared/modules/account/account.entity";
@@ -22,7 +13,6 @@ export interface MockEvent {
     image?: { sdkfileid: string };
 }
 
-// Deterministic pool — kept small so seeding is reproducible
 const AGENTS = [
     { wechat_id: "agent_zhang", name: "张小雅" },
     { wechat_id: "agent_li", name: "李文博" },
@@ -66,7 +56,6 @@ function pick<T>(arr: T[]): T {
 }
 
 function pickDelay(): number {
-    // Bias toward fast replies, but sprinkle in slow ones
     const r = Math.random();
     if (r < 0.6) return 5_000 + Math.floor(Math.random() * 25_000); // 5-30s
     if (r < 0.85) return 30_000 + Math.floor(Math.random() * 60_000); // 30-90s
@@ -76,7 +65,6 @@ function pickDelay(): number {
 async function upsertMember(memberRepo: Repository<ChatMemberEntity>, chatInternalId: string, wechatId: string, role: "agent" | "customer", name: string) {
     const exist = await memberRepo.findOne({ chat_id: chatInternalId, wechat_id: wechatId });
     if (exist) {
-        // If already exists but name is still the raw wechat_id, update it to the proper name
         if (exist.name === wechatId && name !== wechatId) {
             await memberRepo.update({ id: exist.id }, { name });
         }
@@ -96,11 +84,9 @@ export async function ensureSeedData() {
     const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
     const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 
-    // If real data already exists (from WeCom import), skip mock seeding entirely
     const chatCount = await chatRepo.count();
     if (chatCount > 10) return;
 
-    // Ensure agent accounts exist as Account rows (for login / agent identification)
     for (const a of AGENTS) {
         const exist = await accountRepo.findOne({ email: `${a.wechat_id}@mock.local` });
         if (!exist) {
@@ -114,7 +100,6 @@ export async function ensureSeedData() {
         }
     }
 
-    // Create one 1:1 chat per customer
     for (const c of CUSTOMERS) {
         const agent = pick(AGENTS);
         const chatIdStr = `private_${[c.wechat_id, agent.wechat_id].sort().join("_")}`;
@@ -131,7 +116,6 @@ export async function ensureSeedData() {
         }
     }
 
-    // Create one group chat mixing 2 customers + 1 agent
     const groupAgent = AGENTS[0];
     const groupCustomers = [CUSTOMERS[0], CUSTOMERS[1]];
     const groupChatId = "group_demo_visa";
@@ -149,7 +133,6 @@ export async function ensureSeedData() {
         }
     }
 
-    // Fix any ChatMember records still using raw wechat_id as name
     const nameMap = new Map(AGENTS.map((a) => [a.wechat_id, a.name]));
     await memberRepo.findEach({ role: "agent" }, (m: any) => {
         if (m.name === m.wechat_id) {
@@ -159,7 +142,6 @@ export async function ensureSeedData() {
     });
 }
 
-// Pending customer message awaiting an agent reply (in-memory queue per chat)
 interface Pending {
     chatIdStr: string;
     isGroup: boolean;
@@ -190,7 +172,6 @@ function makeEvent(p: { isGroup: boolean; agentId: string; customerId: string; c
 }
 
 export function generateNextEvent(now: number): MockEvent | null {
-    // 1. First, fire any due agent reply from the pending queue
     for (let i = 0; i < pendingQueue.length; i++) {
         const p = pendingQueue[i];
         if (p.replyAt <= now) {
@@ -207,7 +188,6 @@ export function generateNextEvent(now: number): MockEvent | null {
         }
     }
 
-    // 2. 60% chance to emit a new customer message per tick; otherwise idle
     if (Math.random() > 0.6) return null;
 
     const isGroup = Math.random() < 0.2;
@@ -217,7 +197,6 @@ export function generateNextEvent(now: number): MockEvent | null {
         ? "group_demo_visa"
         : `private_${[customer.wechat_id, agent.wechat_id].sort().join("_")}`;
 
-    // 30% intent message, 70% general
     const roll = Math.random();
     const content = roll < 0.3 ? pick(VISA_INTENT_LINES) : pick(GENERAL_LINES);
 
@@ -231,7 +210,6 @@ export function generateNextEvent(now: number): MockEvent | null {
         time: now,
     });
 
-    // Schedule an agent reply with a realistic delay (uses the bias toward fast replies)
     const replyDelay = pickDelay();
     pendingQueue.push({
         chatIdStr,
@@ -246,7 +224,6 @@ export function generateNextEvent(now: number): MockEvent | null {
     return ev;
 }
 
-/** Synthesize a plausible delay between customer→agent in mock land (used by metric calc when no real wait exists). */
 export function mockReplyDelayMs(): number {
     return pickDelay();
 }
