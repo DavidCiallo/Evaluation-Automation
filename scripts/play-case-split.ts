@@ -1,9 +1,3 @@
-/**
- * 拼团拆单冒烟：群聊 → 工单 → 分析 → 客服确认拆分 → 生成多个兄弟订单。
- *
- * 运行前置：服务端已启动，且 .env 配置了 ADMIN_EMAIL / ADMIN_PASSWORD。
- * 用 --chat=<Chat.id> 指定群聊（默认 chat002，群内 2 位客户）。
- */
 import { config } from "dotenv";
 config();
 
@@ -33,7 +27,6 @@ const chatId = chatArg ? chatArg.split("=")[1] : "chat002";
 
 const step = (n: number, title: string) => console.log(`\n===== 步骤 ${n}：${title} =====`);
 
-// ---------- 步骤 1：建工单并分析 ----------
 step(1, `从群聊建工单并分析（chat=${chatId}）`);
 const created: any = await call("/case/create-from-chat", { chat_id: chatId });
 const caseId = created.case.id;
@@ -46,7 +39,6 @@ for (const [i, g] of created.case.split_plan.entries()) {
     console.log(`  第${i + 1}单 ${g.order_name} ← ${g.member_wechat_ids.length} 人 | ${g.reason || ""}`);
 }
 
-// ---------- 步骤 2：客服改方案（模拟 2+1 之外的自定义分组） ----------
 step(2, "客服调整拆分方案（保存草稿）");
 const customers = created.case.candidates.filter((c: any) => c.is_customer);
 if (customers.length < 2) throw new Error(`该群客户不足 2 人（${customers.length}），无法演示拼团拆分`);
@@ -57,13 +49,11 @@ const manualGroups = [
 const saved: any = await call("/case/save-split-plan", { id: caseId, groups: manualGroups });
 console.log("保存后方案来源：", saved.case.split_plan_source, "，组数：", saved.case.split_plan.length);
 
-// ---------- 步骤 3：确认拆分 → 生成兄弟订单 ----------
 step(3, "客服确认拆分 → 生成订单");
 const confirmed: any = await call("/case/confirm-split", { id: caseId });
 console.log("工单状态：", confirmed.case.status_label);
 console.log("生成订单数：", confirmed.case.order_ids.length, "→", confirmed.case.order_ids.join(", "));
 
-// ---------- 步骤 4：核对订单确实平级且带 case_id ----------
 step(4, "核对订单：case_id / order_seq / 客户预填");
 for (const oid of confirmed.case.order_ids) {
     const d: any = await call("/order/detail", { id: oid });
@@ -73,7 +63,6 @@ for (const oid of confirmed.case.order_ids) {
     console.log(`      客户预填：${(draft?.customers || []).map((c: any) => c.name).join("、") || "（无）"}`);
 }
 
-// ---------- 步骤 5：幂等与防重 ----------
 step(5, "幂等校验：同群重复建工单应返回同一个");
 const again: any = await call("/case/create-from-chat", { chat_id: chatId });
 console.log("再次建工单得到：", again.case.id, again.case.id === caseId ? "✅ 同一个（幂等）" : "❌ 建出了第二个");
@@ -86,7 +75,6 @@ try {
 }
 console.log("重复确认被拒：", guarded ? "✅" : "❌ 未拦截");
 
-// ---------- 步骤 6：工单列表 ----------
 step(6, "工单列表");
 const list: any = await call("/case/list", { status: "all" });
 console.log("工单总数：", list.total);

@@ -1,8 +1,3 @@
-/**
- * 签证类型标记 + 群名解析客户 冒烟。
- *
- * 用法：bun run scripts/play-visa-type.ts [--chat=<Chat.id>]
- */
 const BASE = process.env.API_BASE || "http://localhost:2900/api";
 let auth = "";
 
@@ -26,7 +21,6 @@ const arg = (k: string, d: string) => process.argv.find((a) => a.startsWith(`--$
 auth = (await call("/auth/login", { identify: { email: "mail@example.com", password: "demo123@" } })).token;
 console.log("登录成功");
 
-// ---------- 纯函数：群名解析 ----------
 step(1, "群名解析客户 + 识别签证类型（离线，不调接口）");
 const { parseNamesFromChatName, detectVisaType } = await import(
     "../server/modules/case/analysis"
@@ -50,7 +44,6 @@ for (const s of samples) {
     console.log(`    类型=${v?.label || "（未识别）"}  客户=${names.length ? names.join("、") : "（无）"}`);
 }
 
-// ---------- 端到端：手工建单 ----------
 step(2, "手工建单：名字写进工单名，客户自动解析");
 const title = "NW.法签🇫🇷 曾煜桓 陈铭宇 曾扬 袁笛琨 姚力维";
 const created = await call("/case/create", { chat_name: title });

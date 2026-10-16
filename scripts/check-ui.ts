@@ -1,10 +1,3 @@
-/**
- * 界面渲染检查：用 Chrome DevTools Protocol 驱动真实浏览器会话，
- * 登录后逐个访问新增页面，收集页面异常并截图。
- *
- * 不引入测试框架：CDP 走 WebSocket，浏览器本身已装好。
- * 运行前置：后端 2900 与前端 3004 都在跑。
- */
 import fs from "fs";
 import { spawn } from "child_process";
 
@@ -45,7 +38,6 @@ async function getWsUrl(): Promise<string> {
     throw new Error("Chrome CDP 未就绪");
 }
 
-/** 极简 CDP 客户端：只实现本项目需要的几个命令。 */
 class Cdp {
     private ws: any;
     private id = 0;
@@ -107,7 +99,6 @@ async function shot(name: string) {
     return file;
 }
 
-/** 采集页面关键事实：是否渲染、卡片数、可见文本。 */
 const probe = `(() => ({
   url: location.pathname,
   rootChildren: document.getElementById('root')?.children.length || 0,
@@ -116,7 +107,6 @@ const probe = `(() => ({
   text: (document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 260),
 }))()`;
 
-// ---------- 登录 ----------
 console.log("→ 打开登录页");
 await goto(`${BASE}/auth`);
 
@@ -138,7 +128,6 @@ console.log("  登录提交：", submitted);
 await sleep(3000);
 console.log("  token：", (await evaluate(`localStorage.getItem('access_token')`)) ? "已获取" : "❌ 未获取");
 
-// ---------- 逐页检查 ----------
 const results: any[] = [];
 for (const p of [
     { path: "/cases", name: "cases" },
@@ -156,7 +145,6 @@ for (const p of [
     results.push({ ...info, path: p.path, errors: [...cdp.pageErrors] });
 }
 
-// ---------- 工单详情：验证拆单控件真的渲染 ----------
 console.log("\n→ 打开一个工单详情");
 const caseId = await evaluate(`(async () => {
   const r = await fetch('/api/case/list', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -178,7 +166,6 @@ if (caseId) {
     results.push({ ...info, path: `/cases/${caseId}`, errors: [...cdp.pageErrors] });
 }
 
-// ---------- 订单详情：验证信息确认卡片 ----------
 console.log("\n→ 打开订单详情（信息确认卡片）");
 const orderId = await evaluate(`(async () => {
   const r = await fetch('/api/order/list', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -202,7 +189,6 @@ if (orderId) {
     results.push({ ...info, path: `/orders/${orderId}`, errors: [...cdp.pageErrors], hasConfirm });
 }
 
-// ---------- 汇总 ----------
 console.log("\n===== 汇总 =====");
 let bad = 0;
 for (const r of results) {

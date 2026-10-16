@@ -1,15 +1,9 @@
-/**
- * 清库后重建干净演示数据（bun 原生 UTF-8，避免 PowerShell 乱码）。
- * 覆盖：Account / Chat / Customer / Order / Material / File + media 磁盘文件。
- * 用法：bun scripts/rebuild-demo.ts（幂等：先清空 data 再写）
- */
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const DATA = "data";
 const MEDIA = join(DATA, "media");
 
-// ---------- 清空 ----------
 if (existsSync(DATA)) rmSync(DATA, { recursive: true, force: true });
 mkdirSync(MEDIA, { recursive: true });
 
@@ -18,7 +12,6 @@ const day = 86400_000;
 const ts = (offsetDays: number) => now - offsetDays * day;
 const jl = (name: string, rows: any[]) => writeFileSync(join(DATA, name), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf-8");
 
-// ---------- 最小合法 PDF 生成（可被 Chrome/Edge 内嵌预览） ----------
 function buildPdf(text: string): Buffer {
     const objs: Buffer[] = [
         Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),
@@ -40,13 +33,11 @@ function buildPdf(text: string): Buffer {
     return out;
 }
 
-// ---------- 媒体文件 ----------
 const mediaTs = now - 3 * day;
 const pngB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 writeFileSync(join(MEDIA, `mat_${mediaTs}_ab12.png`), Buffer.from(pngB64, "base64"));
 writeFileSync(join(MEDIA, `mat_${mediaTs + 1}_cd34.pdf`), buildPdf("Wang Jianguo - Employment Certificate"));
 
-// ---------- Account（客服） ----------
 jl("account.jsonl", [
     {
         id: "acc001", create_time: ts(30), update_time: null, delete_time: null,
@@ -54,7 +45,6 @@ jl("account.jsonl", [
     },
 ]);
 
-// ---------- Chat（群聊） ----------
 jl("chat.jsonl", [
     {
         id: "chat001", create_time: ts(20), update_time: null, delete_time: null,
@@ -62,7 +52,6 @@ jl("chat.jsonl", [
     },
 ]);
 
-// ---------- Customer（客户档案，独立实体） ----------
 jl("customer.jsonl", [
     {
         id: "cust001", create_time: ts(20), update_time: null, delete_time: null,
@@ -76,7 +65,6 @@ jl("customer.jsonl", [
     },
 ]);
 
-// ---------- File（文件实体，媒体落盘） ----------
 jl("file.jsonl", [
     {
         id: "file001", create_time: mediaTs, update_time: null, delete_time: null,
@@ -90,13 +78,11 @@ jl("file.jsonl", [
     },
 ]);
 
-// ---------- Material（材料行 MaterialLine，挂订单 + 客户条目） ----------
 const mkMat = (id: string, customerId: string, category: string, required: boolean, received: boolean, fileIds: string[] = []) => ({
     id, create_time: ts(15), update_time: received ? ts(1) : ts(15), delete_time: null,
     order_id: "ord001", customer_id: customerId, file_ids: fileIds, category, required, received, remark: null, version: 1,
 });
 jl("material.jsonl", [
-    // 王建国（法国旅游 8 项）
     mkMat("mat001", "cust_a", "护照", true, true, ["file001"]),
     mkMat("mat002", "cust_a", "照片", true, false),
     mkMat("mat003", "cust_a", "申请表", true, false),
@@ -105,7 +91,6 @@ jl("material.jsonl", [
     mkMat("mat006", "cust_a", "资产证明", true, false),
     mkMat("mat007", "cust_a", "行程单", true, false),
     mkMat("mat008", "cust_a", "酒店预订", false, false),
-    // 李小红（美国旅游 6 项）
     mkMat("mat009", "cust_b", "护照", true, false),
     mkMat("mat010", "cust_b", "照片", true, false),
     mkMat("mat011", "cust_b", "户口本", true, false),
@@ -114,7 +99,6 @@ jl("material.jsonl", [
     mkMat("mat014", "cust_b", "机票预订", true, false),
 ]);
 
-// ---------- Order（订单，含插件数据袋） ----------
 jl("order.jsonl", [
     {
         id: "ord001", create_time: ts(15), update_time: ts(1), delete_time: null,
