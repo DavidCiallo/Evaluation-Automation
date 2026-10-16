@@ -187,6 +187,15 @@ class MikeClient {
         return this.search(name, { formId, withinDays: 7 });
     }
 
+    /**
+     * 该表单最近的提交，不看姓名。
+     * 客户可能用别的名字/英文名填表，同名搜不到时靠这个让客服自己认。
+     */
+    async listRecentSubmissions(formId: string, limit = 20): Promise<MikeSubmission[]> {
+        const { list } = await this.getSubmissions({ formId, limit });
+        return list.sort((a, b) => b.submit_time - a.submit_time).slice(0, limit);
+    }
+
     /** 按表单+姓名精确匹配最近一次提交（name 精确相等优先，其次包含）。 */
     async findSubmissionByName(formId: string, name: string): Promise<MikeSubmission | null> {
         const list = await this.findSubmissionsByName(formId, name);

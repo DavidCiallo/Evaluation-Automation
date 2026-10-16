@@ -680,16 +680,18 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const customers = std.draft?.customers || std.confirmed?.customers || [];
             const customerName = customers.find((c) => c.id === payload.customer_id)?.name || "";
-            const matches = await providerDef.listMatches({ form_key: payload.form_name, customer_name: customerName });
-            // 推荐项：提交时间与订单创建时间最接近的一份
+            const listed = await providerDef.listMatches({ form_key: payload.form_name, customer_name: customerName });
+            const matches = listed.matches;
+            // 推荐项：提交时间与订单创建时间最接近的一份。
+            // 退而给最近提交时不做推荐——那些不是同名记录，猜错了等于替客服认人。
             let suggested: string | null = null;
-            if (matches.length > 0) {
+            if (matches.length > 0 && !listed.fallback) {
                 const anchor = order.create_time || Date.now();
                 suggested = matches.reduce((best, cur) =>
                     Math.abs(cur.submit_time - anchor) < Math.abs(best.submit_time - anchor) ? cur : best,
                 ).key;
             }
-            return { matches, suggested, customer_name: customerName };
+            return { matches, suggested, customer_name: customerName, fallback: !!listed.fallback };
         },
 
         /** 分配表单。payload = { form_name, customer_id, provider?, submission_key? }（provider: survey=简表 | mike=麦客捕获，缺省 survey）。

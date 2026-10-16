@@ -464,6 +464,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
 }) {
     const [loading, setLoading] = useState(true)
     const [matches, setMatches] = useState<Array<{ key: string; submitter_name: string; submit_time: number; form_name: string }>>([])
+    const [fallback, setFallback] = useState(false)
     const [selected, setSelected] = useState<string>("")
     const [busy, setBusy] = useState(false)
 
@@ -471,6 +472,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
         if (!open) return
         setLoading(true)
         setMatches([])
+        setFallback(false)
         setSelected("")
         orderApi.pluginAction({
             id: order.id,
@@ -482,6 +484,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
             .then((res: any) => {
                 const r = res?.data?.result || {}
                 setMatches(r.matches || [])
+                setFallback(!!r.fallback)
                 setSelected(r.suggested || r.matches?.[0]?.key || "")
             })
             .catch(() => { /* 拉取失败时仍可直接关闭走手动 */ })
@@ -530,6 +533,12 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                             {provider === "mike"
                                 ? "最近一周没有匹配到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。"
                                 : "最近一周没有匹配到同名记录。点确认会新建一条填写链接发给客户。"}
+                        </p>
+                    )}
+                    {!loading && fallback && matches.length > 0 && (
+                        <p className="text-muted-foreground p-2 text-xs">
+                            没搜到叫「{customerName}」的提交。下面是这个表单最近的 {matches.length} 条，
+                            客户可能用了别的名字填——认出来就勾上，没有就点「仍要创建分配」。
                         </p>
                     )}
                     {matches.map((m) => (

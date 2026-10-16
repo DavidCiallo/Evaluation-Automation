@@ -62,8 +62,9 @@ export interface FormProviderDef {
     isConfigured(): boolean;
     listForms(): Promise<FormOption[]>;
     createAssignment(input: { form_key: string; customer_name: string; submission_key?: string | null; order_create_time?: number | null }): Promise<CreateAssignmentResult>;
-    /** 该客户在该表单下的全部可选提交（mike 供挑选；survey 无此概念返回 []）。 */
-    listMatches(input: { form_key: string; customer_name: string }): Promise<SubmissionMatch[]>;
+    /** 该客户在该表单下的全部可选提交（mike 供挑选；survey 无此概念返回 []）。
+     *  fallback 为 true 表示「没搜到同名的，退而给出该表单最近的提交，让客服自己认」。 */
+    listMatches(input: { form_key: string; customer_name: string }): Promise<{ matches: SubmissionMatch[]; fallback?: boolean }>;
     /** 重新检查完成状态（mike 重新匹配，survey 回查 item）。 */
     recheck(input: { form_key: string; external_id: string | null; code: string | null; customer_name: string }): Promise<RecheckResult>;
     fetchData(input: { form_key: string; external_id: string | null; code: string | null; customer_name: string }): Promise<FormDataItem[]>;
@@ -90,7 +91,7 @@ const surveyProvider: FormProviderDef = {
      */
     async listMatches({ form_key, customer_name }) {
         const hits = await typeformClient.searchByName(form_key, customer_name);
-        return hits.map((h) => ({ key: h.item_id, submitter_name: h.name, submit_time: h.submit_time, form_name: form_key }));
+        return { matches: hits.map((h) => ({ key: h.item_id, submitter_name: h.name, submit_time: h.submit_time, form_name: form_key })) };
     },
 
     async createAssignment({ form_key, customer_name, submission_key }) {
@@ -147,7 +148,16 @@ const mikeProvider: FormProviderDef = {
 
     async listMatches({ form_key, customer_name }) {
         const list = await mikeClient.findSubmissionsByName(form_key, customer_name);
-        return list.map((s) => ({ key: s.key, submitter_name: s.submitter_name, submit_time: s.submit_time, form_name: s.form_name }));
+        if (list.length > 0) {
+            return { matches: list.map((s) => ({ key: s.key, submitter_name: s.submitter_name, submit_time: s.submit_time, form_name: s.form_name })) };
+        }
+        // 同名搜不到不等于客户没填：可能用了英文名、别名，或姓名对不上。
+        // 退回该表单最近的提交，让客服自己认，比只给一句「没有匹配」有用。
+        const recent = await mikeClient.listRecentSubmissions(form_key, 20);
+        return {
+            matches: recent.map((s) => ({ key: s.key, submitter_name: s.submitter_name, submit_time: s.submit_time, form_name: s.form_name })),
+            fallback: true,
+        };
     },
 
     /**
