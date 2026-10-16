@@ -101,6 +101,28 @@ export function outputGaps(
     return gaps;
 }
 
+/**
+ * 注册填表算不算做完了。
+ *
+ * 判据是**产物**而不是机器人回调：机器人派发出去可能永远不回话（实测有过），
+ * 一旦卡在 registering 阶段就再也走不动。而产物是人工看着真实结果填的，
+ * 它齐了就说明注册这件事真的成了。
+ * 邮箱密码是注册的前提，缺了不算完成。
+ */
+export function isRegistrationDone(account: {
+    email: string;
+    password: string;
+    platforms: PoolPlatform[];
+    customer_ids: string[];
+    fv_numbers: Record<string, string>;
+    tls_links: string[];
+}): boolean {
+    if (!String(account.email || "").trim()) return false;
+    if (!String(account.password || "").trim()) return false;
+    if ((account.customer_ids || []).length === 0) return false;
+    return outputGaps(account, () => "").length === 0;
+}
+
 export interface PoolAccountEntity {
     id: string;
     create_time: number;

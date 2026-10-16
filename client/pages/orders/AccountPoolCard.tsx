@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react"
-import { Bot, Eye, EyeOff, KeyRound, Plus, Trash2, X } from "lucide-react"
+import { Eye, EyeOff, KeyRound, Plus, Trash2, X } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/client/components/ui/card"
 import { Button } from "@/client/components/ui/button"
 import { Input } from "@/client/components/ui/input"
-import { accountPoolApi, robotTaskApi } from "@/client/api/instance"
+import { accountPoolApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import { stageBlockReason, stageNotStartedReason } from "@/client/pages/orders/StageBar"
 import type { PoolAccountDTO, PoolPlatform } from "../../../shared/modules/account-pool/account-pool.entity"
@@ -118,7 +118,7 @@ export function AccountPoolCard({
                         </CardTitle>
                         <CardDescription className="mt-1">
                             {poolBlocked ||
-                                "决定用几个账号；给每个账号勾上要注册的平台，再把客户挂上去，确定后派发"}
+                                "决定用几个账号；给每个账号勾上要注册的平台，把客户挂上去，登记注册拿到的产物"}
                         </CardDescription>
                         {!poolBlocked && poolProgress && (
                             <p className="text-muted-foreground mt-1 text-xs">
@@ -157,6 +157,27 @@ export function AccountPoolCard({
 
                 {accounts.map((a) => (
                     <div key={a.id} className="space-y-3 rounded-md border px-3 py-3">
+                        {/* 抬头：账号名 + 状态 + 操作。按钮放这里，不再跟着内容高度飘 */}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="text-sm font-medium">{a.label || `账号 ${a.seq}`}</span>
+                            <span className="text-muted-foreground text-xs">{a.status_label}</span>
+                            {a.outputs_ready ? (
+                                <span className="text-xs text-emerald-600">产物已齐</span>
+                            ) : (
+                                <span className="text-destructive text-xs">{a.outputs_missing.join("；")}</span>
+                            )}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-muted-foreground ml-auto h-8 px-2"
+                                disabled={busy || !!poolBlocked}
+                                title={poolBlocked || "删除这个账号"}
+                                onClick={() => run(() => accountPoolApi.remove({ id: a.id, auth }), "已删除账号")}
+                            >
+                                <Trash2 className="size-3.5" />
+                            </Button>
+                        </div>
+
                         {/* 上半：这个号是谁——平台、邮箱、密码 */}
                         <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
                             <div className="space-y-1">
@@ -299,17 +320,8 @@ export function AccountPoolCard({
                             </div>
 
                             {/* 产物按平台算：FV 号一人一个，TLS 链接一个账号一条，
-                                VFS/西班牙只要注册不要产物 */}
+                                VFS/西班牙只要注册不要产物。齐没齐在抬头里说 */}
                             <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-muted-foreground text-xs">产物</span>
-                                    {a.outputs_ready ? (
-                                        <span className="text-xs text-emerald-600">已齐</span>
-                                    ) : (
-                                        <span className="text-destructive text-xs">{a.outputs_missing.join("；")}</span>
-                                    )}
-                                </div>
-
                                 {needsFv(a) && (
                                     <div className="space-y-1">
                                         <span className="text-muted-foreground text-xs">FV 号</span>
@@ -421,36 +433,6 @@ export function AccountPoolCard({
                                         本账号的平台只要求注册，不需要登记产物
                                     </span>
                                 )}
-                            </div>
-
-                            {/* 靠上对齐：产物一多（多个客户各自一个 FV 号）按钮会浮到整块中间 */}
-                            <div className="ml-auto flex items-start gap-1 self-start pt-5">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8"
-                                    disabled={busy || !!poolBlocked || a.status === "registered" || !a.email || !a.has_password || a.customer_ids.length === 0}
-                                    title={poolBlocked || "交给机器人注册并填表"}
-                                    onClick={() =>
-                                        run(
-                                            () => robotTaskApi.dispatch({ order_id: orderId, account_id: a.id, auth }),
-                                            "已派发注册填表任务",
-                                        )
-                                    }
-                                >
-                                    <Bot className="size-3.5" />
-                                    派发注册
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-muted-foreground h-8 px-2"
-                                    disabled={busy || !!poolBlocked}
-                                    title={poolBlocked || "删除这个账号"}
-                                    onClick={() => run(() => accountPoolApi.remove({ id: a.id, auth }), "已删除账号")}
-                                >
-                                    <Trash2 className="size-3.5" />
-                                </Button>
                             </div>
                         </div>
 

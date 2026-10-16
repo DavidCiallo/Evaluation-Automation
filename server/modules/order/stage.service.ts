@@ -14,7 +14,7 @@ import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
 import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { PoolAccountEntity } from "../../../shared/modules/account-pool/account-pool.entity";
-import { outputGaps } from "../../../shared/modules/account-pool/account-pool.entity";
+import { outputGaps, isRegistrationDone } from "../../../shared/modules/account-pool/account-pool.entity";
 import {
     ORDER_STAGES,
     ORDER_REQUIREMENT_LABEL,
@@ -200,6 +200,10 @@ async function evalRequirement(
             // 产物按平台算：FV 号看每位客户、TLS 看有没有链接，VFS/西班牙不要产物
             const names = new Map((customers || []).map((c) => [c.id, c.name || "未命名"]));
             const gaps = accounts.flatMap((a) => outputGaps(a as any, (id) => names.get(id) || id));
+            // 产物齐了就算注册完成，不等机器人回调（派发后不回话的账号会永远卡住）
+            const unfinished = accounts.filter((a) => !isRegistrationDone(a as any));
+
+            if (unfinished.length === 0) return done(true);
 
             const parts: string[] = [];
             if (registered.length < accounts.length) {
@@ -208,8 +212,12 @@ async function evalRequirement(
             if (failed.length > 0) parts.push(`${failed.length} 个注册失败`);
             if (missing.length > 0) parts.push(`${missing.length} 个账号缺邮箱或密码`);
             parts.push(...gaps);
+            // 产物齐、邮箱密码也齐，却没被判完成——只可能是没挂客户
+            const noCustomer = unfinished.filter((a) => (a.customer_ids || []).length === 0);
+            if (noCustomer.length > 0 && gaps.length === 0) {
+                parts.push(`${noCustomer.length} 个账号还没挂客户`);
+            }
 
-            if (parts.length === 0) return done(true);
             return done(false, parts.join("；"));
         }
 
