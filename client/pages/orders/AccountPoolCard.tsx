@@ -321,26 +321,26 @@ export function AccountPoolCard({
 
                             {/* 产物按平台算：FV 号一人一个，TLS 链接一个账号一条，
                                 VFS/西班牙只要注册不要产物。齐没齐在抬头里说。
-                                每行一条产物：类型只在第一种出现，后续空着，避免一列重复标签 */}
+                                三列栅格：类型 / 归属 / 输入框，所有输入框同一左边缘、同一宽度 */}
                             <div className="min-w-0 flex-1 space-y-1">
                                 {needsFv(a) &&
                                     a.customer_ids.map((cid, i) => {
                                         const value = a.fv_numbers?.[cid] ?? ""
                                         return (
-                                            <div key={cid} className="flex items-center gap-2">
-                                                <span className="text-muted-foreground w-14 shrink-0 text-xs">
+                                            <div key={cid} className="grid grid-cols-[3.5rem_4rem_1fr] items-center gap-2">
+                                                <span className="text-muted-foreground truncate text-xs">
                                                     {i === 0 ? "FV 号" : ""}
                                                 </span>
                                                 {/* 客户名只在挂了几位客户时才值得重复；
                                                     只有一位时上面「客户」那格已经写了名字 */}
-                                                <span className="w-16 shrink-0 truncate text-xs">
+                                                <span className="truncate text-xs">
                                                     {a.customer_ids.length > 1 ? customerName(cid) : ""}
                                                 </span>
                                                 <Input
                                                     defaultValue={value}
                                                     placeholder={a.customer_ids.length > 1 ? "FV 号" : `${customerName(cid)} 的 FV 号`}
                                                     disabled={busy || !!poolBlocked}
-                                                    className={`h-8 w-44 ${value.trim() ? "" : "border-destructive/60"}`}
+                                                    className={`h-8 w-full max-w-[36rem] ${value.trim() ? "" : "border-destructive/60"}`}
                                                     onBlur={(e) => {
                                                         const v = e.target.value.trim()
                                                         if (v === value) return
@@ -358,61 +358,66 @@ export function AccountPoolCard({
                                     })}
 
                                 {needsFv(a) && a.customer_ids.length === 0 && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-muted-foreground w-14 shrink-0 text-xs">FV 号</span>
+                                    <div className="grid grid-cols-[3.5rem_4rem_1fr] items-center gap-2">
+                                        <span className="text-muted-foreground truncate text-xs">FV 号</span>
+                                        <span />
                                         <span className="text-muted-foreground text-xs">先挂客户，再填各自的 FV 号</span>
                                     </div>
                                 )}
 
                                 {needsTls(a) &&
                                     a.tls_links.map((l, i) => (
-                                        <div key={i} className="flex items-center gap-2">
-                                            <span className="text-muted-foreground w-14 shrink-0 text-xs">
+                                        <div key={i} className="grid grid-cols-[3.5rem_4rem_1fr] items-center gap-2">
+                                            <span className="text-muted-foreground truncate text-xs">
                                                 {i === 0 ? "TLS 链接" : ""}
                                             </span>
-                                            <Input
-                                                defaultValue={l}
-                                                placeholder="签署链接"
-                                                disabled={busy || !!poolBlocked}
-                                                className="h-8 w-96 max-w-full"
-                                                onBlur={(e) => {
-                                                    const v = e.target.value.trim()
-                                                    if (v === l) return
-                                                    const next = a.tls_links.map((x, j) => (j === i ? v : x))
-                                                    run(() => accountPoolApi.upsert({ id: a.id, tls_links: next, auth }))
-                                                }}
-                                            />
-                                            <button
-                                                disabled={busy || !!poolBlocked}
-                                                title={poolBlocked || "删除这条链接"}
-                                                className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                                                /* 用 mousedown：否则点 × 会先触发 input 的 blur 保存，
-                                                   两个写请求叠在一起，这一行会闪一下空 */
-                                                onMouseDown={(e) => {
-                                                    e.preventDefault()
-                                                    run(() =>
-                                                        accountPoolApi.upsert({
-                                                            id: a.id,
-                                                            tls_links: a.tls_links.filter((_, j) => j !== i),
-                                                            auth,
-                                                        }),
-                                                    )
-                                                }}
-                                            >
-                                                <X className="size-4" />
-                                            </button>
+                                            <span />
+                                            <div className="flex items-center gap-2">
+                                                <Input
+                                                    defaultValue={l}
+                                                    placeholder="签署链接"
+                                                    disabled={busy || !!poolBlocked}
+                                                    className="h-8 w-full max-w-[36rem]"
+                                                    onBlur={(e) => {
+                                                        const v = e.target.value.trim()
+                                                        if (v === l) return
+                                                        const next = a.tls_links.map((x, j) => (j === i ? v : x))
+                                                        run(() => accountPoolApi.upsert({ id: a.id, tls_links: next, auth }))
+                                                    }}
+                                                />
+                                                <button
+                                                    disabled={busy || !!poolBlocked}
+                                                    title={poolBlocked || "删除这条链接"}
+                                                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                                                    /* 用 mousedown：否则点 × 会先触发 input 的 blur 保存，
+                                                       两个写请求叠在一起，这一行会闪一下空 */
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault()
+                                                        run(() =>
+                                                            accountPoolApi.upsert({
+                                                                id: a.id,
+                                                                tls_links: a.tls_links.filter((_, j) => j !== i),
+                                                                auth,
+                                                            }),
+                                                        )
+                                                    }}
+                                                >
+                                                    <X className="size-4" />
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
 
                                 {/* 添加框只在「还缺」时出现：TLS 链接一个账号一条，
                                     已经填了就说明这件事做完了，再摆一个空框等于问你要第二个 */}
                                 {needsTls(a) && a.tls_links.length === 0 && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-muted-foreground w-14 shrink-0 text-xs">TLS 链接</span>
+                                    <div className="grid grid-cols-[3.5rem_4rem_1fr] items-center gap-2">
+                                        <span className="text-muted-foreground truncate text-xs">TLS 链接</span>
+                                        <span />
                                         <Input
                                             value={newLink[a.id] ?? ""}
                                             placeholder="+ 加入链接，回车确认"
-                                            className="h-8 w-96 max-w-full"
+                                            className="h-8 w-full max-w-[36rem]"
                                             disabled={busy || !!poolBlocked}
                                             onChange={(e) => setNewLink((s) => ({ ...s, [a.id]: e.target.value }))}
                                             onKeyDown={(e) => {
