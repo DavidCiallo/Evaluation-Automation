@@ -338,20 +338,16 @@ export function OrderStageBar({ stages, current, className = "", compact = false
         // 全页共用一个上限，由走得最远的那单决定，行与行才可比
         const cap = maxPctForStageIndex(timeScale.stageIndex, timeScale.total)
         const ms = timeScale.scaleMs
-        // 右边还要留出下一个灰点的位置。不留的话灰点会顶到（甚至越过）
-        // 轨道右边界，圆点和它下面的阶段名一起被卡片裁掉。
-        const RIGHT = IN + NEXT_STEP_PCT
-        const usableForTime = Math.max(usable - NEXT_STEP_PCT, MIN_STEP_PCT)
-        // 逐步推进，同时保证每一步至少前进 MIN_STEP_PCT，相邻圆点才分得开。
-        // 上限是 RIGHT：MIN_STEP_PCT 的累加和真实耗时都可能把它顶出去。
+        // 逐步推进，同时保证每一步至少前进 MIN_STEP_PCT，相邻圆点才分得开
         const pcts: number[] = []
         for (let i = 0; i < shown.length; i++) {
-            const raw = IN + (msToPercent(cumulativeMs(stages, i), ms, cap) / 100) * usableForTime
-            pcts.push(i === 0 ? Math.min(raw, RIGHT) : Math.min(Math.max(raw, pcts[i - 1] + MIN_STEP_PCT), RIGHT))
+            const raw = IN + (msToPercent(cumulativeMs(stages, i), ms, cap) / 100) * usable
+            pcts.push(i === 0 ? raw : Math.max(raw, pcts[i - 1] + MIN_STEP_PCT))
         }
         const dotPct = (i: number) => pcts[i]
         // 灰线从最后一个实心圆点出发，固定 NEXT_STEP_PCT 长，末端一个灰点。
-        // 同样封顶，保证灰点和它的标签落在轨道里。
+        // 唯一一处封顶：末点已经靠到右边时，灰点不再往外顶——
+        // 顶出去会被卡片裁掉，连它下面的阶段名一起看不见。
         const lastPct = pcts[pcts.length - 1] ?? IN
         const nextPct = Math.min(lastPct + NEXT_STEP_PCT, 100 - IN)
         // 圆点半径（px）换算成百分比，让线止于圆点边缘而不是圆心，
