@@ -27,11 +27,9 @@ type AgentHoursEntry = BusinessHours & {
 }
 type AgentHoursData = { default: BusinessHours; agents: AgentHoursEntry[] }
 
-/** JS getDay() (0=日…6=六) → 中文标签；展示按周一到周日排列 */
 const DAY_LABELS: Record<number, string> = { 0: "日", 1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六" }
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
 
-/** 把 { start_hour, end_hour, days } 格式化为“周一、二… 8点-18点” */
 function formatHours(h: BusinessHours): string {
     const days = DAY_ORDER.filter((d) => h.days.includes(d)).map((d) => DAY_LABELS[d]).join("、")
     return `${days} ${h.start_hour}点-${h.end_hour}点`
@@ -86,7 +84,6 @@ export function StatisticsPage() {
         setBusinessDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
     }
 
-    /** 工作时长三个键一起保存 */
     const saveBusinessHours = async () => {
         try {
             await configApi.update({ key: "business_days", value: businessDays, auth })
@@ -98,7 +95,6 @@ export function StatisticsPage() {
         }
     }
 
-    /** 工作时长三个键一起恢复默认，然后重新拉取 */
     const resetBusinessHours = async () => {
         try {
             await configApi.reset({ key: "business_days", auth })
@@ -270,7 +266,6 @@ export function StatisticsPage() {
     )
 }
 
-/** 单个客服的工作时长行：点击展开编辑（工作日 + 起止钟点），可保存或恢复默认。 */
 function AgentHoursRow({
     agent,
     auth,
@@ -286,7 +281,6 @@ function AgentHoursRow({
     const [end, setEnd] = useState(agent.end_hour)
     const [busy, setBusy] = useState(false)
 
-    // Keep the edit form in sync when the row's data is reloaded from the server
     useEffect(() => {
         setDays(agent.days)
         setStart(agent.start_hour)

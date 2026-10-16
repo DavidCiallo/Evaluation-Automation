@@ -1,9 +1,3 @@
-/**
- * 机票任务区块（标准插件第三栏，主流程）+ 手动行程单（兜底，折叠）。
- * 主流程：从订单客户名单聚合乘客（护照为预填真相）→ 创建 ctrip 机票任务 → 同步状态 →
- *         产物 PDF 一键挂到客户材料（category=机票预订）。
- * 兜底：原 AI 行程单生成/编辑/导出（ctrip 不可用或需手动行程时使用）。
- */
 import { useEffect, useState } from "react"
 import { nanoid } from "nanoid"
 import { Plus, Trash2, Download, Pencil, Loader2, Sparkles, FileText, Plane, RefreshCw, Paperclip, ChevronDown, ChevronRight } from "lucide-react"
@@ -35,9 +29,7 @@ type CityInfo = { city: string; country: string; iata: string; name: string; zh:
 const action = (order: any, auth: string, act: string, payload: any) =>
     orderApi.pluginAction({ id: order.id, plugin_id: STANDARD_PLUGIN_ID, action: act, payload, auth })
 
-// ============ 机票任务 ============
 
-/** 乘客编辑行（预填自订单客户名单；拼音姓/名与联系方式由客服确认）。 */
 function PaxRow({ pax, onChange, removable, onRemove, isContact }: {
     pax: TripPax
     onChange: (p: TripPax) => void
@@ -116,7 +108,6 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
     const [paxList, setPaxList] = useState<TripPax[]>([])
     const [busy, setBusy] = useState(false)
 
-    // 弹窗打开时：从订单客户名单预填乘客（护照为真相，拼音留空由客服填写）
     useEffect(() => {
         if (!open) return
         setFrom("")
@@ -234,7 +225,6 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     const trips: TripTask[] = std.tripTasks || []
     const applicants: ApplicantDetail[] = order.applicants_detail || []
-    /** 材料制作阶段未就绪的原因（如已有行程但客户未同意）；null 表示可执行 */
     const tripBlocked = stageBlockReason(order.stages, "materials")
 
     const [open, setOpen] = useState(false)
@@ -367,7 +357,6 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
     )
 }
 
-// ============ 手动行程单（兜底） ============
 
 const BACKEND_COLUMNS: Array<{ key: keyof ItineraryRow; label: string }> = [
     { key: "date", label: "Date" },
@@ -399,7 +388,6 @@ function EditorDialog({
     customers: Array<{ id: string; name: string; departure: string | null; destination: string | null }>
     editing: ItineraryEntry | null
 }) {
-    // 编辑已有行程时预填；新建时默认取第一位客户
     const defaultCustomer = (editing?.customer_id) || customers[0]?.id || ""
     const [customerId, setCustomerId] = useState(defaultCustomer)
     const [dateStart, setDateStart] = useState(editing?.date_start || "")
@@ -412,7 +400,6 @@ function EditorDialog({
     const [generating, setGenerating] = useState(false)
     const [saving, setSaving] = useState(false)
 
-    // 选择客户时联动出发地/目的地（仅新建且未手改时）
     const onCustomerChange = (id: string) => {
         setCustomerId(id)
         const c = customers.find((x) => x.id === id)
@@ -652,12 +639,10 @@ function exportItinerary(order: any, auth: string, it: ItineraryEntry) {
     }).catch((e: any) => toast.error(`导出失败: ${e?.message || ""}`))
 }
 
-/** 手动行程单（兜底流程，折叠展示）。 */
 function ManualItinerarySection({ order, auth, reload }: PluginSectionProps) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     const itineraries = std.itineraries || []
     const customers = std.confirmed?.customers || std.draft?.customers || []
-    /** 材料制作阶段未就绪的原因（通常是客户尚未同意）；null 表示可执行 */
     const itineraryBlocked = stageBlockReason(order.stages, "materials")
 
     const [editing, setEditing] = useState<ItineraryEntry | null>(null)
@@ -752,7 +737,6 @@ function ManualItinerarySection({ order, auth, reload }: PluginSectionProps) {
     )
 }
 
-// ============ 主组件 ============
 
 export function ItinerarySection({ order, auth, reload }: PluginSectionProps) {
     return (

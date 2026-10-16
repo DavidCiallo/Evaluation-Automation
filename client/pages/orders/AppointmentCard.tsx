@@ -10,23 +10,15 @@ import { getAuth } from "@/client/methods/auth"
 import { platformLabel } from "../../../shared/modules/account-pool/account-pool.entity"
 import type { PoolAccountDTO, PoolVoucher } from "../../../shared/modules/account-pool/account-pool.entity"
 
-/** 图片直接在标签页里打开（凭证大多是截图，下载反而多一步）；其余走下载。 */
 function isImage(name: string): boolean {
     return /\.(jpe?g|png|gif|webp|svg)$/i.test(name)
 }
 
-/**
- * 预约位置：为每个办签账号约到具体位置。
- *
- * 位置数据挂在账号上（account-pool），这里只是换个地方展示——
- * 办签账号那张卡片已经很长，位置是它后面一整个阶段的事，单独一张更好读。
- */
 export function AppointmentCard({
     orderId,
     reload,
 }: {
     orderId: string
-    /** 改完位置要让阶段条重算 */
     reload?: () => void
 }) {
     const auth = getAuth()
@@ -34,7 +26,6 @@ export function AppointmentCard({
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
     const [uploading, setUploading] = useState<string | null>(null)
-    /** 每个账号一个隐藏的 file input，由「上传凭证」按钮触发 */
     const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
 
     const load = async () => {
@@ -68,7 +59,6 @@ export function AppointmentCard({
         }
     }
 
-    /** 上传后拿到 file 记录，把引用追加到该账号的凭证列表。 */
     const upload = async (account: PoolAccountDTO, files: FileList | null) => {
         if (!files || files.length === 0) return
         setUploading(account.id)

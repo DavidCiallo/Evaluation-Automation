@@ -26,7 +26,6 @@ type FileGroup = {
     }[]
 }
 
-/** 单个文件的内嵌预览：图片/PDF 直接展示，滚轮缩放（0.5x–4x），双击重置。 */
 function ZoomableFile({ f }: { f: FileDTO }) {
     const ref = useRef<HTMLDivElement>(null)
     const [zoom, setZoom] = useState(1)
@@ -34,7 +33,6 @@ function ZoomableFile({ f }: { f: FileDTO }) {
     useEffect(() => {
         const el = ref.current
         if (!el) return
-        // 滚轮缩放需要非 passive 监听才能 preventDefault（避免页面整体滚动）
         const onWheel = (e: WheelEvent) => {
             e.preventDefault()
             setZoom((z) => Math.min(4, Math.max(0.5, +(z + (e.deltaY < 0 ? 0.1 : -0.1)).toFixed(2))))
@@ -97,7 +95,6 @@ export function CustomerPage() {
     const [editing, setEditing] = useState<CustomerDTO | null>(null)
     const [form, setForm] = useState<Record<string, string>>({})
     const [busy, setBusy] = useState(false)
-    /** 文件弹窗：查看该客户名下已上传的材料文件 */
     const [fileOpen, setFileOpen] = useState(false)
     const [fileCustomer, setFileCustomer] = useState<CustomerDTO | null>(null)
     const [fileGroups, setFileGroups] = useState<FileGroup[]>([])
@@ -163,7 +160,6 @@ export function CustomerPage() {
     }
 
     const save = async () => {
-        // ---- 格式校验（所有可选字段填了就要合法） ----
         if (!form.name?.trim()) {
             toast.error("请填写姓名")
             return
@@ -382,7 +378,6 @@ export function CustomerPage() {
                         <Skeleton className="h-32 w-full" />
                     ) : (
                         (() => {
-                            // 跨订单聚合：按类别归类
                             const idCards: { app: string; files: FileDTO[] }[] = []
                             const passports: { app: string; files: FileDTO[] }[] = []
                             const others: { app: string; files: FileDTO[] }[] = []
@@ -398,7 +393,6 @@ export function CustomerPage() {
                             if (!hasAny) {
                                 return <p className="text-muted-foreground py-4 text-center text-sm">暂无已上传的文件</p>
                             }
-                            // 一行：label + 多个文件预览横排
                             const renderRow = (label: string, items: { app: string; files: FileDTO[] }[]) => (
                                 <div className="bg-muted/40 rounded-md px-3 py-2.5">
                                     <div className="text-muted-foreground mb-2 text-xs">{label}</div>

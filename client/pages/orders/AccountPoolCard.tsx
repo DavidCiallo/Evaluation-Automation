@@ -12,12 +12,6 @@ import type { PoolAccountDTO, PoolPlatform } from "../../../shared/modules/accou
 import { POOL_PLATFORMS, PLATFORM_OUTPUT } from "../../../shared/modules/account-pool/account-pool.entity"
 import type { OrderStageView } from "../../../shared/modules/order/stage"
 
-/**
- * 订单详情里的「办签账号」区块。
- *
- * 这一块对应业务流程里「决定用几个号、哪位客户填在哪个号」的决策，
- * 以及机器人注册填表的结果回填。密码默认打码，显式点击才取明文。
- */
 export function AccountPoolCard({
     orderId,
     order,
@@ -26,11 +20,8 @@ export function AccountPoolCard({
     reload,
 }: {
     orderId: string
-    /** 订单本体：读签证类型决定要哪些平台 */
     order?: { visa_type?: string | null; visa_type_label?: string | null }
-    /** 订单的客户名单，用于分配下拉 */
     customers: Array<{ id: string; name: string }>
-    /** 阶段视图：信息确认没过时整块卡片只读 */
     stages?: OrderStageView[]
     reload?: () => void
 }) {
@@ -39,11 +30,9 @@ export function AccountPoolCard({
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
     const [revealed, setRevealed] = useState<Record<string, string>>({})
-    /** 各账号「+ 加入链接」输入框里还没提交的草稿 */
     const [newLink, setNewLink] = useState<Record<string, string>>({})
 
     const customerName = (id: string) => customers.find((c) => c.id === id)?.name || id
-    /** 勾了要产物的平台才显示对应输入框；VFS/西班牙只注册，不显示。 */
     const needsFv = (a: PoolAccountDTO) => a.platforms.some((p) => PLATFORM_OUTPUT[p] === "fv_number")
     const needsTls = (a: PoolAccountDTO) => a.platforms.some((p) => PLATFORM_OUTPUT[p] === "tls_link")
 
@@ -99,12 +88,7 @@ export function AccountPoolCard({
 
     const assigned = new Set(accounts.flatMap((a) => a.customer_ids))
     const unassigned = customers.filter((c) => !assigned.has(c.id))
-    /**
-     * 闸门只挡「前序没做完」（信息确认未签），不挡本阶段自己还没做完的事——
-     * 「拟定账号」正是去做那件事的按钮，连它一起禁掉这单就再也动不了了。
-     */
     const poolBlocked = stageNotStartedReason(stages, "account_allocation")
-    /** 本阶段还差什么：只作提示，不禁用按钮 */
     const poolProgress = stageBlockReason(stages, "account_allocation")
 
     return (
@@ -258,7 +242,6 @@ export function AccountPoolCard({
                                         disabled={busy || !!poolBlocked || a.status === "registered"}
                                         onChange={(e) => setRevealed((s) => ({ ...s, [a.id]: e.target.value }))}
                                         onBlur={(e) => {
-                                            // 打码占位符不是真密码，没动过就别拿它覆盖
                                             if (e.target.value === "••••••••") return
                                             run(() => accountPoolApi.upsert({ id: a.id, password: e.target.value, auth }))
                                         }}
@@ -389,8 +372,6 @@ export function AccountPoolCard({
                                                     disabled={busy || !!poolBlocked}
                                                     title={poolBlocked || "删除这条链接"}
                                                     className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                                                    /* 用 mousedown：否则点 × 会先触发 input 的 blur 保存，
-                                                       两个写请求叠在一起，这一行会闪一下空 */
                                                     onMouseDown={(e) => {
                                                         e.preventDefault()
                                                         run(() =>

@@ -26,10 +26,6 @@ function fmtSignTime(ms: number | null) {
     return ms ? new Date(ms).toLocaleString("zh-CN", { hour12: false }) : ""
 }
 
-/**
- * 签署情况：内部一行、客户一行。
- * 已签的显示姓名 + 时间（绿色），未签的显示姓名 + 「暂未签署」（灰色）。
- */
 function SignerLines({ id }: { id: string }) {
     const auth = getAuth()
     const [signers, setSigners] = useState<ConfirmationSignerView[] | null>(null)
@@ -64,7 +60,6 @@ function SignerLines({ id }: { id: string }) {
                 const r = SIGNER_RESULT[s.result] || SIGNER_RESULT.pending
                 const extra = s.reason ? `（${s.reason}）` : ""
                 return (
-                    // 每位签署人之间空两个字，否则前一个的「暂未签署」和后一个的名字挤在一起
                     <span key={`${s.name}-${i}`} className={`${r.className} ${i > 0 ? "ml-[2em]" : ""}`}>
                         {/* 名字至少占三个字宽：短名和长名混排时状态文字才对齐 */}
                         <span className="inline-block min-w-[3em]">{s.name}</span>{" "}
@@ -84,10 +79,6 @@ function SignerLines({ id }: { id: string }) {
     )
 }
 
-/**
- * 订单详情里的「信息确认」区块：签发链接、看回签状态、必要时撤销重签。
- * 回签动作由客户在外部签名页完成，这里只负责签发与监督。
- */
 export function ConfirmationCard({ orderId }: { orderId: string }) {
     const auth = getAuth()
     const [list, setList] = useState<ConfirmationDTO[]>([])
@@ -131,8 +122,6 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
         setBusy(true)
         try {
             const res = await confirmationApi.revoke({ id, reason: reason.trim(), auth })
-            // 本地撤销成功，但服务端那张单可能删不掉（已有签署记录）。
-            // 这不是失败，所以用警告而不是错误——但必须让客服知道它还挂着。
             if (res?.message) {
                 toast.info(`已撤销，但${res.message}`)
             } else {
@@ -146,8 +135,6 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
         }
     }
 
-    // 复制给客户的整段话：标题让他知道这是什么单，链接后面跟一句操作说明。
-    // 标题按后端的建单口径拼，和确认单服务上显示的保持一致。
     const copy = async (customerName: string, url: string) => {
         const title = `NoWorry签证信息确认 - ${customerName || "未命名"}`
         const text = `${title}，${url}，该表单信息将用于签证约位账号注册，请仔细检查后在页面下方点击确认信息无误`

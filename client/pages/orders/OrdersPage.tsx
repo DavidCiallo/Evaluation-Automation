@@ -23,10 +23,6 @@ import { getEnabledClientOrderPlugins } from "./plugin-registry"
 
 ensureClientPluginsRegistered()
 
-/**
- * 默认视图：默认只看在办。以前默认「全部」，取消掉的单混在里面，
- * 客服每次都要先点一下「在办」。取消的单没删，切到「已取消」仍能查。
- */
 const STATUS_TABS: Array<{ key: string; label: string }> = [
     { key: "active", label: "在办" },
     { key: "cancelled", label: "已取消" },
@@ -41,7 +37,6 @@ const VIEW_TABS: Array<{ key: ViewMode; label: string; hint: string }> = [
     { key: "time", label: "时间", hint: "每单一一行，看各阶段花了多久（最慢的一步铺满）" },
 ]
 
-/** 会被记住的筛选条件。视图模式也存——切换视图属于同一类使用偏好。 */
 interface SavedFilters {
     status: string
     agents: string[]
@@ -53,7 +48,6 @@ const FILTER_STORAGE_KEY = "orders.filters.v1"
 
 const DEFAULT_FILTERS: SavedFilters = { status: "active", agents: [], visaTypes: [], view: "card" }
 
-/** 读取上次的筛选；内容坏了就退回默认，不让一条脏记录把页面卡死。 */
 function loadFilters(): SavedFilters {
     try {
         const raw = localStorage.getItem(FILTER_STORAGE_KEY)
@@ -74,16 +68,13 @@ function saveFilters(f: SavedFilters) {
     try {
         localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(f))
     } catch {
-        /* 隐私模式等场景写入会抛，忽略即可，不影响本次筛选 */
     }
 }
 
-/** 订单当前聚焦的阶段名（第一个 ready）；没有 ready 时返回 null，由调用方决定怎么说。 */
 function stageLabelOf(o: OrderDTO): string | null {
     return (o.stages || []).find((s) => s.state === "ready")?.label || null
 }
 
-/** 客户个人状态 → 小徽章可见样式（绿=出签、红=拒签/取消、黄=取回、灰=进行中）。 */
 const APP_BADGE_CLASS: Record<string, string> = {
     approved: "border-emerald-500/60 bg-emerald-500/10 text-emerald-600",
     refused: "border-destructive/60 bg-destructive/10 text-destructive",
@@ -91,7 +82,6 @@ const APP_BADGE_CLASS: Record<string, string> = {
     withdrawn: "border-amber-500/60 bg-amber-500/10 text-amber-600",
 }
 
-/** 多选筛选：收起时只显示已选内容，避免一排 14 个类型把筛选栏撑成两行。 */
 function MultiSelect({
     label,
     options,
@@ -107,7 +97,6 @@ function MultiSelect({
 }) {
     const [open, setOpen] = useState(false)
     const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v])
-    // 选 1~2 个直接列名字，比「客服 · 2」有用；多了才退回数量
     const names = options.filter((o) => selected.includes(o.value)).map((o) => o.label)
     const summary = selected.length === 0 ? "全部" : names.length <= 2 ? names.join("、") : `已选 ${names.length} 项`
 
@@ -168,10 +157,8 @@ export function OrdersPage() {
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
     const [view, setView] = useState<ViewMode>(saved.view)
-    // 卡片视图不需要阶段数据（服务端算阶段要按单查材料），只有阶段/时间视图才要
     const needsStages = view !== "card"
 
-    // 筛选变化即记住，不必等点「查询」
     useEffect(() => {
         saveFilters({ status, agents, visaTypes, view })
     }, [status, agents, visaTypes, view])
@@ -204,12 +191,9 @@ export function OrdersPage() {
 
     const totalPages = useMemo(() => Math.max(1, Math.ceil(total / 20)), [total])
     const clientPlugins = useMemo(() => getEnabledClientOrderPlugins(), [])
-    // 标尺按整页订单统一算，不是每行各自归一化——否则同一段时间在不同行里长度不同，没法横向比
     const timeScale = useMemo(() => timeScaleMsPerPercent(orders), [orders])
 
     return (
-        // 原本用 -mx 负外边距给阶段条多挤点宽度，但那会让卡片比外层还宽、
-        // 顶着页面边缘，看着像把外壳挤变形了。宽度就交给外层留白，不动它。
         <div className="space-y-6">
             <Card>
                 <CardHeader>

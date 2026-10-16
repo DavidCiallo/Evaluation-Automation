@@ -65,7 +65,6 @@ type Order = {
     create_time: number
 }
 
-// 三栏重构后工作台只展示摘要，详情在订单页
 
 function timeAgo(ts: number): string {
     if (!ts) return ""
@@ -101,7 +100,6 @@ export function WorkbenchPage() {
     const [busyExempt, setBusyExempt] = useState(false)
     const [expandedMsgIds, setExpandedMsgIds] = useState<Set<string>>(new Set())
     const scrollRef = useRef<HTMLDivElement>(null)
-    // 记录用户是否停留在底部附近：只有“已在底部”时才自动跟随新消息，避免阅读历史时被强制拉到底部
     const nearBottomRef = useRef(true)
     const [showJumpBottom, setShowJumpBottom] = useState(false)
 
@@ -120,7 +118,6 @@ export function WorkbenchPage() {
         setShowJumpBottom(false)
     }
 
-    // Load chat list
     const loadChats = useCallback(async () => {
         const res: any = await workbenchApi.home({ auth })
         const list: Chat[] = res?.data?.chats || []
@@ -146,7 +143,6 @@ export function WorkbenchPage() {
         return () => { alive = false; clearInterval(id) }
     }, [auth, navigate, selectedId])
 
-    // Load selected chat detail
     const loadChat = useCallback(async (chatId: string) => {
         setLoadingChat(true)
         const res: any = await workbenchApi.chat({ chat_id: chatId, auth })
@@ -161,7 +157,6 @@ export function WorkbenchPage() {
         setLoadingChat(false)
     }, [auth])
 
-    // Track current request to avoid stale writes
     const chatReqId = useRef(0)
 
     useEffect(() => {
@@ -195,7 +190,6 @@ export function WorkbenchPage() {
         return () => { clearInterval(id) }
     }, [selectedId, auth])
 
-    // Auto-scroll to bottom
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -215,7 +209,6 @@ export function WorkbenchPage() {
     const visibleChats = useMemo(() => filteredChats.slice(0, visibleCount), [filteredChats, visibleCount])
     const hasMore = visibleCount < filteredChats.length
 
-    // 群聊即订单：每个群聊至多一个订单
     const activeOrder = useMemo(() => drafts[0] || null, [drafts])
 
     const handleSummary = async () => {
@@ -233,7 +226,6 @@ export function WorkbenchPage() {
         }
     }
 
-    // 豁免/取消豁免此会话：不计入任何统计与待回复
     const toggleExempt = async () => {
         if (!selectedId) return
         const next = !exempt
@@ -250,7 +242,6 @@ export function WorkbenchPage() {
         }
     }
 
-    // 手动从当前会话创建订单
     const createOrderFromChat = async () => {
         if (!selectedId) return
         setBusyCreate(true)
@@ -515,7 +506,6 @@ export function WorkbenchPage() {
     )
 }
 
-/** 工作台右侧标准订单卡片：展示摘要 + 跳转详情。 */
 function OrderStandardCard({ order }: { order: Order }) {
     const navigate = useNavigate()
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}

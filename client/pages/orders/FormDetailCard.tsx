@@ -12,10 +12,6 @@ import {
 
 type FormDataItem = { field_id?: string; field_name: string; field_value: string; field_type: string }
 
-/**
- * 右栏「表单详情」查看卡 —— 主从联动：展示左侧选中表单的填写内容。
- * 只读视图：不做写入。内容是定高滚动区，切换表单/加载中都不会改变卡片高度。
- */
 export function FormDetailCard({ order, form, auth }: {
     order: OrderDTO
     form: FormAssignment | null

@@ -52,9 +52,7 @@ export function OrderDetailPage() {
     const [loadingMessages, setLoadingMessages] = useState(false)
     const [remark, setRemark] = useState("")
     const [busy, setBusy] = useState(false)
-    // 主从联动：左侧选中 → 右侧详情查看
     const [selForm, setSelForm] = useState<FormAssignment | null>(null)
-    // 发材料邮件
     const [sendMailOpen, setSendMailOpen] = useState(false)
 
     const load = async () => {
@@ -65,11 +63,9 @@ export function OrderDetailPage() {
             const d = res?.data
             if (d?.order) {
                 setOrder(d.order)
-                // 加载关联会话列表
                 const chatsRes: any = await orderApi.relatedChats({ id: d.order.id, auth })
                 const chats = (chatsRes?.data?.chats as RelatedChat[]) || []
                 setRelatedChats(chats)
-                // 默认选中主群聊或第一个会话
                 if (chats.length > 0) {
                     setActiveChatId(chats[0].id)
                     loadMessages(chats[0].id)

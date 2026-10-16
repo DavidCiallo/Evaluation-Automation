@@ -1,9 +1,3 @@
-/**
- * 标准订单插件（客户端）详情区块 — 三栏内联布局。
- * 第一栏：订单信息（草稿/确认），多客户签证信息，内联编辑
- * 第二栏：表单收集（简表表单分配与完成状态）
- * 第三栏：行程单（AI 生成）
- */
 import { useState, useEffect } from "react"
 import { nanoid } from "nanoid"
 import { Check, FileText, Pencil, Plus, Trash2, Upload, Link as LinkIcon, Lock, Copy, X, RefreshCw, User, Wallet, Users, CalendarDays } from "lucide-react"
@@ -36,18 +30,11 @@ import {
 } from "../../../../../shared/modules/order/plugins/standard.manifest"
 import { ItinerarySection } from "./ItinerarySection"
 
-// ---------- 订单阶段条（内嵌于订单信息卡片） ----------
 
-/**
- * 阶段条：只读展示服务端计算的阶段视图与缺口，不再提供手工推进按钮。
- * 阶段靠完成对应业务动作推进（确认信息 / 分配表单 / 确认同意 / 生成行程…），
- * 手工改状态已不再支持 —— 旧实现里点击「下一步」写库后会被推导覆盖。
- */
 function OrderStatusFlow({ order }: PluginSectionProps) {
     return <OrderStageBar stages={order.stages || []} current={order.current_stage ?? null} />
 }
 
-// ---------- 第一栏：订单信息 ----------
 
 function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { std: StandardPluginData }) {
     const draft = std.draft || null
@@ -59,10 +46,8 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
     const [editPrice, setEditPrice] = useState<number | null>(null)
     const [editCurrency, setEditCurrency] = useState<string | null>(null)
     const [editCustomers, setEditCustomers] = useState<OrderCustomerInfo[]>([])
-    /** 系统客户档案池（订单信息卡客户从系统客户库选择/新增） */
     const [customerPool, setCustomerPool] = useState<{ id: string; name: string; passport_no?: string | null }[]>([])
     const [loadingCustomers, setLoadingCustomers] = useState(false)
-    /** 客户搜索关键字（实时过滤系统客户库） */
     const [custSearch, setCustSearch] = useState("")
     const [searchFocused, setSearchFocused] = useState(false)
 
@@ -79,13 +64,11 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
             const list = (res?.data?.result?.list as any[]) || []
             setCustomerPool(list)
         } catch {
-            // 客户列表加载失败不影响核心
         } finally {
             setLoadingCustomers(false)
         }
     }
 
-    // 订单卡片初始化时预加载客户池
     useEffect(() => {
         if (order.id) loadCustomerPool()
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,7 +104,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                     order_name: newName,
                     price: editPrice,
                     currency: editCurrency,
-                    // 信息可空：仅姓名必填，其余字段允许为空
                     customers: editCustomers.filter((c) => (c.name || "").trim() || c.customer_id),
                 },
                 auth,
@@ -209,7 +191,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                             <div className="flex flex-wrap items-center gap-1">
                                 {customers.length > 0 ? (
                                     customers.map((c, i) => {
-                                        // customer_id 为主关联：显示时实时取档案名；查不到（档案被删）回退快照名
                                         const live = c.customer_id
                                             ? customerPool.find((x) => x.id === c.customer_id)?.name
                                             : null
@@ -405,9 +386,7 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
     )
 }
 
-// ---------- 第二栏：表单收集 ----------
 
-/** 表单提供方（survey=简表 · 先匹配已有记录，没有则发链接；mike=麦客 · 匹配站外已填提交）。 */
 const PROVIDER_TABS: Array<{ id: "survey" | "mike"; label: string; action: string }> = [
     { id: "survey", label: "简表", action: "匹配或生成链接" },
     { id: "mike", label: "麦客", action: "匹配已有提交" },
@@ -415,7 +394,6 @@ const PROVIDER_TABS: Array<{ id: "survey" | "mike"; label: string; action: strin
 
 type ProviderFormInfo = { key: string; name: string; provider: "survey" | "mike"; records_num?: number };
 
-/** 左侧表单项：显示已填多少项（拉取填写数据条数）。 */
 function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssignment; auth: string }) {
     const [count, setCount] = useState<number | null>(null)
     const [error, setError] = useState(false)
@@ -450,7 +428,6 @@ function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssig
     )
 }
 
-/** 提交挑选弹窗：列出该客户在该表单下的全部提交，默认选「与订单时间最接近」的一份。 */
 function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, customerName, provider, onAssigned }: {
     open: boolean
     onClose: () => void
@@ -575,7 +552,6 @@ function FormCollectionSection({
 }: PluginSectionProps & { std: StandardPluginData; selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const forms = std.forms || []
     const customers = std.draft?.customers || std.confirmed?.customers || []
-    /** 表单阶段未就绪的原因（如订单里一个客户都没有）；null 表示可执行 */
     const assignBlocked = customers.length === 0 ? "订单信息中没有客户" : null
 
     const [busy, setBusy] = useState(false)
@@ -585,10 +561,8 @@ function FormCollectionSection({
     const [providerForms, setProviderForms] = useState<ProviderFormInfo[]>([])
     const [formErrors, setFormErrors] = useState<Array<{ provider: string; message: string }>>([])
     const [loadingForms, setLoadingForms] = useState(false)
-    /** 麦客提交挑选弹窗 */
     const [picker, setPicker] = useState<{ formKey: string; customerId: string; customerName: string; provider: "survey" | "mike" } | null>(null)
 
-    // 动态加载全部提供方的表单列表（简表 + 麦客）
     const loadForms = () => {
         setLoadingForms(true)
         orderApi.pluginAction({
@@ -611,9 +585,6 @@ function FormCollectionSection({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [order.id, auth])
 
-    // 已绑定表单里选一份作为默认：优先麦客（自动绑定产出的就是它），
-    // 否则取第一份。同理把 provider 切到对应的标签页——否则「表单收集」
-    // 打开时停在简表页，刚自动绑好的麦客记录要再点一下才看得见。
     useEffect(() => {
         if (forms.length === 0) return
         if (selectedId && forms.some((f) => f.id === selectedId)) return
@@ -632,8 +603,6 @@ function FormCollectionSection({
             toast.error("请选择表单和客户")
             return
         }
-        // 两家都先搜已有记录：搜到就复用，省得客户重填一遍；
-        // 简表搜不到时在弹窗里点确认会新建链接。
         const cust = customers.find((c) => c.id === selCustomer)
         setPicker({ formKey: selForm, customerId: selCustomer, customerName: cust?.name || "", provider })
     }
@@ -836,11 +805,7 @@ function FormCollectionSection({
     )
 }
 
-// ---------- 主组件：拆分为独立卡片 ----------
 
-/**
- * 订单信息 + 订单状态 卡片（独立导出，页面顶部渲染）。
- */
 export function OrderInfoCard(props: PluginSectionProps) {
     const { order } = props
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
@@ -858,11 +823,6 @@ export function OrderInfoCard(props: PluginSectionProps) {
     )
 }
 
-/**
- * 标准订单详情区块 —— 拆成多张独立卡片（页面顶部「订单信息」卡由 OrderDetailPage 单独渲染）：
- *   ① 表单收集（简表）
- *   ② 行程单（AI 生成）
- */
 export function StandardDetailSection(props: PluginSectionProps) {
     const { order } = props
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
@@ -875,7 +835,6 @@ export function StandardDetailSection(props: PluginSectionProps) {
     )
 }
 
-/** 表单收集卡（独立导出，供详情页按行配对渲染）。bare=true 时不自带 Card 外壳（由页面提供）。 */
 export function FormCollectionCard(props: PluginSectionProps & { selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const std: StandardPluginData = (props.order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     if (props.bare) return <FormCollectionSection {...props} std={std} />
@@ -892,7 +851,6 @@ export function FormCollectionCard(props: PluginSectionProps & { selectedId?: st
     )
 }
 
-/** 行程单卡（独立导出）：ctrip 机票任务为主流程 + 手动行程单兜底。 */
 export function ItineraryCard(props: PluginSectionProps) {
     return (
         <Card>

@@ -1,7 +1,3 @@
-/**
- * 邮件中心（NW邮箱）——三栏：收件账号 / 邮件列表 / 详情与写信。
- * 能力：按账号查看邮件、详情（HTML 渲染 + 附件下载）、AI 摘要、AI 起草回复、回复发送。
- */
 import { useEffect, useMemo, useState } from "react"
 import { Loader2, RefreshCw, MailPlus, ScanSearch, Wand2, Paperclip, Download, Search } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
@@ -58,7 +54,6 @@ export function EmailsPage() {
             const res: any = await emailApi.list({ page: 1, limit: 1, auth })
             setAccounts((res?.data?.accounts as string[]) || [])
         } catch {
-            // 忽略：未配置邮箱系统时保持空列表
         }
     }
 
@@ -286,7 +281,6 @@ export function EmailsPage() {
     )
 }
 
-/** 回复/写信对话框：AI 起草 + 发送（附件暂不支持，材料附件走订单页）。 */
 function ReplyDialog({ open, onClose, detail, auth, onSent }: {
     open: boolean
     onClose: () => void
@@ -303,7 +297,6 @@ function ReplyDialog({ open, onClose, detail, auth, onSent }: {
     const [sending, setSending] = useState(false)
     const [seeded, setSeeded] = useState(false)
 
-    // 打开时以原邮件预填
     useEffect(() => {
         if (open && detail && !seeded) {
             const acc = detail.to.match(/^([\w.-]+)@/)

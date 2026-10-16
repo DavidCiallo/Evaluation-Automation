@@ -14,11 +14,6 @@ import { getAuth } from "@/client/methods/auth"
 import type { CaseDTO, CaseSplitGroup } from "../../../shared/modules/case/case.entity"
 import { AGENT_OPTIONS } from "../../../shared/modules/case/case.entity"
 
-/**
- * 工单详情：客服在这里做「拼团拆单」的决定。
- * 页面形态刻意保持「左候选 / 右分组」——客服要把人从一个组挪到另一个组，
- * 用可点击的转移控件比拖拽更不容易误操作，也不引入拖拽库。
- */
 export function CaseDetailPage() {
     const params = useParams()
     const auth = getAuth()
@@ -54,7 +49,6 @@ export function CaseDetailPage() {
     const detectedVisa = useMemo(() => detectVisaType(data?.chat_name || ""), [data])
     const confirmed = data?.status === "confirmed"
 
-    /** 已被分组的客户 wechat_id 集合 */
     const assigned = useMemo(() => new Set(groups.flatMap((g) => g.member_wechat_ids)), [groups])
     const unassigned = useMemo(() => customers.filter((c) => !assigned.has(c.wechat_id)), [customers, assigned])
 
@@ -75,7 +69,6 @@ export function CaseDetailPage() {
     }
 
     const moveInto = (wechatId: string, targetIndex: number) => {
-        // 从原组移除（若在别组），再加入目标组
         const next = groups.map((g) => ({
             ...g,
             member_wechat_ids: g.member_wechat_ids.filter((id) => id !== wechatId),
@@ -95,7 +88,6 @@ export function CaseDetailPage() {
         mutate(groups.map((g, idx) => (idx === i ? { ...g, order_name: name } : g)))
     }
 
-    // 价格留空即「不预设」；只有填了数字才带上，避免把空串当 0
     const setGroupPrice = (i: number, raw: string) => {
         const t = raw.trim()
         const price = t === "" ? null : Number(t)

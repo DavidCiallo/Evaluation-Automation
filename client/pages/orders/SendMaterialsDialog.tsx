@@ -1,7 +1,3 @@
-/**
- * 订单发材料邮件对话框：勾选客户材料作为附件，可 AI 起草正文，发送到客户邮箱。
- * 收件人失焦时自动检索该邮箱的「邮件往来」，方便客服掌握上下文。
- */
 import { useEffect, useState } from "react"
 import { Loader2, Wand2, Send, Paperclip } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"

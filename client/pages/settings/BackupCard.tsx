@@ -10,16 +10,12 @@ import { backupApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { BackupPreviewData } from "../../../shared/modules/backup/backup.interface"
 
-/** 导出的文件名带上时间，多次备份不会互相覆盖。 */
 function fileName(): string {
     const d = new Date()
     const p = (n: number) => String(n).padStart(2, "0")
     return `backup-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`
 }
 
-/**
- * 备份导出/导入（设置页）。迁移部署用：新机器上导入整包即可。
- */
 export function BackupCard() {
     const auth = getAuth()
     const [info, setInfo] = useState<BackupPreviewData | null>(null)

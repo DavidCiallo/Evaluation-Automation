@@ -1,10 +1,3 @@
-/**
- * 客户同意行程方案（方案 C：模型提示 + 客服确认）。
- *
- * 模型/规则从会话中识别到「疑似同意」时只作**提示**展示，不自动解锁行程阶段；
- * 客服核对聊天记录后点击确认，才写入权威依据。这样既有自动化提示，
- * 又保留人的判断与可追溯的责任主体。
- */
 import { useState } from "react"
 import { ShieldCheck, ShieldAlert, RefreshCw, Undo2, Quote } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"

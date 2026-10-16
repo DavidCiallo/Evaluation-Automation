@@ -26,7 +26,6 @@ const splitList = (s: string): string[] =>
         .map((x) => x.trim())
         .filter(Boolean)
 
-/** Searchable single-select dropdown used for both chats and customers. */
 function SearchPicker({
     placeholder,
     search,
@@ -119,7 +118,6 @@ export function ExemptionEditor() {
     const [config, setConfig] = useState<ExemptionConfig | null>(null)
     const [chatNames, setChatNames] = useState<Record<string, string>>({})
     const [customerNames, setCustomerNames] = useState<Record<string, string>>({})
-    /** per-rule draft strings for the comma-separated list inputs (smooth typing) */
     const [listDrafts, setListDrafts] = useState<Record<string, { contains: string; not_contains: string }>>({})
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
