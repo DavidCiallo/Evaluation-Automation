@@ -1,7 +1,6 @@
 import { CustomerDTO } from "./customer.entity";
 
 export class CustomerListRequest {
-    /** 模糊检索：姓名/手机号/护照号/邮箱 */
     public keyword: string;
     public page: number;
     public auth?: string;

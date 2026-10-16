@@ -18,7 +18,6 @@ export const fileRoutes = {
         request: {} as { id: string; auth?: string },
         response: {} as FileDetailResponse,
     },
-    /** 上传：multipart（file + uploaded_by）。HTTP 层解析后转交 controller。 */
     upload: {
         path: "/upload",
         request: {} as { file: File; uploaded_by?: string; auth?: string },

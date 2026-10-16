@@ -63,7 +63,6 @@ export class CaseCreateFromChatRequest {
     constructor(data: any) {
         if (!data.chat_id) throw new Error("chat_id is required");
         this.chat_id = data.chat_id;
-        // 默认顺带分析：建工单的目的就是拿拆分建议
         this.analyze = data.analyze !== false;
         this.auth = data.auth;
     }
@@ -85,7 +84,6 @@ export class CaseCreateFromChatResponse {
     }
 }
 
-/** 过滤掉未知客服并去重——名单写死在 AGENT_OPTIONS，多余的值一律丢弃。 */
 function normalizeAgentIds(raw: any): string[] {
     if (!Array.isArray(raw)) return [];
     const out: string[] = [];
@@ -98,9 +96,7 @@ function normalizeAgentIds(raw: any): string[] {
 
 export class CaseCreateRequest {
     public chat_name: string;
-    /** 手工单的客户姓名，可建单时一并给出，也可后续增补 */
     public customer_names: string[];
-    /** 负责客服（AGENT_OPTIONS.value），可多选 */
     public agent_ids: string[];
     public auth?: string;
 
@@ -131,7 +127,6 @@ export class CaseCreateResponse {
     }
 }
 
-/** 手工单增删客户。群聊工单由 service 拒绝。 */
 export class CaseCustomerRequest {
     public id: string;
     public names?: string[];
@@ -183,7 +178,6 @@ export class CaseCustomerResponse {
     }
 }
 
-/** 校验客服提交的分组：必须非空，且每组至少一人、组间不重复。 */
 export function validateSplitGroups(groups: CaseSplitGroup[] | undefined): CaseSplitGroup[] {
     if (!Array.isArray(groups) || groups.length === 0) throw new Error("拆分方案不能为空");
     const seen = new Set<string>();
@@ -194,7 +188,6 @@ export function validateSplitGroups(groups: CaseSplitGroup[] | undefined): CaseS
             if (seen.has(id)) throw new Error(`客户 ${id} 被分到了多个组`);
             seen.add(id);
         }
-        // 价格可选，但填了就必须是非负数字——预填错了会一路带到订单里
         let price: number | null = null;
         if (g?.price != null && String(g.price).trim() !== "") {
             const n = Number(g.price);
@@ -242,7 +235,6 @@ export class CaseSplitPlanResponse {
 
 export class CaseSplitConfirmRequest {
     public id: string;
-    /** 省略时用库内已存方案；提供时先覆盖再确认（客服直接改完就确认） */
     public groups?: CaseSplitGroup[];
     public auth?: string;
 

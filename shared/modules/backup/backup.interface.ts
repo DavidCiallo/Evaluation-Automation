@@ -1,18 +1,13 @@
-/** 一个集合在备份里叫什么、当前有多少行。 */
 export interface BackupCollectionInfo {
-    /** 集合名（导出 JSON 里的 key） */
     name: string;
     /** 中文标签，只给界面看 */
     label: string;
-    /** 含软删除在内的行数——导出就是导这些 */
     count: number;
 }
 
 export interface BackupPreviewData {
     collections: BackupCollectionInfo[];
-    /** data/media 下的文件数 */
     media_count: number;
-    /** 备份格式版本，导入时用来判断能不能读 */
     version: number;
 }
 
@@ -42,7 +37,6 @@ export interface BackupExportData {
     version: number;
     exported_at: number;
     data: Record<string, any[]>;
-    /** storage_name → base64 内容。媒体不大，随 JSON 一起走，不需要 zip。 */
     media?: Record<string, string>;
 }
 
@@ -68,17 +62,12 @@ export class BackupExportResponse {
     }
 }
 
-/** 导入结果：每个集合写进去多少行，以及恢复了几个媒体文件。 */
 export interface BackupImportResult {
     imported: Record<string, number>;
     media_restored: number;
 }
 
 export class BackupImportRequest {
-    /**
-     * 整个包，不做拆解：controller 要同时读 version、data、media。
-     * 客户端把导出的 JSON 原样塞进 body 的 data 字段里。
-     */
     public pack: any;
     public auth?: string;
 

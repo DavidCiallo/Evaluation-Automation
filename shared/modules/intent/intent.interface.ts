@@ -1,7 +1,3 @@
-/**
- * 意图提取结果（纯数据，不再依赖订单模块）。
- * 由 intent 服务从对话中提取，供订单标准插件填充草稿使用。
- */
 export interface IntentDraftData {
     visa_country?: string | null;
     visa_type?: string | null;
@@ -12,12 +8,7 @@ export interface IntentDraftData {
     customer_phone?: string | null;
     customer_name?: string | null;
     missing_fields?: string[];
-    /**
-     * 客户是否明确同意按方案办理行程/购票（方案 C 的「疑似同意」信号）。
-     * 仅作提示，权威依据须由客服在订单上确认；命中原句见 itinerary_consent_evidence。
-     */
     itinerary_consent?: boolean;
-    /** 支持上述判断的原文片段，供客服复核 */
     itinerary_consent_evidence?: string | null;
 }
 

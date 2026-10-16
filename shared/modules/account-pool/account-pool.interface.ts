@@ -3,7 +3,6 @@ import { POOL_PLATFORMS } from "./account-pool.entity";
 
 export class AccountPoolListRequest {
     public order_id: string;
-    /** 需要明文密码时显式传 true（默认不回传） */
     public with_secret?: boolean;
     public auth?: string;
 
@@ -31,10 +30,6 @@ export class AccountPoolListResponse {
     }
 }
 
-/**
- * 拟定账号：按订单签证类型所需的平台各建一个号（法签 → FV + TLS，申根 → VFS）。
- * 客服不再填数量——需要什么平台是业务规则，不是每次拍脑袋决定的。
- */
 export class AccountPoolPlanRequest {
     public order_id: string;
     public auth?: string;
@@ -62,20 +57,17 @@ export class AccountPoolPlanResponse {
     }
 }
 
-/** 手动填写/修改账号（未走机器人时客服直接录）。 */
 export class AccountPoolUpsertRequest {
     public id: string;
     public email?: string;
     public password?: string;
     public label?: string;
     public platforms?: PoolPlatform[];
-    /** FV 号，key = 客户条目 id */
     public fv_numbers?: Record<string, string>;
     /** TLS 链接，账号级 */
     public tls_links?: string[];
     public expected_place?: string;
     public actual_place?: string;
-    /** 预约凭证附件。整份覆盖——界面是加一个删一个，不做增量指令 */
     public vouchers?: PoolVoucher[];
     public remark?: string;
     public auth?: string;
@@ -134,10 +126,8 @@ export class AccountPoolUpsertResponse {
     }
 }
 
-/** 把客户分配到账号（或从账号上摘除）。 */
 export class AccountPoolAssignRequest {
     public order_id: string;
-    /** 目标账号 id；传空字符串表示「暂不分配」（客户回到未分配池） */
     public account_id: string;
     public customer_ids: string[];
     public auth?: string;

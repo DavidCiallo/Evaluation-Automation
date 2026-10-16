@@ -1,30 +1,19 @@
-/**
- * 标准订单插件（第二层，第一方默认启用）的共享契约。
- * 三栏生命周期：
- *   第一栏 — 订单信息（草稿/确认）：订单名称、价格、多客户签证信息
- *   第二栏 — 表单收集（info_collection 解锁）：Typeform 占位
- *   第三栏 — 材料存档（material_preparation 解锁）：文件上传
- */
 import type { OrderPluginManifest } from "../plugin";
 import type { IntentDraftData } from "../../intent/intent.interface";
 import type { ItineraryConsent, OrderStageId, StageWaiver } from "../stage";
 
 export const STANDARD_PLUGIN_ID = "standard";
 
-/** 订单类型可选项（v1 默认值，后续可配置化）。 */
 export const ORDER_TYPE_OPTIONS = ["旅游", "商务", "留学", "探亲", "工作", "其他"];
 
-/** 货币单位可选项。 */
 export const CURRENCY_OPTIONS = ["CNY", "USD", "GBP", "EUR", "JPY", "KRW", "AUD", "CAD"];
 
-/** 递签城市分组（按签证申请国分类）。 */
 export const DEPARTURE_GROUPS: Record<string, string[]> = {
     中国: ["北京", "上海", "广州", "深圳", "成都", "杭州", "南京", "武汉", "西安", "重庆", "昆明", "长沙", "福州", "厦门", "青岛", "大连", "哈尔滨", "济南", "沈阳"],
     英国: ["伦敦", "曼彻斯特", "爱丁堡", "伯明翰"],
     美国: ["纽约", "洛杉矶", "旧金山", "芝加哥", "华盛顿", "休斯顿", "西雅图", "波士顿", "亚特兰大", "达拉斯", "迈阿密"],
 };
 
-/** 目的地国家分组选项。 */
 export const DESTINATION_GROUPS: Record<string, string[]> = {
     亚洲: ["韩国", "日本", "菲律宾", "印度尼西亚", "中国台湾", "越南", "柬埔寨", "印度", "斯里兰卡", "尼泊尔", "马尔代夫"],
     西亚: ["阿联酋", "土耳其", "沙特", "卡塔尔", "以色列", "约旦"],
@@ -34,38 +23,29 @@ export const DESTINATION_GROUPS: Record<string, string[]> = {
     大洋洲: ["澳大利亚", "新西兰", "斐济"],
 };
 
-/** 获取指定分组的递签城市列表；无分组时回退到中国组。 */
 export function getDepartureCities(group: string | null): string[] {
     if (!group) return DEPARTURE_GROUPS["中国"];
     return DEPARTURE_GROUPS[group] || DEPARTURE_GROUPS["中国"];
 }
 
-// ============ 第一栏：订单信息 ============
 
-/** 每个客户的签证信息。 */
 export interface OrderCustomerInfo {
-    /** 客户引用 id（system 客户库 Customer.id）或旧快照随机 id */
     id: string;
-    /** 关联客户档案 id（主关联：展示时以它实时取档案名；默认后端按姓名建档回填） */
     customer_id?: string | null;
-    /** 客户姓名快照（兜底：档案被删时显示；新建客户由后端建档回填 customer_id） */
     name: string;
     visa_type: string | null;
     departure: string | null;
     destination: string | null;
 }
 
-/** AI 提取映射后的草稿形状。 */
 export interface OrderInfoDraft {
     order_name: string | null;
     price: number | null;
     currency: string | null;
     customers: OrderCustomerInfo[];
-    /** 保留原始意图提取结果 */
     raw?: IntentDraftData | null;
 }
 
-/** 客服确认后的正式值。 */
 export interface OrderInfoConfirmed {
     order_name: string;
     price: number | null;
@@ -73,65 +53,36 @@ export interface OrderInfoConfirmed {
     customers: OrderCustomerInfo[];
 }
 
-/**
- * 当前有效的客户名单：草稿优先。
- * 拆单时名单即定稿，confirmed 只对存量订单还有意义，因此排在后面兜底。
- */
 export function effectiveCustomers(order: { data?: Record<string, any> }): OrderCustomerInfo[] {
     const std = (order?.data?.[STANDARD_PLUGIN_ID] || {}) as StandardPluginData;
     return std.draft?.customers || std.confirmed?.customers || [];
 }
 
-// ============ 第二栏：表单收集 ============
 
-/** 表单分配记录。 */
 export interface FormAssignment {
     id: string;
     form_name: string;
     form_url: string | null;
     customer_id: string;
     status: "pending" | "sent" | "completed";
-    /** 表单来源：survey=简表（默认，兼容旧数据）；mike=麦客捕获（站外表单） */
     provider?: "survey" | "mike";
-    /** survey：简表系统中的记录 ID；mike：匹配到的提交 key（formId|姓名|时间） */
     item_id?: string;
-    /** survey 鉴权 code */
     code?: string;
-    /** survey：用于构造 URL 的 field_id */
     field_id?: string;
-    /**
-     * 客户提交这份表单的时间（来源系统给的原始时间）。
-     * 可能早于订单创建——客户常在拉群之前就自己填过表了。
-     */
     completed_time?: number;
-    /**
-     * 系统把它认定为已完成、绑定到本客户的时刻。
-     *
-     * 阶段耗时以此为准而非 completed_time：客户可能在建单前很久就填了表，
-     * 用提交时间会算出负耗时，也不反映「这一步在本单里是什么时候做完的」。
-     */
     bound_time?: number;
-    /** mike 匹配到的提交人姓名 */
     matched_name?: string | null;
 }
 
-/** 占位表单选项（已废弃，改为从简表 API 动态获取）。 */
 export const MOCK_FORMS: string[] = [];
 
-// ============ 第三栏：材料存档 ============
 
-/**
- * 材料条目（v2：文件体独立到 File 实体，此处只引用 file_id）。
- * 展示时通过 FileDTO 取 filename/url；不再内嵌存储。
- */
 export interface MaterialEntry {
     id: string;
-    /** 关联的文件实体 id（data/File.jsonl） */
     file_id: string;
     category: string;
     upload_time: number;
     uploaded_by: string;
-    /** 兼容展示：服务端/前端可回填文件详情（filename/url），不入库 */
     file?: {
         filename: string;
         url: string;
@@ -140,7 +91,6 @@ export interface MaterialEntry {
     } | null;
 }
 
-/** 材料分类常量。 */
 export const MATERIAL_CATEGORIES = [
     "护照",
     "照片",
@@ -157,9 +107,7 @@ export const MATERIAL_CATEGORIES = [
     "其他",
 ];
 
-// ============ 行程单 ============
 
-/** 行程单的每一天一行。date 为展示用短格式（如 24-Sep）。 */
 export interface ItineraryRow {
     date: string;
     day: number;
@@ -169,13 +117,10 @@ export interface ItineraryRow {
     transportation: string;
 }
 
-/** 一份行程单（对应一位客户的整段行程）。存于 data["standard"].itineraries。 */
 export interface ItineraryEntry {
     id: string;
-    /** 关联的客户（data["standard"].confirmed/draft.customers 中的某位） */
     customer_id: string;
     title: string;
-    /** 起止日期，YYYY-MM-DD */
     date_start: string;
     date_end: string;
     countries: string[];
@@ -185,28 +130,22 @@ export interface ItineraryEntry {
     update_time: number | null;
 }
 
-/** AI 生成行程单所需的入参（客户、日期范围、国家、出发地）。 */
 export interface ItineraryGenerateInput {
     customer_id: string;
     date_start: string;
     date_end: string;
     countries: string[];
     departure: string | null;
-    /** 客服补充的行程要求（自然语言，可选），生成时注入 prompt */
     requirements?: string | null;
 }
 
-// ============ 机票任务（ctrip 系统） ============
 
-/** 乘客信息：护照等以订单客户条目为预填真相，拼音姓/名与联系方式由客服确认。 */
 export interface TripPax {
-    /** 关联客户条目 id（订单客户名单 OrderCustomerInfo.id） */
     customer_id: string | null;
     /** 中文姓名（展示用） */
     name: string;
     /** 拼音姓（大写，如 LIU） */
     surname: string;
-    /** 拼音名（大写，如 CHONGGUANG） */
     givenname: string;
     /** "男" | "女" */
     gender: string | null;
@@ -215,7 +154,6 @@ export interface TripPax {
     /** 中文国籍名，默认 "中国" */
     nationality: string | null;
     passport_no: string | null;
-    /** YYYY-MM-DD，须晚于当年 12-31（ctrip 校验规则） */
     passport_expiry: string | null;
     /** 仅首位乘客（联系人）必填 */
     phone: string | null;
@@ -224,7 +162,6 @@ export interface TripPax {
     email: string | null;
 }
 
-/** 已挂到客户材料的产物文件。 */
 export interface TripTaskAttachment {
     name: string;
     file_id: string;
@@ -232,10 +169,8 @@ export interface TripTaskAttachment {
     attached_time: number;
 }
 
-/** 一笔 ctrip 机票任务。存于 data["standard"].tripTasks。 */
 export interface TripTask {
     id: string;
-    /** ctrip 系统任务 id（t-YYYYMMDD-HHMMSS-xxxx） */
     task_id: string | null;
     /** IATA 码 */
     from: string;
@@ -245,7 +180,6 @@ export interface TripTask {
     /** YYYY-MM-DD */
     date: string;
     return_date: string | null;
-    /** ctrip 任务状态（done 等）与阶段（finished 等） */
     state: string;
     stage: string;
     attempts: number;
@@ -255,9 +189,7 @@ export interface TripTask {
     update_time: number | null;
 }
 
-// ============ 插件数据袋 ============
 
-/** data["standard"] 的分片形状。 */
 export interface StandardPluginData {
     draft?: OrderInfoDraft | null;
     confirmed?: OrderInfoConfirmed | null;
@@ -265,9 +197,7 @@ export interface StandardPluginData {
     materials?: MaterialEntry[];
     itineraries?: ItineraryEntry[];
     tripTasks?: TripTask[];
-    /** 客户同意行程方案（方案 C：模型从对话识别为提示，客服确认为权威依据） */
     itineraryConsent?: ItineraryConsent | null;
-    /** 阶段豁免：某可选阶段不适用于本单时由客服显式跳过，留痕可审计 */
     stageWaivers?: Partial<Record<OrderStageId, StageWaiver>>;
 }
 

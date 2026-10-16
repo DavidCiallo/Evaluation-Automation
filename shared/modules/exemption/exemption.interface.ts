@@ -2,20 +2,14 @@ export interface ExemptionRule {
     id: string;
     name: string;
     enabled: boolean;
-    /** message must contain ALL of these substrings (case-insensitive) */
     contains: string[];
-    /** message must contain NONE of these substrings (case-insensitive) */
     not_contains: string[];
-    /** optional regex pattern; "" means unused */
     regex: string;
 }
 
 export interface ExemptionConfig {
-    /** exempt ChatEntity.id list (=== ConversationEntity.chat_id) */
     chats: string[];
-    /** exempt customer wechat_id list (=== ConversationEntity.from_id) */
     customers: string[];
-    /** message content rules; a customer message is exempt if it matches ANY enabled rule */
     rules: ExemptionRule[];
 }
 
@@ -25,7 +19,6 @@ export const EMPTY_EXEMPTION_CONFIG: ExemptionConfig = {
     rules: [],
 };
 
-/** Config plus resolved display names for the currently selected chats/customers. */
 export interface ExemptionResult extends ExemptionConfig {
     chatNames: Record<string, string>;
     customerNames: Record<string, string>;
@@ -120,7 +113,6 @@ export interface ChatOption {
 export interface CustomerOption {
     wechat_id: string;
     name: string;
-    /** 备注名（可能为空字符串） */
     remark: string;
 }
 

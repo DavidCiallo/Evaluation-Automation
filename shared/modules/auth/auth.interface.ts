@@ -1,7 +1,5 @@
 import { AccountEntity } from "../account/account.entity";
 
-// Auth Body
-// 用于封装登录和注册请求的具体数据
 
 export class LoginBody {
     public email: string;
@@ -22,8 +20,6 @@ export class LoginBody {
     }
 }
 
-// Interface
-// 遵循 account.interface.ts 的 Request/Response 模式
 
 export class LoginRequest {
     public auth?: string;

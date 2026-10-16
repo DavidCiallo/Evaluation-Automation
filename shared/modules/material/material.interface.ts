@@ -1,7 +1,6 @@
 import { MaterialDTO } from "./material.entity";
 
 export class MaterialListRequest {
-    /** 按订单列出；给了 customer_id 就只看这位客户的 */
     public order_id: string;
     public customer_id: string | null;
     public auth?: string;
@@ -99,7 +98,6 @@ export class MaterialUpdateResponse {
     }
 }
 
-/** 给材料行附加/移除文件。payload = { file_id, attach?: boolean } */
 export class MaterialAttachFileRequest {
     public id: string;
     public file_id: string;

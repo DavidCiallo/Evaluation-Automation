@@ -27,22 +27,14 @@ export class ConfirmationListResponse {
     }
 }
 
-/** 一位签署人的实时状态。 */
 export interface ConfirmationSignerView {
     name: string;
     signer_type: "internal" | "external";
-    /** 未签 / 已确认 / 有异议 */
     result: "pending" | "ok" | "wrong";
     reason: string;
-    /** 服务端记录的签署时刻；未签为 null */
     signed_at: number | null;
 }
 
-/**
- * 某张确认单的签署人明细（含内部签署人）。
- * 每次都向确认单服务现问，不落库——内部签署人签了我们收不到通知，
- * 存下来只会显示上一次轮询时的旧状态。
- */
 export class ConfirmationSignersRequest {
     public id: string;
     public auth?: string;
@@ -70,10 +62,8 @@ export class ConfirmationSignersResponse {
     }
 }
 
-/** 批量签发：为订单下尚未有确认单的客户各建一份。 */
 export class ConfirmationIssueRequest {
     public order_id: string;
-    /** 只给指定客户签发（重签单个客户时用）；省略=全部缺单的客户 */
     public customer_ids?: string[];
     public auth?: string;
 
@@ -109,7 +99,6 @@ export class ConfirmationRevokeRequest {
     constructor(data: any) {
         if (!data.id) throw new Error("id is required");
         this.id = data.id;
-        // 撤销会作废客户手上的链接，必须留下原因
         const reason = String(data.reason || "").trim();
         if (!reason) throw new Error("撤销确认单必须填写原因");
         this.reason = reason;
@@ -133,7 +122,6 @@ export class ConfirmationRevokeResponse {
     }
 }
 
-/** 客户侧（免鉴权）：凭 token 读取待确认信息。 */
 export class ConfirmationFetchRequest {
     public token: string;
 
@@ -169,7 +157,6 @@ export class ConfirmationFetchResponse {
     }
 }
 
-/** 客户侧（免鉴权）：提交确认，可带回客户修改后的资料。 */
 export class ConfirmationSubmitRequest {
     public token: string;
     public snapshot?: Partial<ConfirmationSnapshot>;
