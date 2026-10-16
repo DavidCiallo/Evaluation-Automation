@@ -321,22 +321,24 @@ export function AccountPoolCard({
 
                             {/* 产物按平台算：FV 号一人一个，TLS 链接一个账号一条，
                                 VFS/西班牙只要注册不要产物。齐没齐在抬头里说。
-                                每行一条产物：类型 · 归属 · 输入框，读起来是「谁的什么」 */}
+                                每行一条产物：类型只在第一种出现，后续空着，避免一列重复标签 */}
                             <div className="min-w-0 flex-1 space-y-1">
                                 {needsFv(a) &&
-                                    a.customer_ids.map((cid) => {
+                                    a.customer_ids.map((cid, i) => {
                                         const value = a.fv_numbers?.[cid] ?? ""
                                         return (
                                             <div key={cid} className="flex items-center gap-2">
                                                 <span className="text-muted-foreground w-14 shrink-0 text-xs">
-                                                    FV 号
+                                                    {i === 0 ? "FV 号" : ""}
                                                 </span>
+                                                {/* 客户名只在挂了几位客户时才值得重复；
+                                                    只有一位时上面「客户」那格已经写了名字 */}
                                                 <span className="w-16 shrink-0 truncate text-xs">
-                                                    {customerName(cid)}
+                                                    {a.customer_ids.length > 1 ? customerName(cid) : ""}
                                                 </span>
                                                 <Input
                                                     defaultValue={value}
-                                                    placeholder="FV 号"
+                                                    placeholder={a.customer_ids.length > 1 ? "FV 号" : `${customerName(cid)} 的 FV 号`}
                                                     disabled={busy || !!poolBlocked}
                                                     className={`h-8 w-44 ${value.trim() ? "" : "border-destructive/60"}`}
                                                     onBlur={(e) => {
@@ -366,7 +368,7 @@ export function AccountPoolCard({
                                     a.tls_links.map((l, i) => (
                                         <div key={i} className="flex items-center gap-2">
                                             <span className="text-muted-foreground w-14 shrink-0 text-xs">
-                                                TLS 链接
+                                                {i === 0 ? "TLS 链接" : ""}
                                             </span>
                                             <Input
                                                 defaultValue={l}
@@ -402,7 +404,9 @@ export function AccountPoolCard({
                                         </div>
                                     ))}
 
-                                {needsTls(a) && (
+                                {/* 添加框只在「还缺」时出现：TLS 链接一个账号一条，
+                                    已经填了就说明这件事做完了，再摆一个空框等于问你要第二个 */}
+                                {needsTls(a) && a.tls_links.length === 0 && (
                                     <div className="flex items-center gap-2">
                                         <span className="text-muted-foreground w-14 shrink-0 text-xs">TLS 链接</span>
                                         <Input
