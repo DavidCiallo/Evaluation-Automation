@@ -15,6 +15,7 @@ import { cn } from "@/client/lib/utils"
 import { configApi, syncApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import { IntegrationSettingsCard } from "./IntegrationSettingsCard"
+import { BackupCard } from "./BackupCard"
 
 type Bundle = {
     wx_connected: boolean
@@ -80,6 +81,8 @@ export function SettingsPage() {
             </Card>
 
             <IntegrationSettingsCard />
+
+            <BackupCard />
 
             <Card>
                 <CardHeader>

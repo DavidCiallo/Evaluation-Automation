@@ -29,6 +29,7 @@ import { integrationMount } from "../modules/config/integration.controller";
 import { syncMount } from "../modules/sync/sync.controller";
 import { exemptionMount } from "../modules/exemption/exemption.controller";
 import { emailMount } from "../modules/email/email.controller";
+import { backupMount } from "../modules/backup/backup.controller";
 import { startPoller } from "../modules/sync/sync.service";
 import { startMetricsJob } from "../modules/metric/metric.service";
 import { startMikeIngest } from "../modules/form/mike-ingest";
@@ -154,6 +155,7 @@ Bun.serve({
             syncMount,
             exemptionMount,
             emailMount,
+            backupMount,
         ]);
         if (apiResponse) return apiResponse;
 

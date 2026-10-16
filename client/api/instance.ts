@@ -20,6 +20,7 @@ import { confirmationRoutes } from "../../shared/modules/confirmation/confirmati
 import { accountPoolRoutes } from "../../shared/modules/account-pool/account-pool.router";
 import { robotTaskRoutes } from "../../shared/modules/robot-task/robot-task.router";
 import { formRoutes } from "../../shared/modules/form/form.router";
+import { backupRoutes } from "../../shared/modules/backup/backup.router";
 
 export const authApi = createClient(authRoutes);
 export const accountApi = createClient(accountRoutes);
@@ -42,3 +43,4 @@ export const confirmationApi = createClient(confirmationRoutes);
 export const accountPoolApi = createClient(accountPoolRoutes);
 export const robotTaskApi = createClient(robotTaskRoutes);
 export const formApi = createClient(formRoutes);
+export const backupApi = createClient(backupRoutes);
