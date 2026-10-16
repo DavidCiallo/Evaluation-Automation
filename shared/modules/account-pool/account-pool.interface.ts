@@ -1,4 +1,4 @@
-import type { PoolAccountDTO, PoolPlatform } from "./account-pool.entity";
+import type { PoolAccountDTO, PoolPlatform, PoolVoucher } from "./account-pool.entity";
 import { POOL_PLATFORMS } from "./account-pool.entity";
 
 export class AccountPoolListRequest {
@@ -75,6 +75,8 @@ export class AccountPoolUpsertRequest {
     public tls_links?: string[];
     public expected_place?: string;
     public actual_place?: string;
+    /** 预约凭证附件。整份覆盖——界面是加一个删一个，不做增量指令 */
+    public vouchers?: PoolVoucher[];
     public remark?: string;
     public auth?: string;
 
@@ -101,6 +103,16 @@ export class AccountPoolUpsertRequest {
         this.tls_links = Array.isArray(data.tls_links) ? data.tls_links.map(String) : undefined;
         this.expected_place = data.expected_place !== undefined ? String(data.expected_place) : undefined;
         this.actual_place = data.actual_place !== undefined ? String(data.actual_place) : undefined;
+        if (data.vouchers !== undefined) {
+            if (!Array.isArray(data.vouchers)) throw new Error("vouchers 必须是数组");
+            this.vouchers = data.vouchers.map((v: any) => ({
+                file_id: String(v?.file_id || ""),
+                filename: String(v?.filename || ""),
+                storage_name: String(v?.storage_name || ""),
+                content_type: String(v?.content_type || ""),
+                upload_time: Number(v?.upload_time || Date.now()),
+            }));
+        }
         this.remark = data.remark !== undefined ? String(data.remark) : undefined;
         this.auth = data.auth;
     }

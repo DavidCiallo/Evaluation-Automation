@@ -7,7 +7,7 @@
  */
 import Repository from "../../lib/repository";
 import { nanoid } from "nanoid";
-import type { PoolAccountEntity, PoolAccountDTO, AccountFillPlan, ApplicantPayload, PoolPlatform } from "../../../shared/modules/account-pool/account-pool.entity";
+import type { PoolAccountEntity, PoolAccountDTO, AccountFillPlan, ApplicantPayload, PoolPlatform, PoolVoucher } from "../../../shared/modules/account-pool/account-pool.entity";
 import { toPoolAccountDTO } from "../../../shared/modules/account-pool/account-pool.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
@@ -166,6 +166,7 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
         tls_links: [],
         expected_place: "",
         actual_place: "",
+        vouchers: [],
         remark: null,
         error: null,
         task_id: null,
@@ -189,6 +190,7 @@ export async function upsertAccount(
         tls_links?: string[];
         expected_place?: string;
         actual_place?: string;
+        vouchers?: PoolVoucher[];
         remark?: string;
     },
 ): Promise<PoolAccountEntity> {
@@ -211,6 +213,7 @@ export async function upsertAccount(
     if (patch.tls_links !== undefined) await repo.update({ id }, { tls_links: patch.tls_links });
     if (patch.expected_place !== undefined) await repo.update({ id }, { expected_place: patch.expected_place });
     if (patch.actual_place !== undefined) await repo.update({ id }, { actual_place: patch.actual_place });
+    if (patch.vouchers !== undefined) await repo.update({ id }, { vouchers: patch.vouchers });
     if (patch.password !== undefined) await repo.update({ id }, { password: patch.password });
     if (patch.label !== undefined) await repo.update({ id }, { label: patch.label });
     if (patch.remark !== undefined) await repo.update({ id }, { remark: patch.remark });

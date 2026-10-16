@@ -32,6 +32,7 @@ async function upsert(request: AccountPoolUpsertRequest) {
         tls_links: req.tls_links,
         expected_place: req.expected_place,
         actual_place: req.actual_place,
+        vouchers: req.vouchers,
         remark: req.remark,
     });
     return { account: await svc.toDTO(row, false, row.order_id) };

@@ -78,3 +78,12 @@ export function serveCachedMedia(filename: string): { buffer: Buffer; contentTyp
         contentType: contentTypeMap[ext] || "application/octet-stream",
     };
 }
+
+/**
+ * 该扩展名能否直接在浏览器里显示（图片/PDF/视频这类）。
+ * 不能显示的用 Content-Disposition: attachment 让它下载，而不是在标签页里开出一片乱码。
+ */
+export function isInlineViewable(filename: string): boolean {
+    const ext = path.extname(filename).toLowerCase();
+    return [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".mp4", ".txt"].includes(ext);
+}

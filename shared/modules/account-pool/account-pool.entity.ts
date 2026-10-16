@@ -123,9 +123,22 @@ export function isRegistrationDone(account: {
     return outputGaps(account, () => "").length === 0;
 }
 
+/**
+ * 预约凭证。文件实体在 file 模块（落盘 data/media），这里只记引用。
+ * storage_name 拼成 /api/media/<storage_name> 就能取到内容。
+ */
+export interface PoolVoucher {
+    file_id: string;
+    /** 上传时的原始文件名，用于判断是否图片、以及下载时显示 */
+    filename: string;
+    storage_name: string;
+    content_type: string;
+    /** 上传时间 */
+    upload_time: number;
+}
+
 export interface PoolAccountEntity {
-    id: string;
-    create_time: number;
+    id: string;    create_time: number;
     update_time: number | null;
     delete_time: number | null;
     /** 归属订单。账号跟随订单生命周期，订单取消则不启用。 */
@@ -169,6 +182,12 @@ export interface PoolAccountEntity {
     expected_place: string;
     /** 实际位置：真约到了填这里；填了才算本账号预约完成。 */
     actual_place: string;
+    /**
+     * 预约凭证附件（截图/PDF 等）。存 file 记录 id 和原始文件名，
+     * 不存 URL——媒体路径可能变，而且需要时再拼 /api/media/<storage_name>。
+     * 纯附件，不参与预约位置的完成判定。
+     */
+    vouchers: PoolVoucher[];
     /** 人工补录或回调回来的备注 */
     remark: string | null;
     /** 注册失败原因 */
@@ -204,6 +223,8 @@ export interface PoolAccountDTO {
     tls_links: string[];
     expected_place: string;
     actual_place: string;
+    /** 预约凭证附件，界面按「凭证1」「凭证2」列出 */
+    vouchers: PoolVoucher[];
     /** 产物是否齐全（按本账号勾选的平台判：FV 号看每位客户、TLS 看有没有链接） */
     outputs_ready: boolean;
     /** 不齐时差什么，直接给界面提示用 */
@@ -248,6 +269,7 @@ export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false, custo
         tls_links: e.tls_links || [],
         expected_place: e.expected_place || "",
         actual_place: e.actual_place || "",
+        vouchers: (e.vouchers || []).map((v) => ({ ...v })),
         outputs_ready: gaps.length === 0,
         outputs_missing: gaps,
         remark: e.remark ?? null,

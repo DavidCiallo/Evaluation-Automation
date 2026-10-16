@@ -89,17 +89,22 @@ Bun.serve({
 
         // Serve cached media files (images from WeCom SDK or uploaded materials)
         if (pathName.startsWith("/api/media/") && req.method === "GET") {
-            const { serveCachedMedia } = await import("../lib/media");
+            const { serveCachedMedia, isInlineViewable } = await import("../lib/media");
             const filename = pathName.replace("/api/media/", "");
             if (filename && !filename.includes("..")) {
                 const file = serveCachedMedia(filename);
                 if (file) {
-                    return new Response(new Uint8Array(file.buffer), {
-                        headers: {
-                            "Content-Type": file.contentType,
-                            "Cache-Control": "public, max-age=86400",
-                        },
-                    });
+                    const headers: Record<string, string> = {
+                        "Content-Type": file.contentType,
+                        "Cache-Control": "public, max-age=86400",
+                    };
+                    // 浏览器打不开的类型（doc/zip 等）直接下载，否则会开出一片乱码。
+                    // ?download=1 让图片也能按原文件名下载。
+                    if (url.searchParams.get("download") === "1" || !isInlineViewable(filename)) {
+                        const dl = url.searchParams.get("name") || filename;
+                        headers["Content-Disposition"] = `attachment; filename*=UTF-8''${encodeURIComponent(dl)}`;
+                    }
+                    return new Response(new Uint8Array(file.buffer), { headers });
                 }
             }
             return new Response("Not Found", { status: 404 });
