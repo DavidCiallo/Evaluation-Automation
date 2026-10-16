@@ -103,24 +103,6 @@ async function refreshConfirmedFromService(rows: ConfirmationEntity[]): Promise<
     }
 }
 
-/** 每位机票乘客必须齐备的字段（ctrip 规则）。 */function paxGaps(t: TripTask): string[] {
-    const gaps: string[] = [];
-    t.pax.forEach((p, i) => {
-        const miss: string[] = [];
-        if (!String(p.surname || "").trim()) miss.push("拼音姓");
-        if (!String(p.givenname || "").trim()) miss.push("拼音名");
-        if (!String(p.passport_no || "").trim()) miss.push("护照号");
-        if (!String(p.passport_expiry || "").trim()) miss.push("护照有效期");
-        if (!String(p.birthday || "").trim()) miss.push("出生日期");
-        if (i === 0) {
-            if (!String(p.phone || "").trim()) miss.push("手机号");
-            if (!String(p.email || "").trim()) miss.push("邮箱");
-        }
-        if (miss.length > 0) gaps.push(`乘客${i + 1}缺 ${miss.join("/")}`);
-    });
-    return gaps;
-}
-
 /** 计算单个准入项是否满足，并给出缺口说明。 */
 async function evalRequirement(
     key: OrderRequirementKey,
@@ -264,13 +246,6 @@ async function evalRequirement(
             return done(false, "尚未生成行程单，也未创建机票任务");
         }
 
-        case "pax_documents": {
-            const trips = stdData(order).tripTasks || [];
-            if (trips.length === 0) return done(false, "尚未创建机票任务");
-            const gaps = trips.flatMap((t) => paxGaps(t));
-            return gaps.length === 0 ? done(true) : done(false, gaps.join("；"));
-        }
-
         case "materials_received": {
             if (customers.length === 0) return done(false, "尚无客户名单");
             const required = materials.filter((m) => m.required);
@@ -344,13 +319,14 @@ function deriveStageTimes(
         confs.flatMap((c) => [after(c.signed_time), after(c.revoked_time)]),
     );
     if (signed) out.set("info_confirmation", signed);
+    // 材料制作合并了行程/机票/材料三件事：完成时刻取三者里最晚的那个，
+    // 否则会出现「材料都收齐了但阶段显示早就完成、行程却还没做」。
     const consent = getConsent(order);
-    if (consent?.confirmed_time) out.set("itinerary", consent.confirmed_time);
     const trip = latestOf((std.tripTasks || []).map((t) => t.create_time));
-    if (trip) out.set("flight", trip);
     // 材料只存了布尔 received，没有到达时间；已收到的行用行自身更新时间近似
     const mat = latestOf(materials.filter((m) => m.received).map((m) => m.update_time || null));
-    if (mat) out.set("materials", mat);
+    const made = latestOf([consent?.confirmed_time || null, trip, mat]);
+    if (made) out.set("materials", made);
 
     // 豁免过的阶段以豁免时间为准（表示「到此为止不再等待」）
     for (const [id, w] of Object.entries(waivers)) {

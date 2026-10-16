@@ -219,7 +219,7 @@ await callPublic("/robot-task/callback", {
 s = await stagesOf(orderId);
 console.log(`  ${fmt(s.alloc)}`);
 console.log(`  ${fmt(s.reg)}`);
-console.log(`  ${fmt((await stagesOf(orderId)).order.stages.find((x: any) => x.id === "itinerary"))}`);
+console.log(`  ${fmt((await stagesOf(orderId)).order.stages.find((x: any) => x.id === "materials"))}`);
 
 // ---------- 步骤 9：清理 ----------
 step(9, "清理测试账号");

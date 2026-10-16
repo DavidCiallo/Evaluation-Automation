@@ -23,9 +23,7 @@ export type OrderStageId =
     | "account_allocation" // 账号分配：决定几个办签账号、哪位客户填在哪个号
     | "registration" // 注册填表：机器人注册账号并按计划填表
     | "appointment" // 预约位置：为每个账号约到具体位置（先填预期，约到了填实际）
-    | "itinerary" // 行程安排：客户同意 + 行程单
-    | "flight" // 机票办理：乘客证件齐备并提交 ctrip
-    | "materials" // 材料制作：各客户必备材料收齐
+    | "materials" // 材料制作：行程/机票/材料三件事在同一阶段内完成
     | "completion"; // 完结：订单结束
 
 /** 阶段内的具体准入项。动作可只要求其中某几项，不必等整阶段完成。 */
@@ -39,7 +37,6 @@ export type OrderRequirementKey =
     | "appointments_booked" // 每个账号都已录入实际预约位置
     | "itinerary_consent" // 客户已同意按行程办理（客服确认）
     | "itinerary_exists" // 至少一份行程单或机票任务
-    | "pax_documents" // 每位机票乘客证件与联系人信息齐备
     | "materials_received" // 各客户的必备材料行均已收到
     | "applications_finished"; // 所有客户已出签/拒签/取回/取消
 
@@ -109,29 +106,13 @@ export const ORDER_STAGES: OrderStageMeta[] = [
         requirements: ["appointments_booked"],
     },
     {
-        id: "itinerary",
-        label: "行程安排",
-        description: "客户同意行程方案并生成行程单",
+        id: "materials",
+        label: "材料制作",
+        description: "客户同意行程后做行程单（机票任务算行程单的一部分），并收齐各客户必备材料",
         optional: false,
         waivable: true,
         // 要素齐全在此把关：没有目的地/签证类型无法规划行程
-        requirements: ["customers_complete", "itinerary_consent", "itinerary_exists"],
-    },
-    {
-        id: "flight",
-        label: "机票办理",
-        description: "乘客证件齐备后提交 ctrip 出票",
-        optional: true,
-        waivable: true,
-        requirements: ["pax_documents"],
-    },
-    {
-        id: "materials",
-        label: "材料制作",
-        description: "各客户的必备材料收齐",
-        optional: true,
-        waivable: true,
-        requirements: ["materials_received"],
+        requirements: ["customers_complete", "itinerary_consent", "itinerary_exists", "materials_received"],
     },
     {
         id: "completion",
@@ -159,7 +140,6 @@ export const ORDER_REQUIREMENT_LABEL: Record<OrderRequirementKey, string> = {
     appointments_booked: "每个账号都已约到位置",
     itinerary_consent: "客户已同意行程方案",
     itinerary_exists: "已生成行程单或已建机票任务",
-    pax_documents: "乘客证件与联系人信息齐备",
     materials_received: "必备材料已收齐",
     applications_finished: "所有客户已出结果",
 };

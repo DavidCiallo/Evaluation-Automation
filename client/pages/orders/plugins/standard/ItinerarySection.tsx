@@ -234,8 +234,8 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     const trips: TripTask[] = std.tripTasks || []
     const applicants: ApplicantDetail[] = order.applicants_detail || []
-    /** 机票阶段未就绪的原因（如已有行程但客户未同意）；null 表示可执行 */
-    const tripBlocked = stageBlockReason(order.stages, "flight")
+    /** 材料制作阶段未就绪的原因（如已有行程但客户未同意）；null 表示可执行 */
+    const tripBlocked = stageBlockReason(order.stages, "materials")
 
     const [open, setOpen] = useState(false)
     const [busyId, setBusyId] = useState("")
@@ -657,8 +657,8 @@ function ManualItinerarySection({ order, auth, reload }: PluginSectionProps) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     const itineraries = std.itineraries || []
     const customers = std.confirmed?.customers || std.draft?.customers || []
-    /** 行程阶段未就绪的原因（通常是客户尚未同意）；null 表示可执行 */
-    const itineraryBlocked = stageBlockReason(order.stages, "itinerary")
+    /** 材料制作阶段未就绪的原因（通常是客户尚未同意）；null 表示可执行 */
+    const itineraryBlocked = stageBlockReason(order.stages, "materials")
 
     const [editing, setEditing] = useState<ItineraryEntry | null>(null)
     const [open, setOpen] = useState(false)

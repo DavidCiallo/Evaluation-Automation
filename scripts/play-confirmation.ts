@@ -53,7 +53,7 @@ async function stagesOf(orderId: string) {
     return {
         order: d.order,
         info: stages.find((s) => s.id === "info_confirmation"),
-        itinerary: stages.find((s) => s.id === "itinerary"),
+        materials: stages.find((s) => s.id === "materials"),
     };
 }
 
@@ -87,7 +87,7 @@ for (const c of issued.list) {
 step(3, "已签发但未回签：行程安排应被拦截");
 s = await stagesOf(orderId);
 console.log(`  [${s.info?.state}] 信息确认 ${s.info?.requirements[0]?.detail || ""}`);
-console.log(`  [${s.itinerary?.state}] 行程安排 blocked_by=${s.itinerary?.blocked_by ?? "无"}`);
+console.log(`  [${s.materials?.state}] 材料制作 blocked_by=${s.materials?.blocked_by ?? "无"}`);
 
 // 尝试在未回签时生成行程单，应被门禁拒绝
 let gated = false;
@@ -126,7 +126,7 @@ for (const c of issued.list) {
 step(5, "全部回签后：信息确认应变为 done");
 s = await stagesOf(orderId);
 console.log(`  [${s.info?.state}] 信息确认 miss=${s.info?.missing}`);
-console.log(`  [${s.itinerary?.state}] 行程安排 blocked_by=${s.itinerary?.blocked_by ?? "无"}`);
+console.log(`  [${s.materials?.state}] 材料制作 blocked_by=${s.materials?.blocked_by ?? "无"}`);
 
 // ---------- 步骤 6：幂等与防重 ----------
 step(6, "幂等校验");

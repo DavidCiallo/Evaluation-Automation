@@ -1053,17 +1053,17 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "dispatch-robot-task": { at: "registration", require: ["accounts_allocated"] },
         "list-robot-tasks": {},
 
-        // 行程安排：生成/保存行程须客户已同意
-        "generate-itinerary": { at: "itinerary", require: ["itinerary_consent"] },
-        "save-itinerary": { at: "itinerary", require: ["itinerary_consent"] },
-        "delete-itinerary": { at: "itinerary" },
-        "export-itinerary": { at: "itinerary" },
+        // 材料制作：行程/机票/材料在同一阶段内，生成/保存行程须客户已同意
+        "generate-itinerary": { at: "materials", require: ["itinerary_consent"] },
+        "save-itinerary": { at: "materials", require: ["itinerary_consent"] },
+        "delete-itinerary": { at: "materials" },
+        "export-itinerary": { at: "materials" },
 
-        // 机票办理：须行程已就绪（有行程单或已建任务）
-        "create-trip-task": { at: "flight", require: ["itinerary_exists"] },
-        "sync-trip-tasks": { at: "flight" },
-        "attach-trip-files": { at: "flight" },
-        "delete-trip-task": { at: "flight" },
+        // 机票任务属于行程单的一部分，仍须行程已就绪（有行程单或已建任务）
+        "create-trip-task": { at: "materials", require: ["itinerary_exists"] },
+        "sync-trip-tasks": { at: "materials" },
+        "attach-trip-files": { at: "materials" },
+        "delete-trip-task": { at: "materials" },
         "list-trip-cities": {},
 
         // 阶段外的元动作：同意与豁免本身是推进阶段的前提，不设准入
