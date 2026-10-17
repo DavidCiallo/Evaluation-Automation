@@ -163,6 +163,6 @@ export async function getChatBundle(chatId: string) {
         messages,
         drafts,
         exempt,
-        summary: "", // filled lazily by caller if requested
+        summary: "",
     };
 }

@@ -10,6 +10,6 @@ export async function listByChat(chatId: string, limit = 50, before?: number | n
     const rows = await repo.find(where, { limit: fetchN });
     rows.sort((a, b) => a.send_time - b.send_time);
     const hasMore = rows.length > limit;
-    const trimmed = hasMore ? rows.slice(1) : rows; // drop oldest when paginating
+    const trimmed = hasMore ? rows.slice(1) : rows;
     return { list: trimmed, has_more: hasMore };
 }

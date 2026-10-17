@@ -204,7 +204,7 @@ class TypeformClient {
         const sortedFields = [...fields].sort((a, b) => (a.position || 0) - (b.position || 0));
 
         for (const f of sortedFields) {
-            if (f.disabled) continue; // 跳过系统字段
+            if (f.disabled) continue;
             const record = records.find((r) => r.field_id === f.id);
             if (!record) continue;
             let displayValue = String(record.field_value ?? "");

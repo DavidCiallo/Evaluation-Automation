@@ -5,7 +5,6 @@ import type { ConversationEntity } from "../../../shared/modules/conversation/co
 
 export interface PluginContext {
     setPluginData: (pluginId: string, patch: Record<string, any>) => Promise<void>;
-/** 追加订单备注 */
     appendRemark: (content: string, source?: "auto" | "manual") => Promise<void>;
 }
 

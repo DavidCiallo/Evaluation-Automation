@@ -16,8 +16,8 @@ const CONFIG_KEY = "exemptions";
 
 interface CompiledRule {
     name: string;
-    contains: string[]; // lowercased
-    not_contains: string[]; // lowercased
+    contains: string[];
+    not_contains: string[];
     regex: RegExp | null;
 }
 
@@ -148,7 +148,7 @@ export function isExemptCustomerMessage(ex: CompiledExemption, content: string):
     if (!content) return false;
     const lower = content.toLowerCase();
     for (const r of ex.rules) {
-        if (!ruleHasConditions(r)) continue; // a condition-less rule never matches
+        if (!ruleHasConditions(r)) continue;
         if (r.contains.length && !r.contains.every((s) => lower.includes(s))) continue;
         if (r.not_contains.length && r.not_contains.some((s) => lower.includes(s))) continue;
         if (r.regex && !r.regex.test(content)) continue;

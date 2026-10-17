@@ -41,7 +41,6 @@ export async function toDTOs(rows: PoolAccountEntity[], orderId: string, withSec
     return rows.map((r) => toPoolAccountDTO(r, withSecret, names));
 }
 
-/** 客户条目 id 到姓名。 */
 async function nameLookup(orderId: string): Promise<(id: string) => string> {
     const customers = await customersOf(orderId);
     const byId = new Map(customers.map((c) => [c.id, c.name || "未命名"]));

@@ -226,6 +226,7 @@ export async function ensureIntegrationSettings(): Promise<void> {
                 const row = await cfgRepo.findOne({ key: STORE_KEY });
                 stored = (row?.value && typeof row.value === "object") ? row.value as StoredSettings : {};
             } catch (e) {
+                // 库不可用时退化为纯环境变量解析
                 console.error("[integration] load settings failed:", e);
                 stored = {};
             }

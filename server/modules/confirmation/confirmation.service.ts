@@ -150,6 +150,7 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
     if (customers.length === 0) throw "订单尚无客户名单，无法签发确认单";
 
     const existing = await repo.find({ order_id: orderId });
+    // revoked 的不算有效，需要重新签发
     const activeByCustomer = new Set(existing.filter((e) => e.status !== "revoked").map((e) => e.customer_id));
 
     const targets = customers.filter((c) => {

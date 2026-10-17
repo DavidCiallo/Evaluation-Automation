@@ -38,7 +38,6 @@ async function detail(request: OrderDetailRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-/** 取消整单。 */
 async function cancel(request: OrderCancelRequest) {
     const req = OrderCancelRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
@@ -47,7 +46,6 @@ async function cancel(request: OrderCancelRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-/** 恢复已取消订单。 */
 async function reopen(request: OrderReopenRequest) {
     const req = OrderReopenRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";

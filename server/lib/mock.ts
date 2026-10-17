@@ -93,7 +93,7 @@ export async function ensureSeedData() {
             await accountRepo.insert({
                 name: a.name,
                 email: `${a.wechat_id}@mock.local`,
-                password: "$mock_no_login", // not loginable; admin still uses ADMIN_EMAIL
+                password: "$mock_no_login",
                 wechat_id: a.wechat_id,
                 role: "agent",
             } as any);
@@ -149,7 +149,7 @@ interface Pending {
     customer: { wechat_id: string; name: string };
     customerMsgId: string;
     customerMsgTime: number;
-    replyAt: number; // scheduled agent reply time
+    replyAt: number;
 }
 const pendingQueue: Pending[] = [];
 

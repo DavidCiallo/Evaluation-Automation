@@ -37,7 +37,7 @@ export async function findOrders(opts: {
     start?: number | null;
     end?: number | null;
 }): Promise<{ list: OrderEntity[]; total: number }> {
-    let all = await orderRepo.find(); // 默认按创建时间倒序
+    let all = await orderRepo.find();
 
     const agents = [...new Set([...(opts.agent_ids || []), ...(opts.agent_id ? [opts.agent_id] : [])])];
     if (agents.length > 0) all = all.filter((o) => (o.agent_ids || []).some((id) => agents.includes(id)));
@@ -441,7 +441,6 @@ export async function setPluginData(orderId: string, pluginId: string, patch: Re
     });
 }
 
-/** 更新客户备注。 */
 export async function updateCustomerRemark(orderId: string, customerRemark: string): Promise<OrderEntity | null> {
     await orderRepo.update({ id: orderId }, { customer_remark: customerRemark });
     return orderRepo.findOne({ id: orderId });

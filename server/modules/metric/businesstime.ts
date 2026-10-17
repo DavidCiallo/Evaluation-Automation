@@ -20,10 +20,10 @@ export async function loadBusinessConfig(): Promise<BusinessConfig> {
     ]);
     const startMin = Math.max(0, Math.min(23, Number(startHour) || 0)) * 60;
     let endMin = Math.max(0, Math.min(23, Number(endHour) || 0)) * 60;
-    if (endMin <= startMin) endMin = Math.min(startMin + 60, 24 * 60); // guard bad config
+    if (endMin <= startMin) endMin = Math.min(startMin + 60, 24 * 60);
     const rawDays = Array.isArray(daysArr) && daysArr.length ? daysArr : [1, 2, 3, 4, 5];
     const days = new Set<number>(rawDays.map((d) => Number(d)).filter((d) => d >= 0 && d <= 6));
-    if (days.size === 0) days.add(1); // never allow zero working days
+    if (days.size === 0) days.add(1);
     return { startMin, endMin, days, perDayMs: (endMin - startMin) * 60000 };
 }
 
@@ -107,7 +107,7 @@ export function crossesNonBusiness(t1: number, t2: number, cfg: BusinessConfig):
         return true;
     }
     const idx = dayIndex(t1);
-    if (!isBusinessDayIdx(idx, cfg.days)) return true; // a non-working day is entirely off-hours
+    if (!isBusinessDayIdx(idx, cfg.days)) return true;
     const dayStart = new Date(d1.getFullYear(), d1.getMonth(), d1.getDate()).getTime();
     const m1 = (t1 - dayStart) / 60000;
     const m2 = (t2 - dayStart) / 60000;

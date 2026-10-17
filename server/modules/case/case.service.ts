@@ -378,7 +378,7 @@ export async function confirmSplit(id: string, by: string, groups?: CaseSplitGro
         };
     });
 
-    void chat; // 群名仅用于展示，建单不再需要
+    void chat;
 
     void Promise.all(
         created.map((oid) =>

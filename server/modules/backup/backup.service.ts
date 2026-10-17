@@ -72,6 +72,7 @@ export function restoreMedia(entries: { name: string; buf: Buffer }[]): number {
     if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
     let n = 0;
     for (const e of entries) {
+        // 只接受纯文件名
         if (path.basename(e.name) !== e.name) continue;
         fs.writeFileSync(path.join(MEDIA_DIR, e.name), e.buf);
         n++;

@@ -338,7 +338,7 @@ export async function recomputeSnapshotUnread(): Promise<void> {
         if (!row) return null;
         const msgs = convGroup.get(row.chat_id) || [];
         const unread = computeExemptUnread(msgs, ex, row.chat_id);
-        if (unread === (row.unread_count || 0)) return null; // unchanged
+        if (unread === (row.unread_count || 0)) return null;
         changed++;
         return { unread_count: unread };
     });
@@ -602,6 +602,7 @@ export function stopPoller(): void {
 export async function restartPoller(): Promise<void> {
     const want = getIntegration("sdk");
     const running = intervalId !== null;
+    // 开关、消息源、间隔任一变化都要重启才能生效
     const needRestart = want.pollerEnabled !== running
         || (want.pollerEnabled && (runningSource !== want.source || activeIntervalMs !== want.intervalMs));
     if (!needRestart) return;

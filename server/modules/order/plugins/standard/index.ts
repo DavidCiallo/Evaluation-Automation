@@ -45,12 +45,12 @@ async function detectItineraryConsent(order: OrderEntity): Promise<ItineraryCons
     if (!order.chat_id) return null;
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
     const current = (std.itineraryConsent as ItineraryConsent) || emptyItineraryConsent();
-    if (current.confirmed) return null; // 已确认，无需再猜
+    if (current.confirmed) return null;
 
     const messages = await loadRecentMessages(order.chat_id, 20);
     const { detected, evidence } = extractConsentSignal(messages);
     if (!detected || !evidence) return null;
-    if (current.detected && current.detected_evidence === evidence) return null; // 无变化
+    if (current.detected && current.detected_evidence === evidence) return null;
 
     return { ...current, detected: true, detected_time: Date.now(), detected_evidence: evidence };
 }
@@ -97,7 +97,6 @@ function migrateLegacyDraft(std: StandardPluginData, orderName: string): OrderIn
     const legacy = std.draft as any;
     if (!legacy) return null;
     if (Array.isArray(legacy.customers)) return legacy as OrderInfoDraft;
-    // 旧结构单字段
     const legacyContent = legacy.content as string | undefined;
     let destination = legacy.destination || null;
     let visaType = legacy.type || null;
@@ -615,7 +614,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { content, filename: `itinerary_${it.id}.md` };
         },
 
-        /** 生成合同文档。 */
         "generate-contract": async (order: OrderEntity) => {
             return buildContract(order);
         },
