@@ -72,18 +72,18 @@ const AGENT_LINES = [
 function replyGapMs(profile: "fast" | "medium" | "mixed"): number {
     const r = rand();
     if (profile === "fast") {
-        if (r < 0.7) return randInt(4, 28) * 1000;      // 70% 即时（≤30s）
-        if (r < 0.9) return randInt(35, 200) * 1000;    // 20% 35s-3min
-        return randInt(200, 1200) * 1000;               // 10% 3-20min
+        if (r < 0.7) return randInt(4, 28) * 1000;
+        if (r < 0.9) return randInt(35, 200) * 1000;
+        return randInt(200, 1200) * 1000;
     }
     if (profile === "medium") {
-        if (r < 0.45) return randInt(4, 28) * 1000;     // 45% 即时
-        if (r < 0.8) return randInt(35, 300) * 1000;    // 35% 35s-5min
-        return randInt(300, 1800) * 1000;               // 20% 5-30min
+        if (r < 0.45) return randInt(4, 28) * 1000;
+        if (r < 0.8) return randInt(35, 300) * 1000;
+        return randInt(300, 1800) * 1000;
     }
-    if (r < 0.25) return randInt(4, 28) * 1000;         // 25% 即时
-    if (r < 0.6) return randInt(35, 300) * 1000;        // 35% 35s-5min
-    return randInt(300, 3000) * 1000;                   // 40% 5-50min
+    if (r < 0.25) return randInt(4, 28) * 1000;
+    if (r < 0.6) return randInt(35, 300) * 1000;
+    return randInt(300, 3000) * 1000;
 }
 
 const convRepo = Repository.instance<ConversationEntity>("Conversation");
@@ -115,7 +115,7 @@ for (const chat of chats) {
     if (agentMembers.length === 0 || customerMembers.length === 0) continue;
 
     let msgSeq = 0;
-    const msgId = () => `mseed_${chat.id}_${Date.now()}_${msgSeq++}`; // 非确定但带 chat 前缀，幂等靠 resend 检测
+    const msgId = () => `mseed_${chat.id}_${Date.now()}_${msgSeq++}`;
     const insertedTimes: number[] = [];
 
     async function insertMsg(fromId: string, fromRole: "agent" | "customer", content: string, sendTime: number) {
@@ -140,20 +140,20 @@ for (const chat of chats) {
     for (let dayOffset = DAYS; dayOffset >= 0; dayOffset--) {
         const day = new Date(todayStart.getTime() - dayOffset * 86400_000);
         const weekday = day.getDay();
-        if (weekday === 0 || weekday === 6) continue; // 跳过周末（业务时间外，指标不友好）
+        if (weekday === 0 || weekday === 6) continue;
         const isToday = dayOffset === 0;
 
         const sessionCount = randInt(1, 3);
-        let cursorMin = 9 * 60 + randInt(0, 60); // 首个会话 9:00-10:00 起
+        let cursorMin = 9 * 60 + randInt(0, 60);
         for (let s = 0; s < sessionCount; s++) {
             cursorMin += randInt(40, 150);
-            if (cursorMin > 16 * 60 + 30) break; // 16:30 后不再开新会话
+            if (cursorMin > 16 * 60 + 30) break;
             const startMs = day.getTime() + cursorMin * 60_000 + randInt(0, 59) * 1000;
-            if (isToday && startMs > nowMs - 10 * 60_000) break; // 今天的会话须已发生 ≥10 分钟
+            if (isToday && startMs > nowMs - 10 * 60_000) break;
             if (startMs > nowMs) break;
 
             let t = startMs;
-            const agent = pick(agentMembers); // 该会话由某位客服负责
+            const agent = pick(agentMembers);
             const sender = pick(customerMembers);
 
             const custCount = randInt(1, 3);
@@ -165,6 +165,7 @@ for (const chat of chats) {
             const agentProfile = AGENTS.find((a) => a.wechat_id === agent.wechat_id)?.profile || "medium";
             const forcedSlow = rand() < 0.04;
             let gap = forcedSlow ? randInt(360, 2700) * 1000 : replyGapMs(agentProfile);
+            // 回复不越过 18:00
             const endOfDay = day.getTime() + 18 * 3600_000;
             gap = Math.min(gap, Math.max(5_000, endOfDay - t));
             t += gap;
