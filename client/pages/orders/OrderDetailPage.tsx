@@ -125,7 +125,6 @@ export function OrderDetailPage() {
 
     return (
         <div className="space-y-6">
-            {/* 头部 */}
             <div className="flex items-center gap-3">
                 <Button variant="ghost" size="sm" asChild>
                     <Link to="/orders">
@@ -140,9 +139,7 @@ export function OrderDetailPage() {
                         #{order.id.slice(0, 8)} · v{order.version}
                     </p>
                 </div>
-                {/* 取消是订单唯一的粗粒度标志：进度看阶段卡片，这里只区分在办/已取消 */}
                 {order.cancelled_at ? <Badge variant="destructive">已取消</Badge> : null}
-                {/* 签证类型是整单标记，用于辨认这单办哪个国家 */}
                 <select
                     className="border-input bg-background h-8 rounded-md border px-2 text-xs"
                     value={order.visa_type || ""}
@@ -219,12 +216,9 @@ export function OrderDetailPage() {
                 )}
             </div>
 
-            {/* 订单信息 + 订单阶段（最上方） */}
             <OrderInfoCard order={order} auth={auth} reload={load} />
 
-            {/* 按行配对：左侧（span 2）操作 / 右侧（span 1）查看，items-stretch 保证同一行两边等高 */}
             <div className="space-y-4">
-                {/* 行1：表单收集（点选）↔ 表单详情（左右各半） */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-2">
                     <Card className="lg:col-span-1">
                         <CardHeader>
@@ -253,10 +247,8 @@ export function OrderDetailPage() {
                     </Card>
                 </div>
 
-                {/* 行2.5：信息确认（表单回收后、行程安排前） */}
                 <ConfirmationCard orderId={order.id} />
 
-                {/* 行2.6：办签账号（信息确认后、注册填表前） */}
                 <AccountPoolCard
                     orderId={order.id}
                     order={order}
@@ -265,10 +257,8 @@ export function OrderDetailPage() {
                     reload={load}
                 />
 
-                {/* 行2.7：预约位置（注册填表后、行程安排前） */}
                 <AppointmentCard orderId={order.id} reload={load} />
 
-                {/* 行3：行程单（宽）↔ 核心信息 */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-3">
                     <div className="lg:col-span-2">
                         <ItineraryCard order={order} auth={auth} reload={load} />
@@ -313,7 +303,6 @@ export function OrderDetailPage() {
                     </Card>
                 </div>
 
-                {/* 非标准插件：保持原有整体卡片渲染 */}
                 {clientPlugins.filter((p) => p.manifest.id !== STANDARD_PLUGIN_ID).map((p) => (
                     <Card key={p.manifest.id}>
                         <CardHeader>
@@ -326,11 +315,7 @@ export function OrderDetailPage() {
                     </Card>
                 ))}
             </div>
-
-            {/* 发材料邮件 */}
             <SendMaterialsDialog open={sendMailOpen} onClose={() => setSendMailOpen(false)} order={order} auth={auth} />
-
-            {/* 备注时间线 */}
             <Card>
                 <CardHeader>
                     <CardTitle>备注时间线</CardTitle>
@@ -369,8 +354,6 @@ export function OrderDetailPage() {
                     </div>
                 </CardContent>
             </Card>
-
-            {/* 关联聊天记录 - 使用 tabs */}
             <Card>
                 <CardHeader>
                     <CardTitle>关联聊天记录</CardTitle>
@@ -381,7 +364,6 @@ export function OrderDetailPage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                    {/* Tabs */}
                     <div className="flex flex-wrap gap-1 border-b pb-2">
                         {relatedChats.map((chat) => (
                             <button
@@ -408,8 +390,6 @@ export function OrderDetailPage() {
                             <span className="text-muted-foreground text-xs">暂无关联会话</span>
                         )}
                     </div>
-
-                    {/* Messages */}
                     {loadingMessages && <Skeleton className="h-32 w-full" />}
                     {!loadingMessages && messages.length === 0 && (
                         <p className="text-muted-foreground text-sm">无关联消息</p>

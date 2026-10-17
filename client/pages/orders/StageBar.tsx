@@ -179,8 +179,6 @@ function StageNode({ stage, compact = false, showTime = false, cancelledHere = f
         <TooltipProvider delayDuration={150}>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    {/* 圆点的落点、阶段名、时刻都由外层绝对定位统一画，
-                        这里只管圆点本身，不再自己排文字。 */}
                     <div className={`flex cursor-default flex-col items-center ${showTime ? "shrink-0" : "shrink-0 gap-1"}`}>
                         {!showTime && (
                             <span className={`whitespace-nowrap text-xs ${labelClass}`}>
@@ -190,7 +188,6 @@ function StageNode({ stage, compact = false, showTime = false, cancelledHere = f
                         <span className={`flex size-5 shrink-0 items-center justify-center rounded-full border transition ${dotClass(stage.state, cancelledHere)}`}>
                             <StageIcon state={stage.state} cancelledHere={cancelledHere} />
                         </span>
-                        {/* 时间视图横排 9 个圆点，标签写不下会互相压，靠悬停提示看名字 */}
                         {stage.optional && !compact && (
                             <span className="text-muted-foreground text-[9px]">可选</span>
                         )}
@@ -288,18 +285,12 @@ export function OrderStageBar({ stages, current, className = "", compact = false
                         >
                             <StageNode stage={s} compact={compact} showTime cancelledHere={isStopped(s)} />
                         </div>
-                        {/* 阶段名标在圆点下方，配色跟阶段视图一致
-                            （已完成绿、进行中前景色、其余灰），两个视图看起来才是一回事。
-                            一律以圆心居中**：首尾曾经特殊对齐过，结果第一个圆点的
-                            名字整体右移半个字宽，和圆点对不上。留白交给 IN 处理。 */}
                         <span
                             className={`absolute top-6 -translate-x-1/2 text-xs whitespace-nowrap ${timeLabelClass(s)}`}
                             style={{ left: `${dotPct(i)}%` }}
                         >
                             {s.label}
                         </span>
-                        {/* 第二行：已完成写完成时刻，正在走写已持续多久。
-                            两行都在时才占位，否则留白会撑高行、把圆点顶歪。 */}
                         {fmtStageSub(s) && (
                             <span
                                 className="text-muted-foreground absolute top-10 -translate-x-1/2 text-[10px] whitespace-nowrap"
@@ -310,8 +301,6 @@ export function OrderStageBar({ stages, current, className = "", compact = false
                         )}
                     </Fragment>
                 ))}
-                {/* 下一步：灰线固定长度，末端一个灰点。它不表示耗时——
-                    那一步还没发生——只说明「后面还有」。 */}
                 {next && (
                     <>
                         <span
@@ -375,7 +364,6 @@ export function OrderStageBar({ stages, current, className = "", compact = false
                         >
                             {s.label}
                         </span>
-                        {/* 第二行：已完成写完成时刻，正在走写已持续多久 */}
                         {fmtStageSub(s) && (
                             <span
                                 className="text-muted-foreground absolute top-10 -translate-x-1/2 text-[10px] whitespace-nowrap"

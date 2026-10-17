@@ -209,6 +209,7 @@ export function WorkbenchPage() {
     const visibleChats = useMemo(() => filteredChats.slice(0, visibleCount), [filteredChats, visibleCount])
     const hasMore = visibleCount < filteredChats.length
 
+    // 群聊即订单：每个群聊至多一个订单
     const activeOrder = useMemo(() => drafts[0] || null, [drafts])
 
     const handleSummary = async () => {
@@ -226,6 +227,7 @@ export function WorkbenchPage() {
         }
     }
 
+    // 豁免/取消豁免此会话：不计入任何统计与待回复
     const toggleExempt = async () => {
         if (!selectedId) return
         const next = !exempt
@@ -234,7 +236,7 @@ export function WorkbenchPage() {
             await exemptionApi.toggleChat({ chat_id: selectedId, exempt: next, auth })
             setExempt(next)
             toast.success(next ? "已豁免此会话，不再纳入统计" : "已取消豁免")
-            loadChats() // 刷新列表待回复状态
+            loadChats()
         } catch (e: any) {
             toast.error(`操作失败: ${e?.message || ""}`)
         } finally {
@@ -274,7 +276,6 @@ export function WorkbenchPage() {
             </div>
 
             <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[320px_1fr_320px]">
-                {/* Left: chat list */}
                 <Card className="min-h-0 overflow-hidden py-0">
                     <div className="flex h-full flex-col">
                         <div className="border-b p-3 space-y-2">
@@ -334,8 +335,6 @@ export function WorkbenchPage() {
                         </div>
                     </div>
                 </Card>
-
-                {/* Middle: chat window */}
                 <Card className="min-h-0 overflow-hidden py-0">
                     <div className="flex h-full flex-col">
                         <div className="flex items-center justify-between border-b px-4 py-2">
@@ -419,8 +418,6 @@ export function WorkbenchPage() {
                         </div>
                     </div>
                 </Card>
-
-                {/* Right: order + AI panel */}
                 <Card className="min-h-0 overflow-hidden py-0">
                     <div className="flex h-full flex-col">
                         <div className="flex items-center justify-between border-b px-3 py-2">
@@ -433,7 +430,6 @@ export function WorkbenchPage() {
                         </div>
 
                         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-                            {/* Order card */}
                             <div className="space-y-2">
                                 <div className="text-muted-foreground text-xs font-semibold uppercase">订单</div>
                                 {!activeOrder && (
@@ -455,8 +451,6 @@ export function WorkbenchPage() {
                                     <OrderStandardCard order={activeOrder} />
                                 )}
                             </div>
-
-                            {/* Summary card */}
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
                                     <span className="text-muted-foreground text-xs font-semibold uppercase">会话小结</span>
@@ -474,7 +468,6 @@ export function WorkbenchPage() {
                                 )}
                             </div>
 
-                            {/* 统计豁免：订单与助手下方，标记此会话是否为真实客户 */}
                             <div className="space-y-2">
                                 <span className="text-muted-foreground text-xs font-semibold uppercase">统计豁免</span>
                                 {exempt ? (

@@ -63,8 +63,6 @@ export function ItineraryConsentCard({ order, auth, reload }: PluginSectionProps
                     </Badge>
                 )}
 
-                {/* 无识别结果时不展示状态文案：这是绝大多数订单的默认情况，
-                    写出来只是噪音，只保留可执行的操作按钮。 */}
                 {(confirmed || detected) && (
                     <span className="text-muted-foreground text-xs">
                         {confirmed
@@ -91,7 +89,6 @@ export function ItineraryConsentCard({ order, auth, reload }: PluginSectionProps
                 </div>
             </div>
 
-            {/* 模型命中的原句：供客服复核后再确认 */}
             {detected && !confirmed && consent?.detected_evidence && (
                 <div className="bg-muted/40 mt-2 flex items-start gap-1.5 rounded border px-2 py-1.5">
                     <Quote className="text-muted-foreground mt-0.5 size-3 shrink-0" />

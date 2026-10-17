@@ -138,7 +138,6 @@ export function EmailsPage() {
 
     return (
         <div className="grid h-[calc(100vh-8rem)] gap-4 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1.4fr)]">
-            {/* 左栏：收件账号 */}
             <div className="flex min-h-0 flex-col rounded-lg border bg-card">
                 <div className="space-y-2 border-b p-3">
                     <div className="flex items-center justify-between">
@@ -171,8 +170,6 @@ export function EmailsPage() {
                     )}
                 </div>
             </div>
-
-            {/* 中栏：邮件列表 */}
             <div className="flex min-h-0 flex-col rounded-lg border bg-card">
                 <div className="space-y-2 border-b p-3">
                     <div className="flex items-center gap-2">
@@ -213,8 +210,6 @@ export function EmailsPage() {
                     <Button size="sm" variant="ghost" disabled={page >= totalPages || loading} onClick={() => loadEmails({ page: page + 1 })}>下一页</Button>
                 </div>
             </div>
-
-            {/* 右栏：详情 + AI */}
             <div className="flex min-h-0 flex-col rounded-lg border bg-card">
                 {!selEmailId ? (
                     <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-sm">

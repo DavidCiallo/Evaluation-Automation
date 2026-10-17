@@ -314,8 +314,6 @@ export function CustomerPage() {
                     <p className="text-muted-foreground mt-2 text-xs">共 {total} 位客户</p>
                 </CardContent>
             </Card>
-
-            {/* 新建/编辑弹窗 */}
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent>
                     <DialogHeader>
@@ -365,7 +363,6 @@ export function CustomerPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* 相关文件弹窗：该客户名下的文件，按类别聚合三行：身份证 / 护照 / 其它材料 */}
             <Dialog open={fileOpen} onOpenChange={setFileOpen}>
                 <DialogContent className="max-h-[85vh] overflow-auto sm:max-w-[900px]">
                     <DialogHeader>

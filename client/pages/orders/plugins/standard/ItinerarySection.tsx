@@ -378,7 +378,7 @@ function EditorDialog({
     auth,
     reload,
     customers,
-    editing, // existing itinerary being edited, or null for new
+    editing,
 }: {
     open: boolean
     onClose: () => void
@@ -479,8 +479,6 @@ function EditorDialog({
                         设置客户与日期范围后，可用 AI 生成表格骨架，再逐格微调。
                     </DialogDescription>
                 </DialogHeader>
-
-                {/* 参数区 */}
                 <div className="mt-2 space-y-2">
                     <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
@@ -525,8 +523,6 @@ function EditorDialog({
                         />
                     </div>
                 </div>
-
-                {/* 生成按钮 */}
                 <div className="mt-3 flex items-center gap-2">
                     <Button size="sm" variant="outline" onClick={doGenerate} disabled={generating || saving}>
                         {generating ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Sparkles className="mr-1 size-3" />}
@@ -536,8 +532,6 @@ function EditorDialog({
                         <Plus className="mr-1 size-3" /> 添加行
                     </Button>
                 </div>
-
-                {/* 行程表格 */}
                 <div className="mt-3 max-h-[72vh] overflow-auto rounded-md border">
                     <table className="w-full border-collapse text-xs">
                         <thead>
@@ -741,7 +735,6 @@ function ManualItinerarySection({ order, auth, reload }: PluginSectionProps) {
 export function ItinerarySection({ order, auth, reload }: PluginSectionProps) {
     return (
         <div className="space-y-4">
-            {/* 客户同意是行程与机票的前置条件，置顶展示 */}
             <ItineraryConsentCard order={order} auth={auth} reload={reload} />
             <TripTaskSection order={order} auth={auth} reload={reload} />
             <ManualItinerarySection order={order} auth={auth} reload={reload} />

@@ -210,7 +210,6 @@ export function ExemptionEditor() {
 
     return (
         <div className="space-y-6">
-            {/* Exempt chats */}
             <div className="space-y-2">
                 <Label>豁免群聊</Label>
                 <p className="text-muted-foreground text-xs">被选中群聊的全部消息不纳入任何指标统计。</p>
@@ -246,8 +245,6 @@ export function ExemptionEditor() {
             </div>
 
             <Separator />
-
-            {/* Exempt customers */}
             <div className="space-y-2">
                 <Label>豁免客户</Label>
                 <p className="text-muted-foreground text-xs">被选中客户的所有发言不纳入任何指标统计。</p>
@@ -287,8 +284,6 @@ export function ExemptionEditor() {
             </div>
 
             <Separator />
-
-            {/* Message rules */}
             <div className="space-y-3">
                 <div className="flex items-center justify-between">
                     <div>

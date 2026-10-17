@@ -61,7 +61,6 @@ function SignerLines({ id }: { id: string }) {
                 const extra = s.reason ? `（${s.reason}）` : ""
                 return (
                     <span key={`${s.name}-${i}`} className={`${r.className} ${i > 0 ? "ml-[2em]" : ""}`}>
-                        {/* 名字至少占三个字宽：短名和长名混排时状态文字才对齐 */}
                         <span className="inline-block min-w-[3em]">{s.name}</span>{" "}
                         {s.result === "ok" ? fmtSignTime(s.signed_at) : r.label}
                         {extra}

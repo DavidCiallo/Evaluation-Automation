@@ -135,7 +135,6 @@ export function SendMaterialsDialog({ open, onClose, order, auth }: {
                 </DialogHeader>
 
                 <div className="space-y-3">
-                    {/* 附件选择 */}
                     <div className="space-y-1">
                         <div className="flex items-center justify-between">
                             <Label>材料附件（{selected.size}/{totalFiles}）</Label>

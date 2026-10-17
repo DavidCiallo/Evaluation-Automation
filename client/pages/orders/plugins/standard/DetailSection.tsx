@@ -153,19 +153,15 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
 
     return (
         <div className="space-y-3">
-            {/* 展示区：名称标题 + 图标信息项 + 客户 chips + 操作（有数据且非编辑态） */}
             {src && !editing && (
                 <div className="rounded-lg border bg-muted/20 p-3">
-                    {/* 名称行 */}
                     <div className="mb-2.5 flex items-center gap-2">
                         <span className="min-w-0 truncate text-[15px] font-semibold">
                             {src?.order_name || order.order_name || "未命名订单"}
                         </span>
                     </div>
 
-                    {/* 图标信息项 2×2 */}
                     <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 text-sm">
-                        {/* 价格 */}
                         <div className="flex items-center gap-2">
                             <Wallet className="text-muted-foreground size-4 shrink-0" />
                             {src?.price != null ? (
@@ -176,7 +172,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                                 <span className="text-muted-foreground">价格未定</span>
                             )}
                         </div>
-                        {/* 客服 */}
                         <div className="flex items-center gap-2">
                             <User className="text-muted-foreground size-4 shrink-0" />
                             <span className="font-medium">
@@ -185,7 +180,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                                     : <span className="text-muted-foreground">暂无客服</span>}
                             </span>
                         </div>
-                        {/* 客户 */}
                         <div className="flex items-start gap-2">
                             <Users className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                             <div className="flex flex-wrap items-center gap-1">
@@ -207,7 +201,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                                 )}
                             </div>
                         </div>
-                        {/* 时间 */}
                         <div className="flex items-center gap-2">
                             <CalendarDays className="text-muted-foreground size-4 shrink-0" />
                             <span className="text-muted-foreground">
@@ -216,7 +209,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                         </div>
                     </div>
 
-                    {/* 操作栏 */}
                     {!editing && (
                         <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-2.5">
                             <Button size="sm" onClick={startEdit} disabled={busy}>
@@ -233,7 +225,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                 </p>
             )}
 
-            {/* 内联编辑区 */}
             {editing && (
                 <div className="space-y-3 rounded-md border bg-muted/30 p-3">
                     <div className="grid grid-cols-2 gap-3">
@@ -267,7 +258,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                             </div>
                         </div>
                     </div>
-                    {/* 客户区：选择系统客户或新增（信息可空，仅姓名） */}
                     <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
                             <Label>客户</Label>
@@ -283,7 +273,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                             </Button>
                         </div>
 
-                        {/* 从系统客户库搜索添加 */}
                         {customerPool.length > 0 && (() => {
                             const q = custSearch.trim().toLowerCase()
                             const unselectedIds = new Set(editCustomers.map((x) => x.customer_id).filter(Boolean))
@@ -342,7 +331,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                             )
                         })()}
 
-                        {/* 已选客户：姓名（可空其他），可移除 —— 一行两个（多列不浪费空间） */}
                         {editCustomers.length === 0 && (
                             <p className="text-muted-foreground px-1 text-xs">
                                 尚未选择客户，可搜索上方系统客户库添加，或点击「新增客户」。信息可为空，仅需姓名。
@@ -464,7 +452,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                 setFallback(!!r.fallback)
                 setSelected(r.suggested || r.matches?.[0]?.key || "")
             })
-            .catch(() => { /* 拉取失败时仍可直接关闭走手动 */ })
+            .catch(() => {})
             .finally(() => setLoading(false))
     }, [open, formKey, customerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -670,7 +658,6 @@ function FormCollectionSection({
                 </div>
             </div>
 
-            {/* 分配新表单 */}
             <div className="space-y-2 rounded-md border p-2">
                 <div className="grid grid-cols-2 gap-2">
                     <select
@@ -716,7 +703,6 @@ function FormCollectionSection({
                 )}
             </div>
 
-            {/* 已分配表单列表 */}
             {forms.length === 0 ? (
                 <p className="text-muted-foreground text-sm">暂未分配表单</p>
             ) : (
@@ -787,7 +773,6 @@ function FormCollectionSection({
                 </div>
             )}
 
-            {/* 已有记录挑选（简表 / 麦客通用） */}
             {picker && (
                 <MikeSubmitPicker
                     open

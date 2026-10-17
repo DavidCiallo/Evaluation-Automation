@@ -141,7 +141,6 @@ export function AccountPoolCard({
 
                 {accounts.map((a) => (
                     <div key={a.id} className="space-y-3 rounded-md border px-3 py-3">
-                        {/* 抬头：账号名 + 状态 + 操作。按钮放这里，不再跟着内容高度飘 */}
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <span className="text-sm font-medium">{a.label || `账号 ${a.seq}`}</span>
                             <span className="text-muted-foreground text-xs">{a.status_label}</span>
@@ -162,7 +161,6 @@ export function AccountPoolCard({
                             </Button>
                         </div>
 
-                        {/* 上半：这个号是谁——平台、邮箱、密码 */}
                         <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
                             <div className="space-y-1">
                                 <span className="text-muted-foreground text-xs">平台</span>
@@ -210,7 +208,6 @@ export function AccountPoolCard({
                                         }
                                     }}
                                 />
-                                {/* 邮箱系统里给这个信箱打的标签，本系统只读不改 */}
                                 {(a.mailbox_labels.length > 0 || a.grant_end_time) && (
                                     <div className="flex flex-wrap items-center gap-1">
                                         {a.mailbox_labels.map((l) => (
@@ -233,7 +230,6 @@ export function AccountPoolCard({
                             <div className="space-y-1">
                                 <span className="text-muted-foreground text-xs">密码</span>
                                 <div className="flex items-center gap-1">
-                                    {/* 密码可以手工录，也可以点眼睛看已存的明文 */}
                                     <Input
                                         type="text"
                                         value={revealed[a.id] ?? (a.has_password ? "••••••••" : "")}
@@ -255,7 +251,6 @@ export function AccountPoolCard({
 
                         <div className="bg-border h-px" />
 
-                        {/* 下半：这个号要干什么——客户、产出、派发 */}
                         <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
                             <div className="space-y-1">
                                 <span className="text-muted-foreground text-xs">客户</span>
@@ -302,9 +297,6 @@ export function AccountPoolCard({
                                 </div>
                             </div>
 
-                            {/* 产物按平台算：FV 号一人一个，TLS 链接一个账号一条，
-                                VFS/西班牙只要注册不要产物。齐没齐在抬头里说。
-                                三列栅格：类型 / 归属 / 输入框，所有输入框同一左边缘、同一宽度 */}
                             <div className="min-w-0 flex-1 space-y-1">
                                 {needsFv(a) &&
                                     a.customer_ids.map((cid, i) => {
@@ -314,8 +306,6 @@ export function AccountPoolCard({
                                                 <span className="text-muted-foreground truncate text-xs">
                                                     {i === 0 ? "FV 号" : ""}
                                                 </span>
-                                                {/* 客户名只在挂了几位客户时才值得重复；
-                                                    只有一位时上面「客户」那格已经写了名字 */}
                                                 <span className="truncate text-xs">
                                                     {a.customer_ids.length > 1 ? customerName(cid) : ""}
                                                 </span>
@@ -389,8 +379,6 @@ export function AccountPoolCard({
                                         </div>
                                     ))}
 
-                                {/* 添加框只在「还缺」时出现：TLS 链接一个账号一条，
-                                    已经填了就说明这件事做完了，再摆一个空框等于问你要第二个 */}
                                 {needsTls(a) && a.tls_links.length === 0 && (
                                     <div className="grid grid-cols-[3.5rem_4rem_1fr] items-center gap-2">
                                         <span className="text-muted-foreground truncate text-xs">TLS 链接</span>

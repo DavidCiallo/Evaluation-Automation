@@ -200,7 +200,6 @@ export function CaseDetailPage() {
                             <CardTitle className="flex items-center gap-2">
                                 {data.chat_name || "未命名工单"}
                                 <Badge variant={confirmed ? "default" : "secondary"}>{data.status_label}</Badge>
-                                {/* 从群名/工单名识别出的签证类型，拆单时会写进订单并作为名字前缀 */}
                                 {detectedVisa && <Badge variant="outline">{detectedVisa.label}</Badge>}
                             </CardTitle>
                             <CardDescription className="mt-1">
@@ -241,7 +240,6 @@ export function CaseDetailPage() {
                         <div className="flex gap-2">
                             {!confirmed && (
                                 <>
-                                    {/* 手工单没有群聊可分析，按钮无处作用 */}
                                     {data.chat_id && (
                                         <Button variant="outline" size="sm" onClick={reanalyze} disabled={busy}>
                                             <RefreshCw className="size-4" />
@@ -302,8 +300,6 @@ export function CaseDetailPage() {
                         })}
                     </div>
 
-                    {/* 手工单没有群成员可分析，客户是客服手填的，因此要能增删。
-                        群聊工单由服务端拒绝这两类操作。 */}
                     {!confirmed && !data.chat_id && (
                         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
                             <span className="text-muted-foreground text-xs">手工单客户：</span>
@@ -348,7 +344,6 @@ export function CaseDetailPage() {
                 </CardContent>
             </Card>
 
-            {/* 每行两单：卡片再窄下去，格内名字就被按钮挤没了 */}
             <div className="grid gap-4 md:grid-cols-2">
                 {groups.map((g, i) => (
                     <Card key={i} className={g.member_wechat_ids.length === 0 ? "border-dashed" : ""}>
@@ -379,16 +374,12 @@ export function CaseDetailPage() {
                             {g.member_wechat_ids.length === 0 && (
                                 <p className="text-muted-foreground text-xs">空分组，请从上方移入客户或删除</p>
                             )}
-                            {/* 一行三个，均分。按钮做成最小的点击区：格子只有 1/3 宽，
-                                再宽一点名字就没地方了（中间组要放三个按钮） */}
                             <div className="grid grid-cols-3 gap-1.5">
                                 {g.member_wechat_ids.map((id) => (
                                     <div
                                         key={id}
                                         className="flex h-8 items-center rounded-md border px-1"
                                     >
-                                        {/* 名字在「除去按钮后剩下的空间」里居中，
-                                            所以按钮占位不同时几个格子的名字也还对齐 */}
                                         <span className="min-w-0 flex-1 truncate text-center text-sm" title={nameOf(id)}>
                                             {nameOf(id)}
                                         </span>
@@ -425,7 +416,6 @@ export function CaseDetailPage() {
                                 ))}
                             </div>
 
-                            {/* 价格可选：不填就等客服在订单里定 */}
                             <div className="flex items-center gap-1.5 pt-0.5">
                                 <Input
                                     type="number"

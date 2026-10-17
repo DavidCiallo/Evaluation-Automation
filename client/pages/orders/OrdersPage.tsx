@@ -109,7 +109,6 @@ function MultiSelect({
             </Button>
             {open && (
                 <>
-                    {/* 点击外部收起 */}
                     <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
                     <div className="bg-popover absolute right-0 z-50 mt-1 max-h-72 w-56 overflow-auto rounded-md border p-2 shadow-md">
                         <div className="mb-1 flex items-center justify-between px-1">
@@ -245,8 +244,6 @@ export function OrdersPage() {
                                 setPage(1)
                             }}
                         />
-                        {/* 视图切换：卡片=看单子本身；阶段=横向对比每单卡在哪；
-                            时间=看每单各步花了多久 */}
                         <div className="flex overflow-hidden rounded-md border">
                             {VIEW_TABS.map((v) => (
                                 <button
@@ -354,13 +351,10 @@ export function OrdersPage() {
                                                     </div>
                                                 </div>
                                                 {o.visa_type_label && <Badge variant="outline">{o.visa_type_label}</Badge>}
-                                                {/* 进度看阶段条，这里只标「已取消」——在办就不用徽章了，
-                                                    否则每张卡都挂一个没有信息量的「进行中」。 */}
                                                 {o.cancelled_at ? <Badge variant="destructive">已取消</Badge> : null}
                                             </div>
                                         </CardHeader>
                                         <CardContent className="space-y-2">
-                                            {/* 客户摘要：每人一个状态小徽章 */}
                                             {o.applicants_summary && o.applicants_summary.length > 0 && (
                                                 <div className="flex flex-wrap gap-1">
                                                     {o.applicants_summary.map((a) => (
@@ -373,7 +367,6 @@ export function OrdersPage() {
                                                     ))}
                                                 </div>
                                             )}
-                                            {/* 插件摘要角标 */}
                                             <div className="flex flex-wrap gap-1">
                                                 {clientPlugins.map((p) =>
                                                     p.CardBadge ? <p.CardBadge key={p.manifest.id} order={o} /> : null,

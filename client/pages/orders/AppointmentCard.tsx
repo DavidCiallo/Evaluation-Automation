@@ -170,7 +170,6 @@ export function AppointmentCard({
                             </div>
                         </div>
 
-                        {/* 凭证：纯附件，传不传不影响上面两个位置的完成判定 */}
                         <div className="space-y-1">
                             <span className="text-muted-foreground text-xs">凭证</span>
                             <div className="flex flex-wrap items-center gap-2">
