@@ -1,18 +1,14 @@
-import { useEffect, useRef, useState } from "react"
-import { CalendarClock, Paperclip, X } from "lucide-react"
+import { useEffect, useState } from "react"
+import { CalendarClock } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/client/components/ui/card"
-import { Button } from "@/client/components/ui/button"
 import { Input } from "@/client/components/ui/input"
+import { AttachmentList } from "@/client/components/AttachmentList"
 import { accountPoolApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import { platformLabel } from "../../../shared/modules/account-pool/account-pool.entity"
-import type { PoolAccountDTO, PoolVoucher } from "../../../shared/modules/account-pool/account-pool.entity"
-
-function isImage(name: string): boolean {
-    return /\.(jpe?g|png|gif|webp|svg)$/i.test(name)
-}
+import type { PoolAccountDTO } from "../../../shared/modules/account-pool/account-pool.entity"
 
 export function AppointmentCard({
     orderId,
@@ -25,8 +21,6 @@ export function AppointmentCard({
     const [accounts, setAccounts] = useState<PoolAccountDTO[]>([])
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
-    const [uploading, setUploading] = useState<string | null>(null)
-    const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
 
     const load = async () => {
         setLoading(true)
@@ -56,38 +50,6 @@ export function AppointmentCard({
             await load()
         } finally {
             setBusy(false)
-        }
-    }
-
-    const upload = async (account: PoolAccountDTO, files: FileList | null) => {
-        if (!files || files.length === 0) return
-        setUploading(account.id)
-        try {
-            const added: PoolVoucher[] = []
-            for (const f of Array.from(files)) {
-                const fd = new FormData()
-                fd.append("file", f)
-                fd.append("uploaded_by", "appointment-voucher")
-                const res = await fetch("/api/file/upload", {
-                    method: "POST",
-                    body: fd,
-                    headers: { Token: localStorage.getItem("access_token") || "" },
-                }).then((r) => r.json())
-                if (!res?.success) throw new Error(res?.message || "上传失败")
-                const file = res.data.file
-                added.push({
-                    file_id: file.id,
-                    filename: file.filename,
-                    storage_name: file.storage_name,
-                    content_type: file.content_type,
-                    upload_time: Date.now(),
-                })
-            }
-            await save(account.id, { vouchers: [...(account.vouchers || []), ...added] })
-        } catch (e: any) {
-            toast.error(`上传失败: ${e?.message || ""}`)
-        } finally {
-            setUploading(null)
         }
     }
 
@@ -170,64 +132,12 @@ export function AppointmentCard({
                             </div>
                         </div>
 
-                        <div className="space-y-1">
-                            <span className="text-muted-foreground text-xs">凭证</span>
-                            <div className="flex flex-wrap items-center gap-2">
-                                {(a.vouchers || []).map((v, i) => (
-                                    <span key={v.file_id || i} className="flex items-center">
-                                        <a
-                                            href={
-                                                isImage(v.filename)
-                                                    ? `/api/media/${v.storage_name}`
-                                                    : `/api/media/${v.storage_name}?download=1&name=${encodeURIComponent(v.filename)}`
-                                            }
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            title={v.filename}
-                                            className="hover:bg-muted flex h-8 items-center gap-1.5 rounded-l-md border px-2.5 text-xs"
-                                        >
-                                            <Paperclip className="size-3.5" />
-                                            凭证{i + 1}
-                                        </a>
-                                        <button
-                                            disabled={busy}
-                                            title="删除这份凭证"
-                                            className="text-muted-foreground hover:text-destructive flex h-8 items-center rounded-r-md border border-l-0 px-1.5 disabled:opacity-50"
-                                            onClick={() =>
-                                                save(a.id, {
-                                                    vouchers: (a.vouchers || []).filter((_, j) => j !== i),
-                                                })
-                                            }
-                                        >
-                                            <X className="size-3.5" />
-                                        </button>
-                                    </span>
-                                ))}
-
-                                <input
-                                    ref={(el) => {
-                                        fileInputs.current[a.id] = el
-                                    }}
-                                    type="file"
-                                    multiple
-                                    className="hidden"
-                                    onChange={(e) => {
-                                        upload(a, e.target.files)
-                                        e.target.value = ""
-                                    }}
-                                />
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8"
-                                    disabled={busy || uploading === a.id}
-                                    onClick={() => fileInputs.current[a.id]?.click()}
-                                >
-                                    <Paperclip className="size-3.5" />
-                                    {uploading === a.id ? "上传中…" : "上传凭证"}
-                                </Button>
-                            </div>
-                        </div>
+                        <AttachmentList
+                            value={a.vouchers || []}
+                            onChange={(next) => save(a.id, { vouchers: next })}
+                            uploadedBy="appointment-voucher"
+                            disabled={busy}
+                        />
                     </div>
                 ))}
             </CardContent>
