@@ -36,7 +36,8 @@ export async function findOrders(opts: {
     customer?: string | null;
     start?: number | null;
     end?: number | null;
-}): Promise<{ list: OrderEntity[]; total: number }> {
+    with_counts?: boolean;
+}): Promise<{ list: OrderEntity[]; total: number; visa_type_counts: Record<string, number> }> {
     let all = await orderRepo.find();
 
     const agents = [...new Set([...(opts.agent_ids || []), ...(opts.agent_id ? [opts.agent_id] : [])])];
@@ -56,12 +57,20 @@ export async function findOrders(opts: {
     if (opts.end) all = all.filter((o) => o.create_time <= opts.end!);
 
     if (opts.status === "cancelled") all = all.filter((o) => !!o.cancelled_at);
-    else if (opts.status === "active") all = all.filter((o) => !o.cancelled_at);
+    else if (opts.status !== "all") all = all.filter((o) => !o.cancelled_at);
+
+    const visa_type_counts: Record<string, number> = {};
+    if (opts.with_counts) {
+        for (const o of all) {
+            if (!o.visa_type) continue;
+            visa_type_counts[o.visa_type] = (visa_type_counts[o.visa_type] || 0) + 1;
+        }
+    }
 
     const total = all.length;
     const offset = (opts.page - 1) * PAGE_SIZE;
     const list = all.slice(offset, offset + PAGE_SIZE);
-    return { list, total };
+    return { list, total, visa_type_counts };
 }
 
 export async function findOne(id: string): Promise<OrderEntity | null> {

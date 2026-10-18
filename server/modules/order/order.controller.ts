@@ -18,7 +18,7 @@ import { typeformClient } from "../../lib/typeform-client";
 
 async function list(request: OrderListRequest) {
     const req = OrderListRequest.self(request);
-    const { list, total } = await svc.findOrders({
+    const { list, total, visa_type_counts } = await svc.findOrders({
         page: req.page,
         status: req.status,
         agent_id: req.agent_id,
@@ -27,8 +27,9 @@ async function list(request: OrderListRequest) {
         customer: req.customer,
         start: req.start,
         end: req.end,
+        with_counts: !!req.with_counts,
     });
-    return { list: await svc.toDTOs(list, !!req.with_stages), total };
+    return { list: await svc.toDTOs(list, !!req.with_stages), total, visa_type_counts };
 }
 
 async function detail(request: OrderDetailRequest) {

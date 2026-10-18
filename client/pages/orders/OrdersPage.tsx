@@ -154,6 +154,7 @@ export function OrdersPage() {
     const [page, setPage] = useState(1)
     const [orders, setOrders] = useState<OrderDTO[]>([])
     const [total, setTotal] = useState(0)
+    const [typeCounts, setTypeCounts] = useState<Record<string, number>>({})
     const [loading, setLoading] = useState(true)
     const [view, setView] = useState<ViewMode>(saved.view)
     const needsStages = view !== "card"
@@ -172,10 +173,12 @@ export function OrdersPage() {
                 agent_ids: agents,
                 visa_types: visaTypes,
                 with_stages: needsStages,
+                with_counts: true,
                 auth,
             })
             setOrders((res?.data?.list as OrderDTO[]) || [])
             setTotal(res?.data?.total || 0)
+            setTypeCounts((res?.data?.visa_type_counts as Record<string, number>) || {})
         } catch (e: any) {
             toast.error(`加载失败: ${e?.message || ""}`)
         } finally {
@@ -189,6 +192,13 @@ export function OrdersPage() {
     }, [page, status, view, agents, visaTypes])
 
     const totalPages = useMemo(() => Math.max(1, Math.ceil(total / 20)), [total])
+    const typeOptions = useMemo(
+        () =>
+            [...VISA_TYPES]
+                .sort((a, b) => (typeCounts[b.value] || 0) - (typeCounts[a.value] || 0))
+                .map((v) => ({ ...v, label: `${v.label}（${typeCounts[v.value] || 0}）` })),
+        [typeCounts],
+    )
     const clientPlugins = useMemo(() => getEnabledClientOrderPlugins(), [])
     const timeScale = useMemo(() => timeScaleMsPerPercent(orders), [orders])
 
@@ -237,7 +247,7 @@ export function OrdersPage() {
                         />
                         <MultiSelect
                             label="订单类型"
-                            options={VISA_TYPES}
+                            options={typeOptions}
                             selected={visaTypes}
                             onChange={(v) => {
                                 setVisaTypes(v)

@@ -25,6 +25,7 @@ export const orderRoutes = {
             start?: number;
             end?: number;
             with_stages?: boolean;
+            with_counts?: boolean;
             auth?: string;
         },
         response: {} as OrderListResponse,

@@ -10,6 +10,7 @@ export class OrderListRequest {
     public start: number | null;
     public end: number | null;
     public with_stages: boolean;
+    public with_counts: boolean;
     public auth?: string;
 
     constructor(data: any) {
@@ -22,6 +23,7 @@ export class OrderListRequest {
         this.start = data.start ? Number(data.start) : null;
         this.end = data.end ? Number(data.end) : null;
         this.with_stages = !!data.with_stages;
+        this.with_counts = !!data.with_counts;
         this.auth = data.auth;
     }
 
@@ -38,10 +40,10 @@ function toArray(v: any): string[] | null {
 
 export class OrderListResponse {
     public success: boolean;
-    public data?: { list: OrderDTO[]; total: number };
+    public data?: { list: OrderDTO[]; total: number; visa_type_counts?: Record<string, number> };
     public message?: string;
 
-    constructor(data: { success: boolean; data?: { list: OrderDTO[]; total: number }; message?: string }) {
+    constructor(data: { success: boolean; data?: { list: OrderDTO[]; total: number; visa_type_counts?: Record<string, number> }; message?: string }) {
         this.success = data.success;
         this.data = data.data;
         this.message = data.message;
