@@ -162,7 +162,7 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
                             )}
                         </CardTitle>
                         <CardDescription className="mt-1">
-                            每位客户核对并回签自己的资料，全部确认后才能进入行程安排
+                            每位客户核对并回签自己的资料，全部确认后才能进入行程安排。内部签署人至少一位同意即可生效
                         </CardDescription>
                     </div>
                     <Button size="sm" variant="outline" onClick={issue} disabled={busy}>

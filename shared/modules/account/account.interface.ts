@@ -1,4 +1,4 @@
-import { AccountEntity } from "./account.entity";
+import { AccountEntity, AccountFile } from "./account.entity";
 
 
 export class AccountDTO {
@@ -7,6 +7,7 @@ export class AccountDTO {
     public email: string;
     public wechat_id: string;
     public role: string;
+    public files: AccountFile[];
 
     private isTypeSafe: symbol = Symbol();
 
@@ -16,6 +17,7 @@ export class AccountDTO {
         this.email = origin.email;
         this.wechat_id = origin.wechat_id || "";
         this.role = origin.role || "";
+        this.files = (origin.files || []).map((f) => ({ ...f }));
     }
 }
 
@@ -72,16 +74,18 @@ export class AccountUpdateBody {
     public name: string;
     public email: string;
     public password: string;
+    public files?: AccountFile[];
 
     private isTypeSafe: symbol = Symbol();
 
     constructor(origin: Partial<AccountEntity> = {}) {
-        if (!origin.name && !origin.email && !origin.password) {
+        if (!origin.name && !origin.email && !origin.password && origin.files === undefined) {
             throw new Error("Least one field not null");
         }
         this.name = origin.name || "";
         this.email = origin.email || "";
         this.password = origin.password || "";
+        if (origin.files !== undefined) this.files = origin.files;
     }
 
     static self(unsafe: AccountUpdateBody) {

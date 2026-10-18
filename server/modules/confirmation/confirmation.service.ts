@@ -22,6 +22,7 @@ const submissionRepo: Repository<SubmissionEntity> = Repository.instance("Submis
 const DEADLINE_DAYS = 7;
 
 const INTERNAL_MIN = 2;
+const INTERNAL_APPROVE_MIN = 1;
 
 function toDTO(e: ConfirmationEntity, withUrl = true): ConfirmationDTO {
     return {
@@ -191,7 +192,7 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
             external_names: [name || "申请人"],
             internal_ids: internals,
             external_min: 1,
-            internal_min: INTERNAL_MIN,
+            internal_min: INTERNAL_APPROVE_MIN,
         });
 
         await repo.insert({
