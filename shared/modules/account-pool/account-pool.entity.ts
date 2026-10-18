@@ -1,13 +1,4 @@
 
-export type PoolAccountStatus = "planned" | "registering" | "registered" | "failed";
-
-export const POOL_ACCOUNT_STATUS_LABEL: Record<PoolAccountStatus, string> = {
-    planned: "待注册",
-    registering: "注册中",
-    registered: "已注册",
-    failed: "注册失败",
-};
-
 export type PoolPlatform = "fv" | "tls" | "vfs" | "es" | "other";
 
 export const POOL_PLATFORMS: { value: PoolPlatform; label: string }[] = [
@@ -98,7 +89,6 @@ export interface PoolAccountEntity {
     mailbox_labels: string[];
     grant_end_time: number | null;
     password: string;
-    status: PoolAccountStatus;
     customer_ids: string[];
     platforms: PoolPlatform[];
     fv_numbers: Record<string, string>;
@@ -126,8 +116,6 @@ export interface PoolAccountDTO {
     grant_end_time: number | null;
     has_password: boolean;
     password?: string;
-    status: PoolAccountStatus;
-    status_label: string;
     customer_ids: string[];
     fv_numbers: Record<string, string>;
     tls_links: string[];
@@ -165,8 +153,6 @@ export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false, custo
         mailbox_labels: e.mailbox_labels || [],
         grant_end_time: e.grant_end_time ?? null,
         has_password: !!e.password,
-        status: e.status,
-        status_label: POOL_ACCOUNT_STATUS_LABEL[e.status] || e.status,
         customer_ids: e.customer_ids || [],
         fv_numbers: e.fv_numbers || {},
         tls_links: e.tls_links || [],

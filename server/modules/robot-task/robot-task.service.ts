@@ -62,7 +62,7 @@ export async function dispatch(orderId: string, accountId: string): Promise<Robo
         version: 1,
     };
     await repo.insert(row);
-    await accountService.markAccountResult(accountId, { status: "registering", error: null, task_id: row.id });
+    await accountService.markAccountResult(accountId, { error: null, task_id: row.id });
 
     await repo.update({ id: row.id }, { status: "dispatched", dispatched_time: Date.now(), attempts: 1 });
     return (await findOne(row.id))!;
@@ -101,13 +101,12 @@ export async function applyCallback(input: {
     patch.results = input.results || [];
 
     if (succeeded) {
-        const acctPatch: any = { status: "registered" as const, error: null };
+        const acctPatch: any = { error: null };
         if (input.account?.email) acctPatch.email = input.account.email;
         if (input.account?.password) acctPatch.password = input.account.password;
         await accountService.markAccountResult(task.account_id, acctPatch);
     } else {
         await accountService.markAccountResult(task.account_id, {
-            status: "failed",
             error: input.error || "注册或填表失败",
         });
     }
@@ -134,7 +133,7 @@ export async function retry(id: string): Promise<RobotTaskEntity> {
             version: (task.version || 1) + 1,
         },
     );
-    await accountService.markAccountResult(task.account_id, { status: "registering", error: null });
+    await accountService.markAccountResult(task.account_id, { error: null });
     return (await findOne(id))!;
 }
 

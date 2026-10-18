@@ -111,7 +111,6 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
         mailbox_labels: mailbox?.labels || [],
         grant_end_time: null,
         password: "",
-        status: "planned",
         customer_ids: [],
         platforms: [],
         fv_numbers: {},
@@ -221,7 +220,6 @@ export async function removeAccount(id: string): Promise<PoolAccountEntity[]> {
 export async function markAccountResult(
     id: string,
     patch: {
-        status?: PoolAccountEntity["status"];
         email?: string;
         password?: string;
         error?: string | null;
@@ -231,12 +229,10 @@ export async function markAccountResult(
     const row = await findOne(id);
     if (!row) return;
     const next: any = { version: (row.version || 1) + 1 };
-    if (patch.status) next.status = patch.status;
     if (patch.email !== undefined) next.email = patch.email;
     if (patch.password !== undefined) next.password = patch.password;
     if (patch.error !== undefined) next.error = patch.error;
     if (patch.task_id !== undefined) next.task_id = patch.task_id;
-    if (patch.status === "registered") next.registered_time = Date.now();
     await repo.update({ id }, next);
 }
 

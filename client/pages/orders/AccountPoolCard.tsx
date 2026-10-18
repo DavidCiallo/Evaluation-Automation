@@ -5,6 +5,7 @@ import { toast } from "@/client/components/ui/sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/client/components/ui/card"
 import { Button } from "@/client/components/ui/button"
 import { Input } from "@/client/components/ui/input"
+import { AttachmentList } from "@/client/components/AttachmentList"
 import { accountPoolApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import { stageBlockReason, stageNotStartedReason } from "@/client/pages/orders/StageBar"
@@ -143,7 +144,6 @@ export function AccountPoolCard({
                     <div key={a.id} className="space-y-3 rounded-md border px-3 py-3">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <span className="text-sm font-medium">{a.label || `账号 ${a.seq}`}</span>
-                            <span className="text-muted-foreground text-xs">{a.status_label}</span>
                             {a.outputs_ready ? (
                                 <span className="text-xs text-emerald-600">产物已齐</span>
                             ) : (
@@ -201,7 +201,7 @@ export function AccountPoolCard({
                                     defaultValue={a.email}
                                     placeholder="注册邮箱"
                                     className="h-8 w-60"
-                                    disabled={busy || !!poolBlocked || a.status === "registered"}
+                                    disabled={busy || !!poolBlocked || !!a.password}
                                     onBlur={(e) => {
                                         if (e.target.value !== a.email) {
                                             run(() => accountPoolApi.upsert({ id: a.id, email: e.target.value, auth }))
@@ -235,7 +235,7 @@ export function AccountPoolCard({
                                         value={revealed[a.id] ?? (a.has_password ? "••••••••" : "")}
                                         placeholder="密码"
                                         className="h-8 w-52"
-                                        disabled={busy || !!poolBlocked || a.status === "registered"}
+                                        disabled={busy || !!poolBlocked || !!a.password}
                                         onChange={(e) => setRevealed((s) => ({ ...s, [a.id]: e.target.value }))}
                                         onBlur={(e) => {
                                             if (e.target.value === "••••••••") return
@@ -415,6 +415,18 @@ export function AccountPoolCard({
                         </div>
 
                         {a.error && <p className="text-destructive text-xs">{a.error}</p>}
+
+                        <AttachmentList
+                            value={a.vouchers || []}
+                            onChange={(next) =>
+                                run(async () => {
+                                    await accountPoolApi.upsert({ id: a.id, vouchers: next, auth } as any)
+                                })
+                            }
+                            uploadedBy="pool-voucher"
+                            disabled={busy || !!poolBlocked}
+                            emptyHint={poolBlocked || undefined}
+                        />
                     </div>
                 ))}
             </CardContent>
