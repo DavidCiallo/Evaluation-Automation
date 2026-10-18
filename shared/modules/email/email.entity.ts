@@ -1,6 +1,5 @@
 import { CustomerDTO } from "../customer/customer.entity";
 
-/** 已配置信箱（IMAP/API 型）。 */
 export interface MailboxInfo {
     id: string;
     address: string;
@@ -12,15 +11,12 @@ export interface MailboxInfo {
     last_sync_time: number | null;
 }
 
-/** 邮件往来关联（收件发件人 ↔ 客户档案）。 */
 export interface EmailLinkEntity {
     id: string;
     create_time: number;
     update_time: number | null;
     delete_time: number | null;
-    /** email 系统中的邮件 id */
     email_id: string;
-    /** 客户档案 id */
     customer_id: string;
     account_id: string;
     from: string;
@@ -68,7 +64,6 @@ export class EmailDetailDTO extends EmailDTO {
     }
 }
 
-/** 邮件往来（客户档案页/订单联动展示）。 */
 export interface EmailLinkDTO {
     id: string;
     email_id: string;
@@ -80,7 +75,6 @@ export interface EmailLinkDTO {
     attachment_count: number;
 }
 
-/** 客户摘要（发件时选择收件人等场景）。 */
 export interface EmailCustomerBrief {
     customer: CustomerDTO;
     links: EmailLinkDTO[];

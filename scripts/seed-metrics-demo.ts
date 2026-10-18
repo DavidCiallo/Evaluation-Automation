@@ -1,11 +1,3 @@
-/**
- * 演示数据灌注：向本地库生成过去 N 天（默认 10 天，工作日 9:00–17:30）的客服会话历史。
- * 三位客服带不同响应风格（快/中/慢），让总览仪表盘的 KPI、趋势、排行榜、异常预警
- * 全部由 metric 引擎真实计算得出。幂等：msg_id 确定性生成，重复执行自动跳过。
- *
- * 用法：bun run scripts/seed-metrics-demo.ts [--days=10] [--wipe]
- *   --wipe  先删除本脚本此前灌注的全部消息再重新生成
- */
 import Repository from "../server/lib/repository";
 import { ensureSeedData } from "../server/lib/mock";
 import type { ConversationEntity } from "../shared/modules/conversation/conversation.entity";
@@ -16,7 +8,6 @@ const args = process.argv.slice(2);
 const DAYS = Math.max(1, Number(args.find((a) => a.startsWith("--days="))?.split("=")[1]) || 10);
 const WIPE = args.includes("--wipe");
 
-// ---------- 可复现随机数（mulberry32；朴素 LCG 会超出 2^53 丢精度） ----------
 function mulberry32(a: number): () => number {
     return function () {
         a |= 0;
@@ -34,7 +25,6 @@ function pick<T>(arr: T[]): T {
     return arr[Math.floor(rand() * arr.length)];
 }
 
-// ---------- 人员与话术池（与 server/lib/mock.ts 的 mock 世界一致） ----------
 const AGENTS = [
     { wechat_id: "agent_zhang", name: "张小雅", profile: "fast" as const },
     { wechat_id: "agent_li", name: "李文博", profile: "medium" as const },
@@ -79,25 +69,23 @@ const AGENT_LINES = [
     "可以的，两位一起递签还能做联程计划。",
 ];
 
-/** 各客服风格的回复间隔（毫秒）抽样。「即时」阈值默认 30s，三档风格给出明显的率差。 */
 function replyGapMs(profile: "fast" | "medium" | "mixed"): number {
     const r = rand();
     if (profile === "fast") {
-        if (r < 0.7) return randInt(4, 28) * 1000;      // 70% 即时（≤30s）
-        if (r < 0.9) return randInt(35, 200) * 1000;    // 20% 35s-3min
-        return randInt(200, 1200) * 1000;               // 10% 3-20min
+        if (r < 0.7) return randInt(4, 28) * 1000;
+        if (r < 0.9) return randInt(35, 200) * 1000;
+        return randInt(200, 1200) * 1000;
     }
     if (profile === "medium") {
-        if (r < 0.45) return randInt(4, 28) * 1000;     // 45% 即时
-        if (r < 0.8) return randInt(35, 300) * 1000;    // 35% 35s-5min
-        return randInt(300, 1800) * 1000;               // 20% 5-30min
+        if (r < 0.45) return randInt(4, 28) * 1000;
+        if (r < 0.8) return randInt(35, 300) * 1000;
+        return randInt(300, 1800) * 1000;
     }
-    if (r < 0.25) return randInt(4, 28) * 1000;         // 25% 即时
-    if (r < 0.6) return randInt(35, 300) * 1000;        // 35% 35s-5min
-    return randInt(300, 3000) * 1000;                   // 40% 5-50min
+    if (r < 0.25) return randInt(4, 28) * 1000;
+    if (r < 0.6) return randInt(35, 300) * 1000;
+    return randInt(300, 3000) * 1000;
 }
 
-// ---------- 主流程 ----------
 const convRepo = Repository.instance<ConversationEntity>("Conversation");
 const chatRepo = Repository.instance<ChatEntity>("Chat");
 const memberRepo = Repository.instance<ChatMemberEntity>("ChatMember");
@@ -127,7 +115,7 @@ for (const chat of chats) {
     if (agentMembers.length === 0 || customerMembers.length === 0) continue;
 
     let msgSeq = 0;
-    const msgId = () => `mseed_${chat.id}_${Date.now()}_${msgSeq++}`; // 非确定但带 chat 前缀，幂等靠 resend 检测
+    const msgId = () => `mseed_${chat.id}_${Date.now()}_${msgSeq++}`;
     const insertedTimes: number[] = [];
 
     async function insertMsg(fromId: string, fromRole: "agent" | "customer", content: string, sendTime: number) {
@@ -149,39 +137,35 @@ for (const chat of chats) {
         seeded++;
     }
 
-    // 过去 DAYS 天，工作日生成 1-3 个会话
     for (let dayOffset = DAYS; dayOffset >= 0; dayOffset--) {
         const day = new Date(todayStart.getTime() - dayOffset * 86400_000);
         const weekday = day.getDay();
-        if (weekday === 0 || weekday === 6) continue; // 跳过周末（业务时间外，指标不友好）
+        if (weekday === 0 || weekday === 6) continue;
         const isToday = dayOffset === 0;
 
         const sessionCount = randInt(1, 3);
-        let cursorMin = 9 * 60 + randInt(0, 60); // 首个会话 9:00-10:00 起
+        let cursorMin = 9 * 60 + randInt(0, 60);
         for (let s = 0; s < sessionCount; s++) {
-            // 会话开始时刻（分钟偏移），下午为主，间隔 ≥40 分钟
             cursorMin += randInt(40, 150);
-            if (cursorMin > 16 * 60 + 30) break; // 16:30 后不再开新会话
+            if (cursorMin > 16 * 60 + 30) break;
             const startMs = day.getTime() + cursorMin * 60_000 + randInt(0, 59) * 1000;
-            if (isToday && startMs > nowMs - 10 * 60_000) break; // 今天的会话须已发生 ≥10 分钟
+            if (isToday && startMs > nowMs - 10 * 60_000) break;
             if (startMs > nowMs) break;
 
             let t = startMs;
-            const agent = pick(agentMembers); // 该会话由某位客服负责
+            const agent = pick(agentMembers);
             const sender = pick(customerMembers);
 
-            // 客户连发 1-3 条（间隔只加在消息之间）
             const custCount = randInt(1, 3);
             for (let i = 0; i < custCount; i++) {
                 if (i > 0) t += randInt(15, 70) * 1000;
                 await insertMsg(sender.wechat_id || "cust_x", "customer", pick(CUSTOMER_LINES), t);
             }
 
-            // 客服回复（首响间隔按风格；4% 概率 deliberately 慢首响 → 异常预警素材）
             const agentProfile = AGENTS.find((a) => a.wechat_id === agent.wechat_id)?.profile || "medium";
             const forcedSlow = rand() < 0.04;
             let gap = forcedSlow ? randInt(360, 2700) * 1000 : replyGapMs(agentProfile);
-            // 回复不越过 18:00（业务时间边界）
+            // 回复不越过 18:00
             const endOfDay = day.getTime() + 18 * 3600_000;
             gap = Math.min(gap, Math.max(5_000, endOfDay - t));
             t += gap;
@@ -194,7 +178,6 @@ for (const chat of chats) {
         }
     }
 
-    // 刷新 Chat.last_send_time 与快照
     if (insertedTimes.length > 0) {
         const lastTime = Math.max(...insertedTimes);
         await chatRepo.update({ id: chat.id }, { last_send_time: lastTime });
@@ -202,7 +185,6 @@ for (const chat of chats) {
         const msgs = (await convRepo.find({ chat_id: chat.id }, { limit: 500 }))
             .sort((a, b) => a.send_time - b.send_time);
         const last = msgs[msgs.length - 1];
-        // 未读 = 末尾连续客户消息数
         let unread = 0;
         for (let i = msgs.length - 1; i >= 0 && msgs[i].from_role === "customer"; i--) unread++;
         const cust = customerMembers[0];

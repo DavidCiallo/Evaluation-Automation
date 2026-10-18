@@ -18,15 +18,18 @@ import { typeformClient } from "../../lib/typeform-client";
 
 async function list(request: OrderListRequest) {
     const req = OrderListRequest.self(request);
-    const { list, total } = await svc.findOrders({
+    const { list, total, visa_type_counts } = await svc.findOrders({
         page: req.page,
         status: req.status,
         agent_id: req.agent_id,
+        agent_ids: req.agent_ids,
+        visa_types: req.visa_types,
         customer: req.customer,
         start: req.start,
         end: req.end,
+        with_counts: !!req.with_counts,
     });
-    return { list: await svc.toDTOs(list, !!req.with_stages), total };
+    return { list: await svc.toDTOs(list, !!req.with_stages), total, visa_type_counts };
 }
 
 async function detail(request: OrderDetailRequest) {
@@ -36,7 +39,6 @@ async function detail(request: OrderDetailRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-/** 取消整单（需填原因）。 */
 async function cancel(request: OrderCancelRequest) {
     const req = OrderCancelRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
@@ -45,7 +47,6 @@ async function cancel(request: OrderCancelRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-/** 恢复被取消的订单。 */
 async function reopen(request: OrderReopenRequest) {
     const req = OrderReopenRequest.self(request);
     const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
@@ -88,7 +89,6 @@ async function createFromChat(request: OrderCreateFromChatRequest) {
     return { order: await svc.toDTO(order) };
 }
 
-/** 无会话建单（手动/邮件渠道）。 */
 async function create(request: OrderCreateRequest) {
     const req = OrderCreateRequest.self(request);
     const order = await svc.createManualOrder({

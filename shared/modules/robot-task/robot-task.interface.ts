@@ -30,7 +30,6 @@ export class RobotTaskListResponse {
     }
 }
 
-/** 为一个账号创建注册+填表任务。 */
 export class RobotTaskDispatchRequest {
     public order_id: string;
     public account_id: string;
@@ -61,7 +60,6 @@ export class RobotTaskDispatchResponse {
     }
 }
 
-/** 取任务的完整派发载荷（含明文密码），供机器人拉取。 */
 export class RobotTaskPayloadRequest {
     public id: string;
     public auth?: string;
@@ -89,19 +87,12 @@ export class RobotTaskPayloadResponse {
     }
 }
 
-/**
- * 机器人回调。支持两次调用：
- *   中途把 status 置 running（可选）；
- *   结束时置 succeeded / failed 并带上逐张申请单结果。
- * 免鉴权入口，凭 task id + 固定口令校验（见 mount.ts 与 service）。
- */
 export class RobotTaskCallbackRequest {
     public id: string;
     public status: RobotTaskStatus;
     public external_task_id?: string | null;
     public results?: RobotApplicationResult[];
     public error?: string | null;
-    /** 账号注册结果（注册失败时 success=false，此时不必给 results） */
     public account?: { email?: string; password?: string };
     public auth?: string;
 

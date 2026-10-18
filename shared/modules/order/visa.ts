@@ -1,22 +1,7 @@
-/**
- * 签证类型字典（订单级标记）。
- *
- * 为什么固定在代码里：类型是业务术语，改动频率低，客服在拆单时按群名
- * 一眼就能选出；做成可维护字典反而让「下单时选类型」多一步配置依赖。
- * 需要新增类型时改这里即可。
- *
- * 与 ApplicantDetail.visa_type 的区别：那里是**申请人**的签证类型（表单收集而来，
- * 一人一值）；这里是**订单**的整体标记，用于看板分组与订单命名，
- * 例如「法签-曾煜桓」。
- */
 export interface VisaTypeOption {
-    /** 稳定标识，落库用 */
     value: string;
-    /** 展示名 */
     label: string;
-    /** 订单命名前缀，默认同 label */
     prefix: string;
-    /** 群名里出现的写法（小写比较），用于自动识别 */
     aliases: string[];
 }
 
@@ -32,8 +17,6 @@ export const VISA_TYPES: VisaTypeOption[] = [
     { value: "au", label: "澳签", prefix: "澳签", aliases: ["澳签", "澳洲签", "澳大利亚签", "au"] },
     { value: "ca", label: "加签", prefix: "加签", aliases: ["加签", "加拿大签", "ca"] },
     { value: "kr", label: "韩签", prefix: "韩签", aliases: ["韩签", "韩国签", "韩国签证", "kr"] },
-    { value: "sg", label: "新加坡签", prefix: "新加坡签", aliases: ["新加坡签", "新加坡签证", "sg"] },
-    { value: "th", label: "泰签", prefix: "泰签", aliases: ["泰签", "泰国签", "泰国签证", "th"] },
     { value: "schengen", label: "申根签", prefix: "申根签", aliases: ["申根", "申根签", "schengen"] },
 ];
 
@@ -48,15 +31,10 @@ export function visaTypeLabel(value: string | null | undefined): string {
     return getVisaType(value)?.label || "";
 }
 
-/** 订单命名用的前缀，例如「法签」。未标记时返回空串，不污染订单名。 */
 export function visaTypePrefix(value: string | null | undefined): string {
     return getVisaType(value)?.prefix || "";
 }
 
-/**
- * 从一段文本（群名/工单名）里识别签证类型。
- * 取**最长匹配**：群名同时含「申根」与「法签」时，具体国家优先于笼统的申根。
- */
 export function detectVisaType(text: string | null | undefined): VisaTypeOption | null {
     if (!text) return null;
     const hay = String(text).toLowerCase();
@@ -74,10 +52,6 @@ export function detectVisaType(text: string | null | undefined): VisaTypeOption 
     return best;
 }
 
-/**
- * 按「类型-客户名」拼订单名。无类型时退化为纯客户名，
- * 不产生「-曾煜桓」这种前面空一截的名字。
- */
 export function composeOrderName(visaValue: string | null | undefined, customerNames: string[]): string {
     const who = customerNames.filter(Boolean).join("、");
     const prefix = visaTypePrefix(visaValue);

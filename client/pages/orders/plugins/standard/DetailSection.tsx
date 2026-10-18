@@ -1,9 +1,3 @@
-/**
- * 标准订单插件（客户端）详情区块 — 三栏内联布局。
- * 第一栏：订单信息（草稿/确认），多客户签证信息，内联编辑
- * 第二栏：表单收集（简表表单分配与完成状态）
- * 第三栏：行程单（AI 生成）
- */
 import { useState, useEffect } from "react"
 import { nanoid } from "nanoid"
 import { Check, FileText, Pencil, Plus, Trash2, Upload, Link as LinkIcon, Lock, Copy, X, RefreshCw, User, Wallet, Users, CalendarDays } from "lucide-react"
@@ -36,18 +30,11 @@ import {
 } from "../../../../../shared/modules/order/plugins/standard.manifest"
 import { ItinerarySection } from "./ItinerarySection"
 
-// ---------- 订单阶段条（内嵌于订单信息卡片） ----------
 
-/**
- * 阶段条：只读展示服务端计算的阶段视图与缺口，不再提供手工推进按钮。
- * 阶段靠完成对应业务动作推进（确认信息 / 分配表单 / 确认同意 / 生成行程…），
- * 手工改状态已不再支持 —— 旧实现里点击「下一步」写库后会被推导覆盖。
- */
 function OrderStatusFlow({ order }: PluginSectionProps) {
     return <OrderStageBar stages={order.stages || []} current={order.current_stage ?? null} />
 }
 
-// ---------- 第一栏：订单信息 ----------
 
 function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { std: StandardPluginData }) {
     const draft = std.draft || null
@@ -59,10 +46,8 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
     const [editPrice, setEditPrice] = useState<number | null>(null)
     const [editCurrency, setEditCurrency] = useState<string | null>(null)
     const [editCustomers, setEditCustomers] = useState<OrderCustomerInfo[]>([])
-    /** 系统客户档案池（订单信息卡客户从系统客户库选择/新增） */
     const [customerPool, setCustomerPool] = useState<{ id: string; name: string; passport_no?: string | null }[]>([])
     const [loadingCustomers, setLoadingCustomers] = useState(false)
-    /** 客户搜索关键字（实时过滤系统客户库） */
     const [custSearch, setCustSearch] = useState("")
     const [searchFocused, setSearchFocused] = useState(false)
 
@@ -79,13 +64,11 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
             const list = (res?.data?.result?.list as any[]) || []
             setCustomerPool(list)
         } catch {
-            // 客户列表加载失败不影响核心
         } finally {
             setLoadingCustomers(false)
         }
     }
 
-    // 订单卡片初始化时预加载客户池
     useEffect(() => {
         if (order.id) loadCustomerPool()
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,7 +104,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                     order_name: newName,
                     price: editPrice,
                     currency: editCurrency,
-                    // 信息可空：仅姓名必填，其余字段允许为空
                     customers: editCustomers.filter((c) => (c.name || "").trim() || c.customer_id),
                 },
                 auth,
@@ -171,19 +153,15 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
 
     return (
         <div className="space-y-3">
-            {/* 展示区：名称标题 + 图标信息项 + 客户 chips + 操作（有数据且非编辑态） */}
             {src && !editing && (
                 <div className="rounded-lg border bg-muted/20 p-3">
-                    {/* 名称行 */}
                     <div className="mb-2.5 flex items-center gap-2">
                         <span className="min-w-0 truncate text-[15px] font-semibold">
                             {src?.order_name || order.order_name || "未命名订单"}
                         </span>
                     </div>
 
-                    {/* 图标信息项 2×2 */}
                     <div className="grid grid-cols-2 gap-x-5 gap-y-2.5 text-sm">
-                        {/* 价格 */}
                         <div className="flex items-center gap-2">
                             <Wallet className="text-muted-foreground size-4 shrink-0" />
                             {src?.price != null ? (
@@ -194,7 +172,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                                 <span className="text-muted-foreground">价格未定</span>
                             )}
                         </div>
-                        {/* 客服 */}
                         <div className="flex items-center gap-2">
                             <User className="text-muted-foreground size-4 shrink-0" />
                             <span className="font-medium">
@@ -203,13 +180,11 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                                     : <span className="text-muted-foreground">暂无客服</span>}
                             </span>
                         </div>
-                        {/* 客户 */}
                         <div className="flex items-start gap-2">
                             <Users className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                             <div className="flex flex-wrap items-center gap-1">
                                 {customers.length > 0 ? (
                                     customers.map((c, i) => {
-                                        // customer_id 为主关联：显示时实时取档案名；查不到（档案被删）回退快照名
                                         const live = c.customer_id
                                             ? customerPool.find((x) => x.id === c.customer_id)?.name
                                             : null
@@ -226,7 +201,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                                 )}
                             </div>
                         </div>
-                        {/* 时间 */}
                         <div className="flex items-center gap-2">
                             <CalendarDays className="text-muted-foreground size-4 shrink-0" />
                             <span className="text-muted-foreground">
@@ -235,7 +209,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                         </div>
                     </div>
 
-                    {/* 操作栏 */}
                     {!editing && (
                         <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-2.5">
                             <Button size="sm" onClick={startEdit} disabled={busy}>
@@ -252,7 +225,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                 </p>
             )}
 
-            {/* 内联编辑区 */}
             {editing && (
                 <div className="space-y-3 rounded-md border bg-muted/30 p-3">
                     <div className="grid grid-cols-2 gap-3">
@@ -286,7 +258,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                             </div>
                         </div>
                     </div>
-                    {/* 客户区：选择系统客户或新增（信息可空，仅姓名） */}
                     <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
                             <Label>客户</Label>
@@ -302,7 +273,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                             </Button>
                         </div>
 
-                        {/* 从系统客户库搜索添加 */}
                         {customerPool.length > 0 && (() => {
                             const q = custSearch.trim().toLowerCase()
                             const unselectedIds = new Set(editCustomers.map((x) => x.customer_id).filter(Boolean))
@@ -361,7 +331,6 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
                             )
                         })()}
 
-                        {/* 已选客户：姓名（可空其他），可移除 —— 一行两个（多列不浪费空间） */}
                         {editCustomers.length === 0 && (
                             <p className="text-muted-foreground px-1 text-xs">
                                 尚未选择客户，可搜索上方系统客户库添加，或点击「新增客户」。信息可为空，仅需姓名。
@@ -405,17 +374,14 @@ function OrderInfoSection({ order, std, auth, reload }: PluginSectionProps & { s
     )
 }
 
-// ---------- 第二栏：表单收集 ----------
 
-/** 表单提供方（survey=简表 · 发链接；mike=麦客 · 匹配站外已填提交）。 */
 const PROVIDER_TABS: Array<{ id: "survey" | "mike"; label: string; action: string }> = [
-    { id: "survey", label: "简表", action: "生成表单链接" },
+    { id: "survey", label: "简表", action: "匹配或生成链接" },
     { id: "mike", label: "麦客", action: "匹配已有提交" },
 ]
 
 type ProviderFormInfo = { key: string; name: string; provider: "survey" | "mike"; records_num?: number };
 
-/** 左侧表单项：显示已填多少项（拉取填写数据条数）。 */
 function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssignment; auth: string }) {
     const [count, setCount] = useState<number | null>(null)
     const [error, setError] = useState(false)
@@ -450,8 +416,7 @@ function FormFillCount({ order, form, auth }: { order: OrderDTO; form: FormAssig
     )
 }
 
-/** 麦客提交挑选弹窗：列出该客户在该表单下的全部提交，默认选「与订单时间最接近」的一份。 */
-function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, customerName, onAssigned }: {
+function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, customerName, provider, onAssigned }: {
     open: boolean
     onClose: () => void
     order: any
@@ -459,10 +424,12 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
     formKey: string
     customerId: string
     customerName: string
+    provider: "survey" | "mike"
     onAssigned: () => void
 }) {
     const [loading, setLoading] = useState(true)
     const [matches, setMatches] = useState<Array<{ key: string; submitter_name: string; submit_time: number; form_name: string }>>([])
+    const [fallback, setFallback] = useState(false)
     const [selected, setSelected] = useState<string>("")
     const [busy, setBusy] = useState(false)
 
@@ -470,20 +437,22 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
         if (!open) return
         setLoading(true)
         setMatches([])
+        setFallback(false)
         setSelected("")
         orderApi.pluginAction({
             id: order.id,
             plugin_id: STANDARD_PLUGIN_ID,
             action: "search-form-submissions",
-            payload: { form_name: formKey, customer_id: customerId, provider: "mike" },
+            payload: { form_name: formKey, customer_id: customerId, provider },
             auth,
         })
             .then((res: any) => {
                 const r = res?.data?.result || {}
                 setMatches(r.matches || [])
+                setFallback(!!r.fallback)
                 setSelected(r.suggested || r.matches?.[0]?.key || "")
             })
-            .catch(() => { /* 拉取失败时仍可直接关闭走手动 */ })
+            .catch(() => {})
             .finally(() => setLoading(false))
     }, [open, formKey, customerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -494,10 +463,10 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                 id: order.id,
                 plugin_id: STANDARD_PLUGIN_ID,
                 action: "assign-form",
-                payload: { form_name: formKey, customer_id: customerId, provider: "mike", submission_key: selected || null },
+                payload: { form_name: formKey, customer_id: customerId, provider, submission_key: selected || null },
                 auth,
             })
-            toast.success(selected ? "已关联所选提交" : "已创建分配（暂无匹配提交）")
+            toast.success(selected ? "已关联所选提交" : provider === "mike" ? "已创建分配（暂无匹配提交）" : "已生成新的填写链接")
             onAssigned()
             onClose()
         } catch (e: any) {
@@ -517,16 +486,24 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
         <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>选择麦客提交</DialogTitle>
+                    <DialogTitle>{provider === "mike" ? "选择麦客提交" : "选择简表记录"}</DialogTitle>
                     <DialogDescription>
-                        {customerName} 在「{formKey.length > 20 ? formKey.slice(0, 20) + "…" : formKey}」下的全部提交，默认推荐与订单时间最接近的一份。
+                        {customerName} 在「{formKey.length > 20 ? formKey.slice(0, 20) + "…" : formKey}」下最近一周的记录，默认推荐与订单时间最接近的一份。选中的记录会直接复用，不再让客户重填。
                     </DialogDescription>
                 </DialogHeader>
                 <div className="max-h-72 space-y-1.5 overflow-y-auto">
-                    {loading && <p className="text-muted-foreground p-2 text-xs">搜索站外提交中…</p>}
+                    {loading && <p className="text-muted-foreground p-2 text-xs">搜索已有记录中…</p>}
                     {!loading && matches.length === 0 && (
                         <p className="text-muted-foreground p-2 text-xs">
-                            未找到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。
+                            {provider === "mike"
+                                ? "最近一周没有匹配到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。"
+                                : "最近一周没有匹配到同名记录。点确认会新建一条填写链接发给客户。"}
+                        </p>
+                    )}
+                    {!loading && fallback && matches.length > 0 && (
+                        <p className="text-muted-foreground p-2 text-xs">
+                            没搜到叫「{customerName}」的提交。下面是这个表单最近的 {matches.length} 条，
+                            客户可能用了别的名字填——认出来就勾上，没有就点「仍要创建分配」。
                         </p>
                     )}
                     {matches.map((m) => (
@@ -549,7 +526,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                         <Button size="sm" variant="outline">取消</Button>
                     </DialogClose>
                     <Button size="sm" onClick={confirm} disabled={busy || loading}>
-                        {selected ? "关联所选提交" : "仍要创建分配"}
+                        {selected ? "关联所选记录" : provider === "mike" ? "仍要创建分配" : "生成新链接"}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -563,7 +540,6 @@ function FormCollectionSection({
 }: PluginSectionProps & { std: StandardPluginData; selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const forms = std.forms || []
     const customers = std.draft?.customers || std.confirmed?.customers || []
-    /** 表单阶段未就绪的原因（如订单里一个客户都没有）；null 表示可执行 */
     const assignBlocked = customers.length === 0 ? "订单信息中没有客户" : null
 
     const [busy, setBusy] = useState(false)
@@ -573,10 +549,8 @@ function FormCollectionSection({
     const [providerForms, setProviderForms] = useState<ProviderFormInfo[]>([])
     const [formErrors, setFormErrors] = useState<Array<{ provider: string; message: string }>>([])
     const [loadingForms, setLoadingForms] = useState(false)
-    /** 麦客提交挑选弹窗 */
-    const [picker, setPicker] = useState<{ formKey: string; customerId: string; customerName: string } | null>(null)
+    const [picker, setPicker] = useState<{ formKey: string; customerId: string; customerName: string; provider: "survey" | "mike" } | null>(null)
 
-    // 动态加载全部提供方的表单列表（简表 + 麦客）
     const loadForms = () => {
         setLoadingForms(true)
         orderApi.pluginAction({
@@ -599,9 +573,6 @@ function FormCollectionSection({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [order.id, auth])
 
-    // 已绑定表单里选一份作为默认：优先麦客（自动绑定产出的就是它），
-    // 否则取第一份。同理把 provider 切到对应的标签页——否则「表单收集」
-    // 打开时停在简表页，刚自动绑好的麦客记录要再点一下才看得见。
     useEffect(() => {
         if (forms.length === 0) return
         if (selectedId && forms.some((f) => f.id === selectedId)) return
@@ -620,29 +591,8 @@ function FormCollectionSection({
             toast.error("请选择表单和客户")
             return
         }
-        // 麦客：先拉该客户的站外提交列表供挑选（自动推荐与订单时间最接近的一份）
-        if (provider === "mike") {
-            const cust = customers.find((c) => c.id === selCustomer)
-            setPicker({ formKey: selForm, customerId: selCustomer, customerName: cust?.name || "" })
-            return
-        }
-        setBusy(true)
-        try {
-            await orderApi.pluginAction({
-                id: order.id,
-                plugin_id: STANDARD_PLUGIN_ID,
-                action: "assign-form",
-                payload: { form_name: selForm, customer_id: selCustomer, provider },
-                auth,
-            })
-            toast.success("表单链接已生成")
-            setSelForm("")
-            reload()
-        } catch (e: any) {
-            toast.error(`分配失败: ${e?.message || ""}`)
-        } finally {
-            setBusy(false)
-        }
+        const cust = customers.find((c) => c.id === selCustomer)
+        setPicker({ formKey: selForm, customerId: selCustomer, customerName: cust?.name || "", provider })
     }
 
     const checkCompletion = async (formId: string) => {
@@ -708,7 +658,6 @@ function FormCollectionSection({
                 </div>
             </div>
 
-            {/* 分配新表单 */}
             <div className="space-y-2 rounded-md border p-2">
                 <div className="grid grid-cols-2 gap-2">
                     <select
@@ -754,7 +703,6 @@ function FormCollectionSection({
                 )}
             </div>
 
-            {/* 已分配表单列表 */}
             {forms.length === 0 ? (
                 <p className="text-muted-foreground text-sm">暂未分配表单</p>
             ) : (
@@ -825,7 +773,6 @@ function FormCollectionSection({
                 </div>
             )}
 
-            {/* 麦客提交挑选 */}
             {picker && (
                 <MikeSubmitPicker
                     open
@@ -835,6 +782,7 @@ function FormCollectionSection({
                     formKey={picker.formKey}
                     customerId={picker.customerId}
                     customerName={picker.customerName}
+                    provider={picker.provider}
                     onAssigned={() => { setSelForm(""); reload() }}
                 />
             )}
@@ -842,11 +790,7 @@ function FormCollectionSection({
     )
 }
 
-// ---------- 主组件：拆分为独立卡片 ----------
 
-/**
- * 订单信息 + 订单状态 卡片（独立导出，页面顶部渲染）。
- */
 export function OrderInfoCard(props: PluginSectionProps) {
     const { order } = props
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
@@ -864,11 +808,6 @@ export function OrderInfoCard(props: PluginSectionProps) {
     )
 }
 
-/**
- * 标准订单详情区块 —— 拆成多张独立卡片（页面顶部「订单信息」卡由 OrderDetailPage 单独渲染）：
- *   ① 表单收集（简表）
- *   ② 行程单（AI 生成）
- */
 export function StandardDetailSection(props: PluginSectionProps) {
     const { order } = props
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
@@ -881,7 +820,6 @@ export function StandardDetailSection(props: PluginSectionProps) {
     )
 }
 
-/** 表单收集卡（独立导出，供详情页按行配对渲染）。bare=true 时不自带 Card 外壳（由页面提供）。 */
 export function FormCollectionCard(props: PluginSectionProps & { selectedId?: string | null; onSelectForm?: (f: FormAssignment) => void; bare?: boolean }) {
     const std: StandardPluginData = (props.order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     if (props.bare) return <FormCollectionSection {...props} std={std} />
@@ -898,7 +836,6 @@ export function FormCollectionCard(props: PluginSectionProps & { selectedId?: st
     )
 }
 
-/** 行程单卡（独立导出）：ctrip 机票任务为主流程 + 手动行程单兜底。 */
 export function ItineraryCard(props: PluginSectionProps) {
     return (
         <Card>

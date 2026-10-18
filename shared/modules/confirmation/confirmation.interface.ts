@@ -27,10 +27,43 @@ export class ConfirmationListResponse {
     }
 }
 
-/** 批量签发：为订单下尚未有确认单的客户各建一份。 */
+export interface ConfirmationSignerView {
+    name: string;
+    signer_type: "internal" | "external";
+    result: "pending" | "ok" | "wrong";
+    reason: string;
+    signed_at: number | null;
+}
+
+export class ConfirmationSignersRequest {
+    public id: string;
+    public auth?: string;
+
+    constructor(data: any) {
+        if (!data.id) throw new Error("id is required");
+        this.id = data.id;
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new ConfirmationSignersRequest(data);
+    }
+}
+
+export class ConfirmationSignersResponse {
+    public success: boolean;
+    public data?: { list: ConfirmationSignerView[] };
+    public message?: string;
+
+    constructor(data: { success: boolean; data?: { list: ConfirmationSignerView[] }; message?: string }) {
+        this.success = data.success;
+        this.data = data.data;
+        this.message = data.message;
+    }
+}
+
 export class ConfirmationIssueRequest {
     public order_id: string;
-    /** 只给指定客户签发（重签单个客户时用）；省略=全部缺单的客户 */
     public customer_ids?: string[];
     public auth?: string;
 
@@ -66,7 +99,6 @@ export class ConfirmationRevokeRequest {
     constructor(data: any) {
         if (!data.id) throw new Error("id is required");
         this.id = data.id;
-        // 撤销会作废客户手上的链接，必须留下原因
         const reason = String(data.reason || "").trim();
         if (!reason) throw new Error("撤销确认单必须填写原因");
         this.reason = reason;
@@ -90,7 +122,6 @@ export class ConfirmationRevokeResponse {
     }
 }
 
-/** 客户侧（免鉴权）：凭 token 读取待确认信息。 */
 export class ConfirmationFetchRequest {
     public token: string;
 
@@ -126,7 +157,6 @@ export class ConfirmationFetchResponse {
     }
 }
 
-/** 客户侧（免鉴权）：提交确认，可带回客户修改后的资料。 */
 export class ConfirmationSubmitRequest {
     public token: string;
     public snapshot?: Partial<ConfirmationSnapshot>;

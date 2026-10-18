@@ -1,16 +1,13 @@
-import { AccountEntity } from "./account.entity";
+import { AccountEntity, AccountFile } from "./account.entity";
 
-// DTO 的字段均只来自于实体，不允许添加额外字段
-// 额外业务字段（例如查询的page）不允许直接在实体中添加，而应该在请求中添加
 
-// Base DTO
-// 只在服务端使用，用于构建安全的返回对象
 export class AccountDTO {
     public id: string;
     public name: string;
     public email: string;
     public wechat_id: string;
     public role: string;
+    public files: AccountFile[];
 
     private isTypeSafe: symbol = Symbol();
 
@@ -20,14 +17,11 @@ export class AccountDTO {
         this.email = origin.email;
         this.wechat_id = origin.wechat_id || "";
         this.role = origin.role || "";
+        this.files = (origin.files || []).map((f) => ({ ...f }));
     }
 }
 
-// Client DTO
-// throw 仅在构造函数中使用
 
-// 客户端使用，使用new用于构造合法请求，非法请求在本地构建时throw
-// 服务端使用，使用self进行重复构造，非法请求会被拒绝throw并且返回错误
 
 export class AccountQueryBody {
     public id?: string;
@@ -80,16 +74,18 @@ export class AccountUpdateBody {
     public name: string;
     public email: string;
     public password: string;
+    public files?: AccountFile[];
 
     private isTypeSafe: symbol = Symbol();
 
     constructor(origin: Partial<AccountEntity> = {}) {
-        if (!origin.name && !origin.email && !origin.password) {
+        if (!origin.name && !origin.email && !origin.password && origin.files === undefined) {
             throw new Error("Least one field not null");
         }
         this.name = origin.name || "";
         this.email = origin.email || "";
         this.password = origin.password || "";
+        if (origin.files !== undefined) this.files = origin.files;
     }
 
     static self(unsafe: AccountUpdateBody) {
@@ -97,16 +93,9 @@ export class AccountUpdateBody {
     }
 }
 
-// Interface
-// throw 仅在构造函数中使用
 
-// 客户端使用，使用new用于构造合法请求，非法请求在本地构建时throw
-// 服务端使用，使用self进行重复构造，非法请求会被拒绝throw并且返回错误
 
-// 来自客户端的请求，使用同框架client发送的，已经在构建时就检验了
-// 但服务端仍需要在每个请求开头进行检查，以防第三方请求非法
 
-// 服务端的返回可以保证符合接口声明，无需额外检验
 
 export class AccountListRequest {
     public auth?: string;

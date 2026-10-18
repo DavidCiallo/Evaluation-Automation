@@ -55,7 +55,6 @@ export class FileDetailResponse {
     }
 }
 
-/** 上传请求：multipart 文件在 HTTP 层处理，这里仅描述。 */
 export class FileUploadRequest {
     public file: File;
     public uploaded_by: string;

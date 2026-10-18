@@ -25,7 +25,6 @@ const STATUS_TABS: Array<{ key: string; label: string }> = [
     })),
 ]
 
-/** 状态徽章样式：待确认拆分要显眼（这是等客服干活的），已拆单收敛。 */
 const STATUS_CLASS: Record<string, string> = {
     analyzing: "border-sky-500/60 bg-sky-500/10 text-sky-600",
     split_pending: "border-amber-500/60 bg-amber-500/10 text-amber-600",
@@ -39,7 +38,6 @@ export function CasesPage() {
     const [cases, setCases] = useState<CaseDTO[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
-    // 手工开单：电话/邮件来的单，客户还没进群、也没有 Chat 可分析
     const [createOpen, setCreateOpen] = useState(false)
     const [newTitle, setNewTitle] = useState("")
     const [newCustomers, setNewCustomers] = useState("")
@@ -246,8 +244,6 @@ export function CasesPage() {
                                         <button
                                             key={a.value}
                                             type="button"
-                                            // 用函数式更新：连点多个客服时若读闭包里的 newAgents，
-                                            // 同一批事件会互相覆盖，只有最后一次生效
                                             onClick={() =>
                                                 setNewAgents((prev) =>
                                                     prev.includes(a.value)

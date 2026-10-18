@@ -51,7 +51,6 @@ export function AccountPage() {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({ name: "", wechat_id: "" })
 
-  // Load every page once so we can filter/search locally
   async function loadAll() {
     setLoading(true)
     const auth = getAuth()

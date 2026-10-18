@@ -1,7 +1,3 @@
-/**
- * 一次性数据修复：有文件(file_ids 非空)但 received=false 的材料行 => 置为已收。
- * 规则与 material.service.attachFile 的「有文件=已收」保持一致。
- */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 

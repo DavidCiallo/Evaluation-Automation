@@ -15,21 +15,18 @@ import { Skeleton } from "@/client/components/ui/skeleton"
 import { orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
+import { AGENT_OPTIONS } from "../../../shared/modules/case/case.entity"
+import { VISA_TYPES } from "../../../shared/modules/order/visa"
 import { OrderStageBar, fmtDuration, fmtStamp, timeScaleMsPerPercent } from "./StageBar"
 import { ensureClientPluginsRegistered } from "./plugins/index"
 import { getEnabledClientOrderPlugins } from "./plugin-registry"
 
 ensureClientPluginsRegistered()
 
-/**
- * 只有「是否已取消」值得筛。原来的草稿/信息收集/材料制作/… 一排页签全删了：
- * 那套粗粒度状态由申请单推导，而申请单要到「注册填表」才产生，
- * 所以订单一律显示为草稿，页签既筛不出东西也不反映真实进度 —— 进度看阶段。
- */
 const STATUS_TABS: Array<{ key: string; label: string }> = [
-    { key: "all", label: "全部" },
     { key: "active", label: "在办" },
     { key: "cancelled", label: "已取消" },
+    { key: "all", label: "全部" },
 ]
 
 type ViewMode = "card" | "stage" | "time"
@@ -40,12 +37,44 @@ const VIEW_TABS: Array<{ key: ViewMode; label: string; hint: string }> = [
     { key: "time", label: "时间", hint: "每单一一行，看各阶段花了多久（最慢的一步铺满）" },
 ]
 
-/** 订单当前聚焦的阶段名（第一个 ready）；没有 ready 时返回 null，由调用方决定怎么说。 */
+interface SavedFilters {
+    status: string
+    agents: string[]
+    visaTypes: string[]
+    view: ViewMode
+}
+
+const FILTER_STORAGE_KEY = "orders.filters.v1"
+
+const DEFAULT_FILTERS: SavedFilters = { status: "active", agents: [], visaTypes: [], view: "card" }
+
+function loadFilters(): SavedFilters {
+    try {
+        const raw = localStorage.getItem(FILTER_STORAGE_KEY)
+        if (!raw) return DEFAULT_FILTERS
+        const p = JSON.parse(raw)
+        return {
+            status: STATUS_TABS.some((t) => t.key === p?.status) ? p.status : DEFAULT_FILTERS.status,
+            agents: Array.isArray(p?.agents) ? p.agents.filter((x: any) => typeof x === "string") : [],
+            visaTypes: Array.isArray(p?.visaTypes) ? p.visaTypes.filter((x: any) => typeof x === "string") : [],
+            view: VIEW_TABS.some((t) => t.key === p?.view) ? p.view : DEFAULT_FILTERS.view,
+        }
+    } catch {
+        return DEFAULT_FILTERS
+    }
+}
+
+function saveFilters(f: SavedFilters) {
+    try {
+        localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(f))
+    } catch {
+    }
+}
+
 function stageLabelOf(o: OrderDTO): string | null {
     return (o.stages || []).find((s) => s.state === "ready")?.label || null
 }
 
-/** 申请单个人状态 → 小徽章可见样式（绿=出签、红=拒签/取消、黄=取回、灰=进行中）。 */
 const APP_BADGE_CLASS: Record<string, string> = {
     approved: "border-emerald-500/60 bg-emerald-500/10 text-emerald-600",
     refused: "border-destructive/60 bg-destructive/10 text-destructive",
@@ -53,26 +82,105 @@ const APP_BADGE_CLASS: Record<string, string> = {
     withdrawn: "border-amber-500/60 bg-amber-500/10 text-amber-600",
 }
 
+function MultiSelect({
+    label,
+    options,
+    selected,
+    onChange,
+    width = "w-56",
+}: {
+    label: string
+    options: Array<{ value: string; label: string }>
+    selected: string[]
+    onChange: (next: string[]) => void
+    width?: string
+}) {
+    const [open, setOpen] = useState(false)
+    const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v])
+    const names = options.filter((o) => selected.includes(o.value)).map((o) => o.label)
+    const summary = selected.length === 0 ? "全部" : names.length <= 2 ? names.join("、") : `已选 ${names.length} 项`
+
+    return (
+        <div className="relative">
+            <Button variant="outline" size="sm" className={width} onClick={() => setOpen((o) => !o)}>
+                <span className="truncate">
+                    {label}：{summary}
+                </span>
+            </Button>
+            {open && (
+                <>
+                    <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+                    <div className="bg-popover absolute right-0 z-50 mt-1 max-h-72 w-56 overflow-auto rounded-md border p-2 shadow-md">
+                        <div className="mb-1 flex items-center justify-between px-1">
+                            <span className="text-muted-foreground text-xs">{label}</span>
+                            {selected.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="text-muted-foreground hover:text-foreground text-xs"
+                                    onClick={() => onChange([])}
+                                >
+                                    清空
+                                </button>
+                            )}
+                        </div>
+                        {options.map((o) => (
+                            <label
+                                key={o.value}
+                                className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm"
+                            >
+                                <input
+                                    type="checkbox"
+                                    className="accent-primary size-3.5"
+                                    checked={selected.includes(o.value)}
+                                    onChange={() => toggle(o.value)}
+                                />
+                                <span className="truncate">{o.label}</span>
+                            </label>
+                        ))}
+                    </div>
+                </>
+            )}
+        </div>
+    )
+}
+
 export function OrdersPage() {
     const auth = getAuth()
-    const [status, setStatus] = useState("all")
+    const saved = useMemo(loadFilters, [])
+    const [status, setStatus] = useState(saved.status)
+    const [agents, setAgents] = useState<string[]>(saved.agents)
+    const [visaTypes, setVisaTypes] = useState<string[]>(saved.visaTypes)
     const [customer, setCustomer] = useState("")
     const [page, setPage] = useState(1)
     const [orders, setOrders] = useState<OrderDTO[]>([])
     const [total, setTotal] = useState(0)
+    const [typeCounts, setTypeCounts] = useState<Record<string, number>>({})
     const [loading, setLoading] = useState(true)
-    const [view, setView] = useState<ViewMode>("card")
-    // 卡片视图不需要阶段数据（服务端算阶段要按单查材料），只有阶段/时间视图才要
+    const [view, setView] = useState<ViewMode>(saved.view)
     const needsStages = view !== "card"
+
+    useEffect(() => {
+        saveFilters({ status, agents, visaTypes, view })
+    }, [status, agents, visaTypes, view])
 
     const load = async () => {
         setLoading(true)
         try {
-            const res: any = await orderApi.list({ page, status, customer, with_stages: needsStages, auth })
+            const res: any = await orderApi.list({
+                page,
+                status,
+                customer,
+                agent_ids: agents,
+                visa_types: visaTypes,
+                with_stages: needsStages,
+                with_counts: true,
+                auth,
+            })
             setOrders((res?.data?.list as OrderDTO[]) || [])
             setTotal(res?.data?.total || 0)
+            setTypeCounts((res?.data?.visa_type_counts as Record<string, number>) || {})
         } catch (e: any) {
-            toast.error(`鍔犺浇澶辫触: ${e?.message || ""}`)
+            toast.error(`加载失败: ${e?.message || ""}`)
         } finally {
             setLoading(false)
         }
@@ -81,16 +189,20 @@ export function OrdersPage() {
     useEffect(() => {
         load()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page, status, view])
+    }, [page, status, view, agents, visaTypes])
 
     const totalPages = useMemo(() => Math.max(1, Math.ceil(total / 20)), [total])
+    const typeOptions = useMemo(
+        () =>
+            [...VISA_TYPES]
+                .sort((a, b) => (typeCounts[b.value] || 0) - (typeCounts[a.value] || 0))
+                .map((v) => ({ ...v, label: `${v.label}（${typeCounts[v.value] || 0}）` })),
+        [typeCounts],
+    )
     const clientPlugins = useMemo(() => getEnabledClientOrderPlugins(), [])
-    // 标尺按整页订单统一算，不是每行各自归一化——否则同一段时间在不同行里长度不同，没法横向比
     const timeScale = useMemo(() => timeScaleMsPerPercent(orders), [orders])
 
     return (
-        // 原本用 -mx 负外边距给阶段条多挤点宽度，但那会让卡片比外层还宽、
-        // 顶着页面边缘，看着像把外壳挤变形了。宽度就交给外层留白，不动它。
         <div className="space-y-6">
             <Card>
                 <CardHeader>
@@ -124,8 +236,24 @@ export function OrdersPage() {
                         <Button variant="secondary" size="sm" onClick={() => { setPage(1); load() }}>
                             查询
                         </Button>
-                        {/* 视图切换：卡片=看单子本身；阶段=横向对比每单卡在哪；
-                            时间=看每单各步花了多久 */}
+                        <MultiSelect
+                            label="客服"
+                            options={AGENT_OPTIONS}
+                            selected={agents}
+                            onChange={(v) => {
+                                setAgents(v)
+                                setPage(1)
+                            }}
+                        />
+                        <MultiSelect
+                            label="订单类型"
+                            options={typeOptions}
+                            selected={visaTypes}
+                            onChange={(v) => {
+                                setVisaTypes(v)
+                                setPage(1)
+                            }}
+                        />
                         <div className="flex overflow-hidden rounded-md border">
                             {VIEW_TABS.map((v) => (
                                 <button
@@ -181,7 +309,7 @@ export function OrdersPage() {
                                                     : " · 尚未开始")}
                                         </span>
                                     </div>
-                                    <OrderStageBar stages={o.stages} current={o.current_stage} compact />
+                                    <OrderStageBar stages={o.stages} current={o.current_stage} compact stoppedAt={o.cancelled_at ? o.current_stage : null} />
                                 </Link>
                             ))}
                         </div>
@@ -209,6 +337,7 @@ export function OrdersPage() {
                                         current={o.current_stage}
                                         compact
                                         showTime
+                                        stoppedAt={o.cancelled_at ? o.current_stage : null}
                                         timeScale={timeScale}
                                     />
                                 </Link>
@@ -232,13 +361,10 @@ export function OrdersPage() {
                                                     </div>
                                                 </div>
                                                 {o.visa_type_label && <Badge variant="outline">{o.visa_type_label}</Badge>}
-                                                {/* 进度看阶段条，这里只标「已取消」——在办就不用徽章了，
-                                                    否则每张卡都挂一个没有信息量的「进行中」。 */}
                                                 {o.cancelled_at ? <Badge variant="destructive">已取消</Badge> : null}
                                             </div>
                                         </CardHeader>
                                         <CardContent className="space-y-2">
-                                            {/* 申请单摘要：每人一个状态小徽章 */}
                                             {o.applicants_summary && o.applicants_summary.length > 0 && (
                                                 <div className="flex flex-wrap gap-1">
                                                     {o.applicants_summary.map((a) => (
@@ -251,7 +377,6 @@ export function OrdersPage() {
                                                     ))}
                                                 </div>
                                             )}
-                                            {/* 插件摘要角标 */}
                                             <div className="flex flex-wrap gap-1">
                                                 {clientPlugins.map((p) =>
                                                     p.CardBadge ? <p.CardBadge key={p.manifest.id} order={o} /> : null,

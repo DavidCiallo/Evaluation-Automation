@@ -35,9 +35,6 @@ async function payload(request: RobotTaskPayloadRequest) {
 async function callback(request: RobotTaskCallbackRequest) {
     const req = RobotTaskCallbackRequest.self(request);
 
-    // 回调口令：与任务 id 双因子。
-    // 必须 fail closed —— 未配置就放行的话，任何人拿到一个任务 id 就能把任务
-    // 标成成功，从而解锁「注册填表」阶段。本地联调时请在 .env 里显式配置。
     const expected = process.env.ROBOT_CALLBACK_TOKEN || "";
     if (!expected) throw new Error("服务端未配置 ROBOT_CALLBACK_TOKEN，回调已拒绝");
     if (String((request as any)?.token || "") !== expected) {

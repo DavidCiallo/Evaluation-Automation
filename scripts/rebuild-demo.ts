@@ -1,15 +1,9 @@
-/**
- * 清库后重建干净演示数据（bun 原生 UTF-8，避免 PowerShell 乱码）。
- * 覆盖：Account / Chat / Customer / Order / Application / Material / File + media 磁盘文件。
- * 用法：bun scripts/rebuild-demo.ts（幂等：先清空 data 再写）
- */
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const DATA = "data";
 const MEDIA = join(DATA, "media");
 
-// ---------- 清空 ----------
 if (existsSync(DATA)) rmSync(DATA, { recursive: true, force: true });
 mkdirSync(MEDIA, { recursive: true });
 
@@ -18,7 +12,6 @@ const day = 86400_000;
 const ts = (offsetDays: number) => now - offsetDays * day;
 const jl = (name: string, rows: any[]) => writeFileSync(join(DATA, name), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf-8");
 
-// ---------- 最小合法 PDF 生成（可被 Chrome/Edge 内嵌预览） ----------
 function buildPdf(text: string): Buffer {
     const objs: Buffer[] = [
         Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),
@@ -40,13 +33,11 @@ function buildPdf(text: string): Buffer {
     return out;
 }
 
-// ---------- 媒体文件 ----------
 const mediaTs = now - 3 * day;
 const pngB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 writeFileSync(join(MEDIA, `mat_${mediaTs}_ab12.png`), Buffer.from(pngB64, "base64"));
 writeFileSync(join(MEDIA, `mat_${mediaTs + 1}_cd34.pdf`), buildPdf("Wang Jianguo - Employment Certificate"));
 
-// ---------- Account（客服） ----------
 jl("account.jsonl", [
     {
         id: "acc001", create_time: ts(30), update_time: null, delete_time: null,
@@ -54,7 +45,6 @@ jl("account.jsonl", [
     },
 ]);
 
-// ---------- Chat（群聊） ----------
 jl("chat.jsonl", [
     {
         id: "chat001", create_time: ts(20), update_time: null, delete_time: null,
@@ -62,7 +52,6 @@ jl("chat.jsonl", [
     },
 ]);
 
-// ---------- Customer（客户档案，独立实体） ----------
 jl("customer.jsonl", [
     {
         id: "cust001", create_time: ts(20), update_time: null, delete_time: null,
@@ -76,7 +65,6 @@ jl("customer.jsonl", [
     },
 ]);
 
-// ---------- File（文件实体，媒体落盘） ----------
 jl("file.jsonl", [
     {
         id: "file001", create_time: mediaTs, update_time: null, delete_time: null,
@@ -90,59 +78,33 @@ jl("file.jsonl", [
     },
 ]);
 
-// ---------- Application（申请单 v2，material_ids 引用） ----------
-jl("application.jsonl", [
-    {
-        id: "app001", create_time: ts(15), update_time: null, delete_time: null,
-        order_id: "ord001", customer_id: "cust001", seq: 1, is_lead: true,
-        name: "王建国", gender: "男", dob: "1985-05-20",
-        passport_no: "E00000001", passport_expiry: "2030-05-20",
-        visa_country: "法国", visa_type: "旅游", departure: "上海",
-        material_ids: ["mat001", "mat002", "mat003", "mat004", "mat005", "mat006", "mat007", "mat008"],
-        form: null, status: "material_review", result: null, remarks: [], version: 1,
-    },
-    {
-        id: "app002", create_time: ts(14), update_time: null, delete_time: null,
-        order_id: "ord001", customer_id: "cust002", seq: 2, is_lead: false,
-        name: "李小红", gender: "女", dob: "1992-08-15",
-        passport_no: "E00000002", passport_expiry: "2031-08-15",
-        visa_country: "美国", visa_type: "旅游", departure: "广州",
-        material_ids: ["mat009", "mat010", "mat011", "mat012", "mat013", "mat014"],
-        form: null, status: "pending_receipt", result: null, remarks: [], version: 1,
-    },
-]);
-
-// ---------- Material（材料行 MaterialLine） ----------
-const mkMat = (id: string, applicationId: string, category: string, required: boolean, received: boolean, fileIds: string[] = []) => ({
+const mkMat = (id: string, customerId: string, category: string, required: boolean, received: boolean, fileIds: string[] = []) => ({
     id, create_time: ts(15), update_time: received ? ts(1) : ts(15), delete_time: null,
-    application_id: applicationId, file_ids: fileIds, category, required, received, remark: null, version: 1,
+    order_id: "ord001", customer_id: customerId, file_ids: fileIds, category, required, received, remark: null, version: 1,
 });
 jl("material.jsonl", [
-    // 王建国（法国旅游 8 项）
-    mkMat("mat001", "app001", "护照", true, true, ["file001"]),
-    mkMat("mat002", "app001", "照片", true, false),
-    mkMat("mat003", "app001", "申请表", true, false),
-    mkMat("mat004", "app001", "在职证明", true, true, ["file002"]),
-    mkMat("mat005", "app001", "营业执照", true, false),
-    mkMat("mat006", "app001", "资产证明", true, false),
-    mkMat("mat007", "app001", "行程单", true, false),
-    mkMat("mat008", "app001", "酒店预订", false, false),
-    // 李小红（美国旅游 6 项）
-    mkMat("mat009", "app002", "护照", true, false),
-    mkMat("mat010", "app002", "照片", true, false),
-    mkMat("mat011", "app002", "户口本", true, false),
-    mkMat("mat012", "app002", "资产证明", true, false),
-    mkMat("mat013", "app002", "行程单", true, false),
-    mkMat("mat014", "app002", "机票预订", true, false),
+    mkMat("mat001", "cust_a", "护照", true, true, ["file001"]),
+    mkMat("mat002", "cust_a", "照片", true, false),
+    mkMat("mat003", "cust_a", "申请表", true, false),
+    mkMat("mat004", "cust_a", "在职证明", true, true, ["file002"]),
+    mkMat("mat005", "cust_a", "营业执照", true, false),
+    mkMat("mat006", "cust_a", "资产证明", true, false),
+    mkMat("mat007", "cust_a", "行程单", true, false),
+    mkMat("mat008", "cust_a", "酒店预订", false, false),
+    mkMat("mat009", "cust_b", "护照", true, false),
+    mkMat("mat010", "cust_b", "照片", true, false),
+    mkMat("mat011", "cust_b", "户口本", true, false),
+    mkMat("mat012", "cust_b", "资产证明", true, false),
+    mkMat("mat013", "cust_b", "行程单", true, false),
+    mkMat("mat014", "cust_b", "机票预订", true, false),
 ]);
 
-// ---------- Order（订单，含插件数据袋） ----------
 jl("order.jsonl", [
     {
         id: "ord001", create_time: ts(15), update_time: ts(1), delete_time: null,
         order_name: "王先生一家签证办理", chat_id: "chat001", private_chat_id: "",
         customer_id: "cust001", customer_name: "王建国", customer_remark: "",
-        agent_ids: ["wx_agent_zhang"], applicant_ids: ["app001", "app002"],
+        agent_ids: ["wx_agent_zhang"], applicant_ids: [],
         status: "info_collection", remarks: [
             { id: "rem001", time: ts(3), content: "客户确认办理法国美国两国签证", source: "manual" },
         ],
@@ -174,4 +136,4 @@ jl("order.jsonl", [
     },
 ]);
 
-console.log("重建完成：acc001/chat001/cust001-2/ord001/app001-2/mat001-14/file001-2 + media 2 文件");
+console.log("重建完成：acc001/chat001/cust001-2/ord001/mat001-14/file001-2 + media 2 文件");

@@ -23,7 +23,6 @@ import type {
     IntegrationTargetId,
 } from "@/shared/modules/config/integration.interface"
 
-/** 单个提供方的可编辑表单状态。secret 留空表示「保持原值」。 */
 type Draft = {
     enabled: boolean
     base_url: string
@@ -98,7 +97,6 @@ export function IntegrationSettingsCard() {
                 base_url: d.base_url,
                 account: d.account,
             }
-            // 空串表示保持已存的密钥不变，避免误清空
             if (d.secret !== "") patch.secret = d.secret
             if (d.interval_sec !== "") patch.interval_ms = Math.round(Number(d.interval_sec) * 1000)
             if (p.signers_label) patch.signers = d.signers

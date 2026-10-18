@@ -8,10 +8,6 @@ function ensureDir() {
     if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
 }
 
-/**
- * Download a WeCom media file (image/voice/video/file) by sdkfileid and cache it locally.
- * Returns the local filename (e.g. "abc123.jpg") or null on failure.
- */
 export async function downloadAndCacheMedia(sdkfileid: string): Promise<string | null> {
     if (!isWxConfigured()) return null;
     const bin = getWxBin();
@@ -19,7 +15,6 @@ export async function downloadAndCacheMedia(sdkfileid: string): Promise<string |
 
     ensureDir();
 
-    // Check if already cached (look for any file starting with the sdkfileid)
     const existing = fs.readdirSync(MEDIA_DIR).find((f) => f.startsWith(sdkfileid));
     if (existing) return existing;
 
@@ -48,9 +43,6 @@ function guessExt(contentType: string): string {
     return ".bin";
 }
 
-/**
- * Serve a cached media file. Returns { buffer, contentType } or null if not found.
- */
 export function serveCachedMedia(filename: string): { buffer: Buffer; contentType: string } | null {
     const filePath = path.join(MEDIA_DIR, filename);
     if (!fs.existsSync(filePath)) return null;
@@ -77,4 +69,9 @@ export function serveCachedMedia(filename: string): { buffer: Buffer; contentTyp
         buffer: fs.readFileSync(filePath),
         contentType: contentTypeMap[ext] || "application/octet-stream",
     };
+}
+
+export function isInlineViewable(filename: string): boolean {
+    const ext = path.extname(filename).toLowerCase();
+    return [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".mp4", ".txt"].includes(ext);
 }

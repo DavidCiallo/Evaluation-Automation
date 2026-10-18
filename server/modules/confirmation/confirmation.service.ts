@@ -1,12 +1,3 @@
-/**
- * 客户信息确认单服务。
- *
- * 生命周期：签发（issue）→ 客户在外部签名服务回签（submit，凭 token）→ 客服可撤销（revoke）。
- * 每次回签都会把客户提交的资料与签发时的快照一并留存，便于「客户当时确认了什么」可追溯。
- *
- * 鉴权边界：list/issue/revoke 是客服侧接口（走统一门禁）；
- * fetch/submit 是客户侧接口，凭 token 访问，已在 mount.ts 放行。
- */
 import Repository from "../../lib/repository";
 import type {
     ConfirmationEntity,
@@ -14,12 +5,13 @@ import type {
     ConfirmationSnapshot,
 } from "../../../shared/modules/confirmation/confirmation.entity";
 import { CONFIRMATION_STATUS_LABEL } from "../../../shared/modules/confirmation/confirmation.entity";
-import { createContractSheet, isContractConfigured, internalSigners, fetchContractSigners } from "../../lib/contract-client";
+import type { ConfirmationSignerView } from "../../../shared/modules/confirmation/confirmation.interface";
+import { createContractSheet, isContractConfigured, internalSigners, fetchContractSigners, fetchContractStatus, deleteContractSheet } from "../../lib/contract-client";
 import { buildContent, buildContentFromProfile } from "../form/content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest";
-import type { StandardPluginData, OrderCustomerInfo } from "../../../shared/modules/order/plugins/standard.manifest";
+import type { StandardPluginData, OrderCustomerInfo, FormAssignment } from "../../../shared/modules/order/plugins/standard.manifest";
 import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 
 const repo: Repository<ConfirmationEntity> = Repository.instance("Confirmation");
@@ -27,8 +19,10 @@ const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
 const submissionRepo: Repository<SubmissionEntity> = Repository.instance("Submission");
 
-/** 确认单有效期（天）。与麦客建单保持同一口径。 */
 const DEADLINE_DAYS = 7;
+
+const INTERNAL_MIN = 2;
+const INTERNAL_APPROVE_MIN = 1;
 
 function toDTO(e: ConfirmationEntity, withUrl = true): ConfirmationDTO {
     return {
@@ -51,14 +45,12 @@ function toDTO(e: ConfirmationEntity, withUrl = true): ConfirmationDTO {
     };
 }
 
-/** 当前有效客户名单（草稿优先）——与 stage.service 的口径保持一致。 */
 function effectiveCustomers(order: OrderEntity): OrderCustomerInfo[] {
     const std = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
     return std.draft?.customers || std.confirmed?.customers || [];
 }
 
-/** 由订单的客户条目 + 客户档案组装签发快照。 */
-async function buildSnapshot(customer: OrderCustomerInfo): Promise<ConfirmationSnapshot> {
+export async function buildSnapshot(customer: OrderCustomerInfo): Promise<ConfirmationSnapshot> {
     let profile: CustomerEntity | null = null;
     if (customer.customer_id) profile = await customerRepo.findOne({ id: customer.customer_id });
     if (!profile && customer.name) profile = await customerRepo.findOne({ name: customer.name });
@@ -78,21 +70,13 @@ async function buildSnapshot(customer: OrderCustomerInfo): Promise<ConfirmationS
     };
 }
 
-// ---------- 客服侧 ----------
 
 export async function listByOrder(orderId: string): Promise<ConfirmationDTO[]> {
-    const rows = await repo.find({ order_id: orderId });
-    // 客服打开列表时顺带核对一次服务端，否则已签的单会一直显示「待确认」
+    const rows = (await repo.find({ order_id: orderId })).filter((e) => e.status !== "revoked");
     await refreshSignedFromService(rows);
     return rows.sort((a, b) => a.create_time - b.create_time).map((e) => toDTO(e));
 }
 
-/**
- * 订单下是否每位客户都已回签（阶段准入判定用）。
- *
- * 签署状态以确认单服务为准：客户在服务端页面上签字后本系统收不到推送，
- * 只看本地 status 会永远停在 pending。查询结果顺带回写本地，供列表展示。
- */
 export async function areAllSigned(orderId: string): Promise<{ met: boolean; detail: string | null }> {
     const order = await orderRepo.findOne({ id: orderId });
     if (!order) return { met: false, detail: "订单不存在" };
@@ -111,48 +95,54 @@ export async function areAllSigned(orderId: string): Promise<{ met: boolean; det
     };
 }
 
-/**
- * 向确认单服务核对签署状态并回写本地。
- *
- * 只有「客户本人（external）已签」才算数：内部签署人只是留痕，不要求每人签；
- * result="wrong" 表示客户对资料有异议，同样不算通过。
- * 单条查询失败不影响其余——服务抖动不该让整个列表报错。
- */
 export async function refreshSignedFromService(rows: ConfirmationEntity[]): Promise<number> {
     let refreshed = 0;
     for (const e of rows) {
         if (e.status !== "pending" || !e.token) continue;
-        let signers;
+
+        let state;
         try {
-            signers = await fetchContractSigners(e.token);
+            state = await fetchContractStatus(e.token);
         } catch {
             continue;
         }
-        const customer = signers.find((s) => s.signer_type === "external" && s.result === "ok");
-        if (!customer) continue;
+        if (!state || state.status !== "confirmed") continue;
+
+        let signedAt = 0;
+        try {
+            const signers = await fetchContractSigners(e.token);
+            signedAt = signers.find((s) => s.signer_type === "external" && s.result === "ok")?.signed_at || 0;
+        } catch {
+        }
+        const when = signedAt || Date.now();
 
         await repo.atomicPatch({ id: e.id }, (row) => {
             if (!row || row.status !== "pending") return null;
-            return {
-                status: "signed",
-                signed_time: customer.signed_at || Date.now(),
-                version: row.version + 1,
-            };
+            return { status: "signed", signed_time: when, version: row.version + 1 };
         });
         e.status = "signed";
-        e.signed_time = customer.signed_at || Date.now();
+        e.signed_time = when;
         refreshed++;
     }
     return refreshed;
 }
 
-/**
- * 签发确认单。幂等：已有 pending/signed 记录的客户不重复签发，
- * 只有 revoked 或缺单的客户才会新建——避免客服多点一次就多出一堆链接。
- *
- * 单据建在确认单服务上，本地只存它返回的 id 与链接：客户签署页由服务端渲染，
- * 本系统自造 token 的话客户点开只会看到「确认单不存在」。
- */
+export async function listSigners(id: string): Promise<ConfirmationSignerView[]> {
+    const e = await repo.findOne({ id });
+    if (!e) throw "confirmation not found";
+    const contractId = e.token || e.external_ref;
+    if (!contractId) return [];
+
+    const signers = await fetchContractSigners(contractId);
+    return signers.map((s) => ({
+        name: s.name,
+        signer_type: s.signer_type === "internal" ? "internal" : "external",
+        result: s.result === "ok" ? "ok" : s.result === "wrong" ? "wrong" : "pending",
+        reason: s.reason || "",
+        signed_at: s.signed_at || null,
+    }));
+}
+
 export async function issueForOrder(orderId: string, customerIds?: string[]): Promise<{ list: ConfirmationDTO[]; created: number }> {
     const order = await orderRepo.findOne({ id: orderId });
     if (!order) throw "order not found";
@@ -174,28 +164,35 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
         throw "确认单服务未配置（API Key），请在「系统配置 → 外围系统接入」中补全";
     }
 
+    const internals = internalSigners();
+    if (internals.length < INTERNAL_MIN) {
+        throw `内部签署人不足：需要 ${INTERNAL_MIN} 位，当前配置为 ${internals.length} 位${
+            internals.length ? `（${internals.join("、")}）` : ""
+        }。请在「系统配置 → 外围系统接入 → 确认单 → 内部签署人」中补全。`;
+    }
+
     const deadline = Date.now() + DEADLINE_DAYS * 86400000;
     const submissions = await submissionRepo.find({}, { limit: 500 });
+    const assignments = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData | undefined)?.forms || [];
 
     let created = 0;
-    const failed: string[] = [];
     for (const c of targets) {
         const name = c.name || "";
-        const content = await contentForCustomer(name, c, submissions);
-        if (!content) {
-            failed.push(`${name || "未命名"}（无表单提交，档案也没资料）`);
-            continue;
+        let content: string;
+        try {
+            content = await contentForCustomer(name, c, submissions, assignments);
+        } catch (e) {
+            throw `未能为「${name || "未命名"}」生成确认单正文：${e instanceof Error ? e.message : String(e)}。已拒绝签发。`;
         }
 
         const sheet = await createContractSheet({
-            title: `${order.order_name || "订单"} - ${name || "未命名"} 信息确认`,
+            title: `NoWorry签证信息确认 - ${name || "未命名"}`,
             content,
             deadline,
             external_names: [name || "申请人"],
-            internal_ids: internalSigners(),
+            internal_ids: internals,
             external_min: 1,
-            // 内部签署人只是留痕，不要求每个客服都签，否则单子永远签不完
-            internal_min: 0,
+            internal_min: INTERNAL_APPROVE_MIN,
         });
 
         await repo.insert({
@@ -217,24 +214,22 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
         created++;
     }
 
-    if (created === 0 && failed.length > 0) throw `未能签发：${failed.join("、")}`;
-
     return { list: await listByOrder(orderId), created };
 }
 
-/**
- * 客户 → 确认单正文。优先用该客户已提交的表单（字段最全），
- * 没有提交时退回客户档案——否则还没填表的客户一张都签不出来。
- */
 async function contentForCustomer(
     name: string,
     customer: OrderCustomerInfo,
     submissions: SubmissionEntity[],
-): Promise<string | null> {
-    if (name) {
-        const hit = submissions.find((s) => s.submitter_name === name);
-        const fromForm = hit ? buildContent(hit.fields) : null;
-        if (fromForm) return fromForm;
+    assignments: FormAssignment[],
+): Promise<string> {
+    for (const a of assignments) {
+        if (a.customer_id !== customer.id || a.status !== "completed") continue;
+        const hit = submissions.find((s) => s.key === a.item_id);
+        if (!hit) {
+            throw `订单里绑定的表单提交（${a.item_id || "无 item_id"}）在本地找不到，无法生成确认单正文`;
+        }
+        return await buildContent(hit.fields);
     }
 
     let profile: CustomerEntity | null = null;
@@ -245,14 +240,22 @@ async function contentForCustomer(
         if (fromProfile) return fromProfile;
     }
 
-    // 档案也没有时，至少把姓名写进正文，客户仍可在签署页补全其余资料
-    return name ? `中文姓名：${name}` : null;
+    throw `${name || "未命名"} 没有绑定任何表单提交，也没有客户档案，没有资料可核对`;
 }
 
-export async function revoke(id: string, reason: string, by: string): Promise<ConfirmationDTO> {
+export async function revoke(id: string, reason: string, by: string): Promise<{ confirmation: ConfirmationDTO; warning: string | null }> {
     const cur = await repo.findOne({ id });
     if (!cur) throw "confirmation not found";
     if (cur.status === "revoked") throw "该确认单已撤销";
+
+    let warning: string | null = null;
+    if (cur.external_ref) {
+        try {
+            await deleteContractSheet(cur.external_ref);
+        } catch (e) {
+            warning = `确认单服务上未能删除：${e instanceof Error ? e.message : String(e)}`;
+        }
+    }
 
     await repo.atomicPatch({ id }, (row) => {
         if (!row) return null;
@@ -265,10 +268,10 @@ export async function revoke(id: string, reason: string, by: string): Promise<Co
         };
     });
     const updated = await repo.findOne({ id });
-    return toDTO(updated!);
+    return { confirmation: toDTO(updated!), warning };
 }
 
-// ---------- 客户侧（凭 token） ----------
+// ---------- 客户侧 ----------
 
 export async function fetchByToken(token: string): Promise<{
     order_name: string;
@@ -289,11 +292,6 @@ export async function fetchByToken(token: string): Promise<{
     };
 }
 
-/**
- * 客户提交确认。
- * 幂等：已签的回签请求返回当前状态而不报错——客户可能重复点提交或刷新页面。
- * 已撤销的链接一律拒绝。
- */
 export async function submitByToken(
     token: string,
     patch: Partial<ConfirmationSnapshot> | undefined,
@@ -308,7 +306,6 @@ export async function submitByToken(
 
     await repo.atomicPatch({ token }, (row) => {
         if (!row) return null;
-        // 并发双击：另一路已签则不再覆盖，只补 external_ref
         if (row.status === "signed") return { external_ref: row.external_ref || externalRef || null };
         return {
             status: "signed",

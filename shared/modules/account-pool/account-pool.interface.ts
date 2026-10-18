@@ -1,8 +1,8 @@
-import type { PoolAccountDTO } from "./account-pool.entity";
+import type { PoolAccountDTO, PoolPlatform, PoolVoucher } from "./account-pool.entity";
+import { POOL_PLATFORMS } from "./account-pool.entity";
 
 export class AccountPoolListRequest {
     public order_id: string;
-    /** 需要明文密码时显式传 true（默认不回传） */
     public with_secret?: boolean;
     public auth?: string;
 
@@ -30,22 +30,13 @@ export class AccountPoolListResponse {
     }
 }
 
-/**
- * 拟定账号数量：客服说「这单要几个号」。
- * 系统据此建出占位账号，并把申请单均分到各账号（客服随后可逐条调整）。
- */
 export class AccountPoolPlanRequest {
     public order_id: string;
-    public count: number;
     public auth?: string;
 
     constructor(data: any) {
         if (!data.order_id) throw new Error("order_id is required");
         this.order_id = String(data.order_id);
-        const n = Number(data.count);
-        if (!Number.isInteger(n) || n < 1) throw new Error("账号数量必须是 ≥1 的整数");
-        if (n > 10) throw new Error("单个订单的账号数量不能超过 10");
-        this.count = n;
         this.auth = data.auth;
     }
 
@@ -66,22 +57,54 @@ export class AccountPoolPlanResponse {
     }
 }
 
-/** 手动填写/修改账号（未走机器人时客服直接录）。 */
 export class AccountPoolUpsertRequest {
     public id: string;
     public email?: string;
     public password?: string;
     public label?: string;
+    public platforms?: PoolPlatform[];
+    public fv_numbers?: Record<string, string>;
+    /** TLS 链接，账号级 */
+    public tls_links?: string[];
+    public expected_place?: string;
+    public actual_place?: string;
+    public vouchers?: PoolVoucher[];
     public remark?: string;
     public auth?: string;
 
     constructor(data: any) {
         if (!data.id) throw new Error("id is required");
         if (data.email !== undefined && !String(data.email).trim()) throw new Error("邮箱不能为空");
+        if (data.platforms !== undefined) {
+            if (!Array.isArray(data.platforms)) throw new Error("platforms 必须是数组");
+            for (const p of data.platforms) {
+                if (!POOL_PLATFORMS.some((x) => x.value === p)) throw new Error(`未知平台：${p}`);
+            }
+        }
         this.id = data.id;
         this.email = data.email !== undefined ? String(data.email).trim() : undefined;
         this.password = data.password !== undefined ? String(data.password) : undefined;
         this.label = data.label !== undefined ? String(data.label) : undefined;
+        this.platforms = data.platforms;
+        if (data.fv_numbers !== undefined) {
+            if (!data.fv_numbers || typeof data.fv_numbers !== "object") throw new Error("fv_numbers 必须是对象");
+            const out: Record<string, string> = {};
+            for (const [k, v] of Object.entries(data.fv_numbers)) out[String(k)] = String(v ?? "");
+            this.fv_numbers = out;
+        }
+        this.tls_links = Array.isArray(data.tls_links) ? data.tls_links.map(String) : undefined;
+        this.expected_place = data.expected_place !== undefined ? String(data.expected_place) : undefined;
+        this.actual_place = data.actual_place !== undefined ? String(data.actual_place) : undefined;
+        if (data.vouchers !== undefined) {
+            if (!Array.isArray(data.vouchers)) throw new Error("vouchers 必须是数组");
+            this.vouchers = data.vouchers.map((v: any) => ({
+                file_id: String(v?.file_id || ""),
+                filename: String(v?.filename || ""),
+                storage_name: String(v?.storage_name || ""),
+                content_type: String(v?.content_type || ""),
+                upload_time: Number(v?.upload_time || Date.now()),
+            }));
+        }
         this.remark = data.remark !== undefined ? String(data.remark) : undefined;
         this.auth = data.auth;
     }
@@ -103,23 +126,21 @@ export class AccountPoolUpsertResponse {
     }
 }
 
-/** 把申请单分配到账号（或从账号上摘除）。 */
 export class AccountPoolAssignRequest {
     public order_id: string;
-    /** 目标账号 id；传空字符串表示「暂不分配」（申请单回到未分配池） */
     public account_id: string;
-    public application_ids: string[];
+    public customer_ids: string[];
     public auth?: string;
 
     constructor(data: any) {
         if (!data.order_id) throw new Error("order_id is required");
         if (data.account_id === undefined || data.account_id === null) throw new Error("account_id is required");
-        if (!Array.isArray(data.application_ids) || data.application_ids.length === 0) {
-            throw new Error("application_ids 不能为空");
+        if (!Array.isArray(data.customer_ids) || data.customer_ids.length === 0) {
+            throw new Error("customer_ids 不能为空");
         }
         this.order_id = data.order_id;
         this.account_id = String(data.account_id);
-        this.application_ids = data.application_ids.map(String);
+        this.customer_ids = data.customer_ids.map(String);
         this.auth = data.auth;
     }
 

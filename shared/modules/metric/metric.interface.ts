@@ -139,7 +139,6 @@ export class MetricAnomaliesResponse {
     }
 }
 
-/** Working-hour schedule (hours are whole numbers 0–23; days use JS getDay(): 0=Sun…6=Sat). */
 export interface BusinessHours {
     start_hour: number;
     end_hour: number;
@@ -149,7 +148,6 @@ export interface BusinessHours {
 export interface AgentHoursEntry extends BusinessHours {
     agent_id: string;
     agent_name: string;
-    /** Whether this agent has a custom override (false → uses the default schedule). */
     custom: boolean;
 }
 
@@ -173,7 +171,6 @@ export class MetricAgentHoursUpdateRequest {
     public start_hour?: number;
     public end_hour?: number;
     public days?: number[];
-    /** When true, remove the agent's override so they fall back to the default. */
     public reset: boolean;
     public auth?: string;
 

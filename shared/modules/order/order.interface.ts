@@ -4,21 +4,26 @@ export class OrderListRequest {
     public page: number;
     public status: string;
     public agent_id: string | null;
+    public agent_ids: string[] | null;
+    public visa_types: string[] | null;
     public customer: string | null;
     public start: number | null;
     public end: number | null;
-    /** 是否附带阶段视图（订单管理的阶段/时间视图需要，卡片视图不需要） */
     public with_stages: boolean;
+    public with_counts: boolean;
     public auth?: string;
 
     constructor(data: any) {
         this.page = Number(data.page || 1);
         this.status = data.status || "all";
         this.agent_id = data.agent_id || null;
+        this.agent_ids = toArray(data.agent_ids);
+        this.visa_types = toArray(data.visa_types);
         this.customer = data.customer || null;
         this.start = data.start ? Number(data.start) : null;
         this.end = data.end ? Number(data.end) : null;
         this.with_stages = !!data.with_stages;
+        this.with_counts = !!data.with_counts;
         this.auth = data.auth;
     }
 
@@ -27,12 +32,18 @@ export class OrderListRequest {
     }
 }
 
+function toArray(v: any): string[] | null {
+    if (!Array.isArray(v)) return null;
+    const arr = v.map((x) => String(x)).filter(Boolean);
+    return arr.length > 0 ? arr : null;
+}
+
 export class OrderListResponse {
     public success: boolean;
-    public data?: { list: OrderDTO[]; total: number };
+    public data?: { list: OrderDTO[]; total: number; visa_type_counts?: Record<string, number> };
     public message?: string;
 
-    constructor(data: { success: boolean; data?: { list: OrderDTO[]; total: number }; message?: string }) {
+    constructor(data: { success: boolean; data?: { list: OrderDTO[]; total: number; visa_type_counts?: Record<string, number> }; message?: string }) {
         this.success = data.success;
         this.data = data.data;
         this.message = data.message;
@@ -66,7 +77,6 @@ export class OrderDetailResponse {
     }
 }
 
-/** 取消整单（note 必填：取消必须记原因）。 */
 export class OrderCancelRequest {
     public id: string;
     public note: string;
@@ -84,7 +94,6 @@ export class OrderCancelRequest {
     }
 }
 
-/** 恢复被取消的订单（note 选填）。 */
 export class OrderReopenRequest {
     public id: string;
     public note: string;
@@ -102,7 +111,6 @@ export class OrderReopenRequest {
     }
 }
 
-/** 触发插件动作（如标准插件的 confirm / generate-contract）。 */
 export class OrderPluginActionRequest {
     public id: string;
     public plugin_id: string;
@@ -138,7 +146,7 @@ export class OrderPluginActionResponse {
     }
 }
 
-/** 更新客户备注（订单标题）。 */
+/** 更新客户备注。 */
 export class OrderUpdateCustomerRemarkRequest {
     public id: string;
     public customer_remark: string;
@@ -168,7 +176,6 @@ export class OrderUpdateCustomerRemarkResponse {
     }
 }
 
-/** 客服手动追加备注。 */
 export class OrderRemarkRequest {
     public id: string;
     public content: string;
@@ -194,7 +201,6 @@ export class OrderSetVisaTypeRequest {
 
     constructor(data: any) {
         if (!data.id) throw new Error("id is required");
-        // 空串是合法值：表示清除标记
         this.id = data.id;
         this.visa_type = data.visa_type == null ? "" : String(data.visa_type).trim();
         this.auth = data.auth;
@@ -217,7 +223,6 @@ export class OrderRemarkResponse {
     }
 }
 
-/** 手动从会话创建订单（支持私聊/群聊）。 */
 export class OrderCreateFromChatRequest {
     public chat_id: string;
     public order_name?: string;
@@ -247,7 +252,6 @@ export class OrderCreateFromChatResponse {
     }
 }
 
-/** 获取订单关联会话列表。 */
 export class OrderRelatedChatsRequest {
     public id: string;
     public auth?: string;
@@ -297,7 +301,6 @@ export class OrderRelatedChatsResponse {
     }
 }
 
-/** 无会话建单（手动/邮件渠道）。 */
 export class OrderCreateRequest {
     public order_name?: string;
     public customer_id?: string | null;

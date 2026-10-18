@@ -1,18 +1,9 @@
-/**
- * 群聊接单分析：从群成员与近段对话中识别客户候选，并给出拼团拆分建议。
- *
- * 分层策略（与 intent.service 一致）：
- *   规则先跑，能给出可信分组就不调模型；规则拿不准（人数多、无法从群名判断）
- *   才请模型判断「谁跟谁一单」。
- * 无论哪条路径，结论都只是**建议**——最终由客服确认（方案 C 模式）。
- */
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import type { CaseCustomerCandidate, CaseSplitGroup } from "../../../shared/modules/case/case.entity";
 import { isLlmConfigured, llmChat, extractJson } from "../../lib/llm";
 import { detectVisaType, composeOrderName } from "../../../shared/modules/order/visa";
 
-/** 分析输入。各 Repo 读取由调用方（case.service）完成，本模块保持纯函数便于单独调整提示词。 */
 export interface AnalysisInput {
     chat: ChatEntity;
     members: ChatMemberEntity[];
@@ -26,7 +17,6 @@ export interface AnalysisResult {
     error: string | null;
 }
 
-/** 从群成员取出客户候选（客服不进候选，但仍要能展示以便人工核对）。 */
 export function buildCandidates(members: ChatMemberEntity[]): CaseCustomerCandidate[] {
     return members
         .filter((m) => m.role === "customer" || m.role === "agent")
@@ -43,7 +33,6 @@ function customersOf(candidates: CaseCustomerCandidate[]): CaseCustomerCandidate
     return candidates.filter((c) => c.is_customer);
 }
 
-/** 单人或无候选时的退化方案：每位客户各成一单，或全体合一单。 */
 function fallbackPlan(customers: CaseCustomerCandidate[], chatName: string): { plan: CaseSplitGroup[]; evidence: string } {
     if (customers.length <= 1) {
         return {
@@ -56,7 +45,6 @@ function fallbackPlan(customers: CaseCustomerCandidate[], chatName: string): { p
             evidence: "按群成员直接判定为单客户",
         };
     }
-    // 多人且无法判断亲属/拼团关系时，默认「一人一单」——比错误合单更容易被客服发现并纠正
     const visa = detectVisaType(chatName)?.value || "";
     return {
         plan: customers.map((c) => ({
@@ -68,42 +56,23 @@ function fallbackPlan(customers: CaseCustomerCandidate[], chatName: string): { p
     };
 }
 
-/** 群名里出现拼团/合并等词，说明这单大概率是一个整体而非多单。 */
 const WHOLE_GROUP_HINTS = ["一家", "家庭", "亲子", "夫妻", "同行", "顺路"];
-/** 群名里出现这些词，说明群里确实混了多组客户。 */
 const MULTI_GROUP_HINTS = ["拼团", "拼单", "多人", "两组", "两队"];
 
-/**
- * 群名里与客户无关的噪音：签证类型词、渠道前缀、常见修饰词。
- * 这些词按用户口径不该被当成人名，其余 2~4 个连续汉字才视为人名。
- */
 const NAME_NOISE = [
-    // 签证类型（与 visa.ts 的别名同源，避免「法签」被当人名）
     "法签", "法国签", "法国签证", "西班牙签", "西班牙签证", "西签",
     "冰岛签", "冰岛签证", "美签", "美国签", "美国签证",
     "日签", "日本签", "日本签证", "英签", "英国签", "英国签证",
     "德签", "德国签", "德国签证", "意签", "意大利签", "意大利签证",
     "澳签", "澳洲签", "澳大利亚签", "加签", "加拿大签",
-    "韩签", "韩国签", "韩国签证", "新加坡签", "新加坡签证",
-    "泰签", "泰国签", "泰国签证", "申根签", "申根",
-    // 业务词
+    "韩签", "韩国签", "韩国签证", "新加坡签", "新加坡签证", "申根签", "申根",
     "签证", "咨询", "办理", "材料", "出游", "旅行", "旅游", "跟团", "自由行",
     "群聊", "微信群", "客服", "订单", "接单", "赴日", "赴美", "赴欧",
-    // 修饰
     "一家", "家庭", "亲子", "夫妻", "同行", "顺路", "拼团", "拼单", "多人",
 ];
 
-/**
- * 从群名里挑出可能是人名的片段。
- *
- * 用户口径：「群员名称就是客户的，名字都给你了」。群名形如
- * `NW.法签🇫🇷 曾煜桓 陈铭宇 曾扬 袁笛琨 姚力维`，除类型词/渠道前缀外
- * 每个 2~4 字的中文串都当一个人名。宁可多认（客服点一下就能删），
- * 不要漏认——漏认会让客服只能手工重敲一遍。
- */
 export function parseNamesFromChatName(chatName: string): string[] {
     if (!chatName) return [];
-    // 去掉 emoji / 标点 / 拉丁字母数字 / 渠道前缀，只留中文与分隔
     const cleaned = chatName
         .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, " ")
         .replace(/[A-Za-z0-9._\-+]+/g, " ")
@@ -113,7 +82,6 @@ export function parseNamesFromChatName(chatName: string): string[] {
     const out: string[] = [];
     const seen = new Set<string>();
     for (const token of raw) {
-        // 只认纯中文、2~4 字的片段
         if (!/^[\u4e00-\u9fa5]{2,4}$/.test(token)) continue;
         if (NAME_NOISE.some((w) => token === w || token.includes(w))) continue;
         if (seen.has(token)) continue;
@@ -123,7 +91,6 @@ export function parseNamesFromChatName(chatName: string): string[] {
     return out;
 }
 
-/** 群名解析出的人名并入候选，按姓名去重（已有成员记录优先，保留其 wechat_id）。 */
 function mergeNameCandidates(
     candidates: CaseCustomerCandidate[],
     names: string[],
@@ -133,8 +100,6 @@ function mergeNameCandidates(
     for (const n of names) {
         if (existing.has(n)) continue;
         existing.add(n);
-        // 群名解析出的名字没有 wechat_id；用姓名本身做占位 id（姓名已去重，组内唯一）。
-        // 本模块保持纯函数，不引入 id 生成器。
         merged.push({
             wechat_id: `title:${n}`,
             name: n,
@@ -200,7 +165,6 @@ function planFromModel(raw: string, customers: CaseCustomerCandidate[]): { plan:
             reason: typeof g?.reason === "string" ? g.reason : null,
         });
     }
-    // 模型漏掉的客户必须兜住，否则他们会在拆单时凭空消失
     const dropped = customers.filter((c) => !used.has(c.wechat_id));
     for (const c of dropped) {
         plan.push({
@@ -213,14 +177,8 @@ function planFromModel(raw: string, customers: CaseCustomerCandidate[]): { plan:
     return { plan, evidence: typeof parsed.evidence === "string" ? parsed.evidence : null };
 }
 
-/**
- * 执行分析。任何失败都降级为规则方案并把原因写进 error，
- * 不让「模型挂了」变成「建不了工单」。
- */
 export async function analyzeChat(input: AnalysisInput): Promise<AnalysisResult> {
     const chatName = input.chat.name || "";
-    // 成员记录 + 群名解析出的姓名，两者取并集：群成员表可能为空（未同步），
-    // 但群名往往已经把客户列全了。
     const fromTitle = parseNamesFromChatName(chatName);
     const candidates = mergeNameCandidates(buildCandidates(input.members), fromTitle);
     const customers = customersOf(candidates);
@@ -229,7 +187,6 @@ export async function analyzeChat(input: AnalysisInput): Promise<AnalysisResult>
         ? `群名解析出 ${fromTitle.length} 位客户：${fromTitle.join("、")}`
         : "多客户且无明显同行线索，默认一人一单";
 
-    // 规则可直接定案的两端：0/1 人必然单组；群名有强线索时按线索走
     const hint = hintFromChatName(chatName);
     if (customers.length <= 1) {
         const fb = fallbackPlan(customers, chatName);

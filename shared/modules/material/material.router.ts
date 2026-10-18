@@ -11,13 +11,14 @@ export const materialRoutes = {
     prefix: "/material",
     list: {
         path: "/list",
-        request: {} as { application_id: string; auth?: string },
+        request: {} as { order_id: string; customer_id?: string; auth?: string },
         response: {} as MaterialListResponse,
     },
     create: {
         path: "/create",
         request: {} as {
-            application_id: string;
+            order_id: string;
+            customer_id: string;
             category: string;
             required?: boolean;
             received?: boolean;

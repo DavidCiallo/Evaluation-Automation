@@ -23,14 +23,12 @@ const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 
 const DAY = 24 * 60 * 60 * 1000;
 
-// --- Overview cache ---
 const _dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_FILE = path.resolve(_dirname, "../../../data/metric_overview_cache.json");
 
 type OverviewResult = {
     today_volume: number;
     frt_avg_sec: number;
-    /** “即时应答率”. `rate30` is a legacy field name — the threshold (in seconds) is configurable via `rate30_threshold_sec`. */
     rate30: number;
     pending_orders: number;
 };
@@ -86,7 +84,6 @@ async function loadConversationsSince(since: number): Promise<ConversationEntity
     return out;
 }
 
-/** Pre-load ALL ChatMembers into memory indexed by chat_id — avoids N file scans. */
 async function loadMembersIndex(): Promise<Map<string, Map<string, string>>> {
     const idx = new Map<string, Map<string, string>>(); // chat_id → (wechat_id → name) for agents
     await memberRepo.findEach({}, (m) => {
@@ -101,14 +98,12 @@ async function loadMembersIndex(): Promise<Map<string, Map<string, string>>> {
     return idx;
 }
 
-// Module-level cache: members index is rebuilt once per server start (data only grows via sync)
 let membersCache: Map<string, Map<string, string>> | null = null;
 async function getMembersIndex(): Promise<Map<string, Map<string, string>>> {
     if (!membersCache) membersCache = await loadMembersIndex();
     return membersCache;
 }
 
-/** Invalidate members cache (call after sync adds new chats/members). */
 export function invalidateMembersCache(): void {
     membersCache = null;
 }
@@ -126,36 +121,18 @@ interface GapEvent {
 
 interface WalkResult {
     events: GapEvent[];
-    /** chat_ids whose trailing customer message stayed unanswered for > 3h. */
     shelved: string[];
 }
 
-/**
- * Single source of truth for response-time sampling — overview KPIs, trend
- * chart and leaderboard all aggregate these same events, so their numbers
- * always agree (KPI = sample-weighted average of the daily bars).
- *
- * Walks messages per chat in chronological order, emitting one event per
- * customer→agent adjacent reply pair:
- * - FRT (First Response Time): first agent reply of each session (flagged);
- * - ART (Average Response Time): every reply pair;
- * - instant rate: share of reply pairs with gap ≤ the configured instant threshold.
- * A > 30 min inactivity gap starts a new session; slow replies still count
- * (gap capped at 3h via SHELVE_MS).
- */
 async function collectGapEvents(since: number): Promise<WalkResult> {
     const [msgs, ex, defaultCfg] = await Promise.all([
         loadConversationsSince(since),
         getExemption(),
         loadBusinessConfig(),
     ]);
-    // Per-agent overrides merged with the default. An agent's own calendar is
-    // used to measure the gap of each of their replies; the default calendar
-    // drives session splitting (conversation continuity is agent-agnostic).
     const agentCfgs = await loadAgentBusinessConfigs(defaultCfg);
     const cfgFor = (agentId: string) => agentCfgs.get(agentId) || defaultCfg;
 
-    // Group by chat (exempt chats are dropped entirely)
     const byChat = new Map<string, ConversationEntity[]>();
     for (const m of msgs) {
         if (isExemptChat(ex, m.chat_id)) continue;
@@ -171,12 +148,6 @@ async function collectGapEvents(since: number): Promise<WalkResult> {
     for (const [chatId, arr] of byChat) {
         arr.sort((a, b) => a.send_time - b.send_time);
 
-        // Session timing (splits) runs on the DEFAULT calendar — sessions are
-        // about conversation continuity, not any particular agent. Each reply
-        // gap is measured on the RESPONDING agent's own calendar so every agent
-        // is judged against their own working hours (see businesstime.ts).
-        // Real timestamps are kept for reply_time (day bucketing) and for the
-        // per-agent projection of the pending customer message.
         let lastCustReal: number | null = null;
         let lastAnyBt: number | null = null;
         let lastAnyReal: number | null = null;
@@ -185,11 +156,6 @@ async function collectGapEvents(since: number): Promise<WalkResult> {
         for (const cur of arr) {
             const bt = toBusinessTime(cur.send_time, defaultCfg);
             if (lastAnyBt !== null) {
-                // New session when idle > 30 business min, OR when the gap
-                // crossed non-business time (weekend / overnight / off-hours).
-                // The latter makes the first reply after a weekend count as a
-                // fresh first response instead of being swallowed by the
-                // pre-weekend session.
                 const idleNewSession = bt - lastAnyBt > SESSION_GAP_MS;
                 const crossed = crossesNonBusiness(lastAnyReal!, cur.send_time, defaultCfg);
                 if (idleNewSession || crossed) sessionAnswered = false;
@@ -198,13 +164,9 @@ async function collectGapEvents(since: number): Promise<WalkResult> {
             lastAnyReal = cur.send_time;
 
             if (cur.from_role === "customer") {
-                // An exempt customer message creates no pending inquiry (no lastCustReal),
-                // so response time is measured from the last VALID customer message.
-                // It still counts as activity (lastAnyBt updated above) for session timing.
                 if (isExemptCustomer(ex, cur.from_id) || isExemptCustomerMessage(ex, cur.content)) continue;
                 lastCustReal = cur.send_time;
             } else if (cur.from_role === "agent" && lastCustReal !== null) {
-                // Measure this reply on the responding agent's own calendar.
                 const cfg = cfgFor(cur.from_id);
                 const rawGap = toBusinessTime(cur.send_time, cfg) - toBusinessTime(lastCustReal, cfg);
                 if (rawGap >= 0) {
@@ -221,8 +183,6 @@ async function collectGapEvents(since: number): Promise<WalkResult> {
             }
         }
 
-        // Trailing customer message unanswered for > 3 business hours → shelved
-        // (default calendar — no specific agent has replied yet).
         if (lastCustReal !== null && nowBt - toBusinessTime(lastCustReal, defaultCfg) > SHELVE_MS) {
             shelved.push(chatId);
         }
@@ -237,7 +197,6 @@ export async function computeAgentMetrics(since: number): Promise<Map<string, Ag
         getMembersIndex(),
         getConfigValue<number>("rate30_threshold_sec"),
     ]);
-    // Configurable “instant” threshold (was hard-coded to 30s).
     const instantMs = (Number(instantSec) || 30) * 1000;
 
     const accByAgent = new Map<string, AgentAcc>();
@@ -276,7 +235,6 @@ export async function computeAgentMetrics(since: number): Promise<Map<string, Ag
         }
     }
 
-    // Count unanswered trailing customer messages as shelved (180 min ART penalty)
     for (const chatId of shelved) {
         const agentNames = membersIdx.get(chatId);
         const firstAgentId = agentNames?.keys().next().value;
@@ -291,7 +249,6 @@ export async function computeAgentMetrics(since: number): Promise<Map<string, Ag
     return accByAgent;
 }
 
-// --- Metrics result cache (shared across trend/leaderboard/anomalies within the same period) ---
 interface MetricsCacheEntry {
     since: number;
     result: Map<string, AgentAcc>;
@@ -300,7 +257,6 @@ interface MetricsCacheEntry {
 let metricsCache: MetricsCacheEntry | null = null;
 const METRICS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-/** Cached wrapper — trend/leaderboard/anomalies all share one computation per 5 min window. */
 async function getAgentMetricsCached(since: number): Promise<Map<string, AgentAcc>> {
     if (metricsCache && metricsCache.since === since && Date.now() - metricsCache.timestamp < METRICS_CACHE_TTL) {
         return metricsCache.result;
@@ -310,10 +266,7 @@ async function getAgentMetricsCached(since: number): Promise<Map<string, AgentAc
     return result;
 }
 
-/** Heavy computation — only called by the hourly job or first cache fill. */
 export async function computeOverview(): Promise<OverviewResult> {
-    // Same calendar-day window as the 7-day trend chart, so this KPI equals
-    // the sample-weighted average of the 7 daily bars.
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const since = today - 6 * DAY;
@@ -335,9 +288,6 @@ export async function computeOverview(): Promise<OverviewResult> {
             && !shouldSkipCustomerMessage(ex, row.chat_id, row.from_id, row.content)) todayVolume++;
     });
 
-    // 待处理 = 没取消、也还没走完所有阶段的订单。
-    // 进度只有阶段一个口径（order.service 里已无粗粒度状态），所以判据是
-    // cancelled_at + 阶段是否全部完成，而不是某个状态值。
     const allOrders = await orderRepo.find();
     const { evaluateOrderStages } = await import("../order/stage.service");
     let pendingOrders = 0;
@@ -355,11 +305,9 @@ export async function computeOverview(): Promise<OverviewResult> {
     };
 }
 
-/** Instant read from cache — falls back to on-demand compute on first call. */
 export async function getOverview(): Promise<OverviewResult> {
     const cached = readCache();
     if (cached) return cached;
-    // First time after deploy: no cache file yet → compute once and persist
     console.log("[Metrics] no overview cache, computing on demand…");
     const result = await computeOverview();
     writeCache(result);
@@ -392,8 +340,6 @@ export async function getTrend(range: "7d" | "30d", metric: "frt" | "art" | "vol
             }
         });
     } else {
-        // Average FRT/ART per day — aggregate the same gap events that the
-        // overview KPIs and leaderboard use, bucketed by the agent reply day.
         const { events } = await collectGapEvents(buckets[0].since);
         const sumsPerDay = buckets.map(() => ({ sum: 0, count: 0 }));
         for (const ev of events) {
@@ -443,7 +389,6 @@ export async function getAnomalies(range: "1d" | "7d", thresholdSec: number) {
         getExemption(),
         loadBusinessConfig(),
     ]);
-    // Each reply's FRT gap is measured on the responding agent's own calendar.
     const agentCfgs = await loadAgentBusinessConfigs(defaultCfg);
     const cfgFor = (agentId: string) => agentCfgs.get(agentId) || defaultCfg;
     const byChat = new Map<string, ConversationEntity[]>();
@@ -456,10 +401,8 @@ export async function getAnomalies(range: "1d" | "7d", thresholdSec: number) {
     const thresholdMs = thresholdSec * 1000;
     const anomalies: Array<{ chat_id: string; chat_name: string; customer_name: string; max_frt_sec: number; last_msg_time: number }> = [];
 
-    // Preload all chats into a Map for O(1) lookup
     const chatById = new Map<string, any>();
     await chatRepo.findEach({}, (c) => { chatById.set(c.id, c); });
-    // Preload all members (including customers) for customer name lookup
     const custByChat = new Map<string, string>(); // chat_id → customer name
     await memberRepo.findEach({}, (m) => {
         if (m.role === "customer" && !custByChat.has(m.chat_id)) {
@@ -506,9 +449,7 @@ export async function getAnomalies(range: "1d" | "7d", thresholdSec: number) {
     return { anomalies: anomalies.slice(0, 50) };
 }
 
-// ----- per-agent working hours -----
 
-/** Find an agent's display name anywhere in the members index (first match wins). */
 function lookupAgentName(membersIdx: Map<string, Map<string, string>>, agentId: string): string {
     for (const agentMap of membersIdx.values()) {
         const name = agentMap.get(agentId);
@@ -525,11 +466,6 @@ function toHours(cfg: { startMin: number; endMin: number; days: Set<number> }) {
     };
 }
 
-/**
- * List every distinct agent (by wechat_id) together with their effective
- * working-hour schedule. Agents without an override report the default
- * schedule and `custom: false`.
- */
 export async function getAgentHours() {
     const [defaultCfg, membersIdx, raw] = await Promise.all([
         loadBusinessConfig(),
@@ -537,7 +473,6 @@ export async function getAgentHours() {
         getConfigValue<Record<string, AgentBusinessOverride>>("agent_business_hours"),
     ]);
 
-    // Distinct agents across all chats (first-seen name wins)
     const agents = new Map<string, string>(); // wechat_id → name
     for (const agentMap of membersIdx.values()) {
         for (const [wechatId, name] of agentMap) {
@@ -557,11 +492,6 @@ export async function getAgentHours() {
     return { default: toHours(defaultCfg), agents: list };
 }
 
-/**
- * Set (or, when `hours` is null, clear) one agent's working-hour override and
- * refresh derived metric caches so statistics pick up the new calendar right
- * away. Returns the agent's effective schedule after the change.
- */
 export async function updateAgentHours(agentId: string, hours: AgentBusinessOverride | null) {
     const raw = await getConfigValue<Record<string, AgentBusinessOverride>>("agent_business_hours");
     const overrides: Record<string, AgentBusinessOverride> = raw && typeof raw === "object" ? { ...raw } : {};
@@ -588,18 +518,11 @@ export async function updateAgentHours(agentId: string, hours: AgentBusinessOver
     };
 }
 
-// ----- hourly background job -----
 
 let jobIntervalId: ReturnType<typeof setInterval> | null = null;
 export const METRIC_HOURLY_MS = 60 * 60 * 1000;
 
-/**
- * Invalidate derived caches and recompute the overview KPIs. Called by the
- * hourly job and whenever the exemption config changes, so statistics reflect
- * the latest rules immediately.
- */
 export function refreshMetricCaches(): void {
-    // Refresh members index so new synced data is picked up
     invalidateMembersCache();
     metricsCache = null;
     computeOverview()
@@ -614,7 +537,6 @@ export function startMetricsJob(): void {
     if (jobIntervalId) return;
     console.log("[Metrics] hourly job started");
 
-    // Run once on startup to populate cache immediately
     refreshMetricCaches();
     jobIntervalId = setInterval(refreshMetricCaches, METRIC_HOURLY_MS);
 }

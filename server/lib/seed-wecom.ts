@@ -1,19 +1,3 @@
-/**
- * One-time importer: reads from a WeCom SQLite database (s.db) and populates
- * the JSONL data files that the Evaluation-Automation app reads.
- *
- * Tables consumed:
- *   chat          → Chat.jsonl          (chat_id, name, type, last_send_time)
- *   chat_member   → ChatMember.jsonl    (enriched via wechat table)
- *   conversation  → Conversation.jsonl  (from_role derived from wx_userid pattern)
- *   wechat        → lookup only (names, avatar, agent/customer classification)
- *   chat_last_msg → last_send_time for chats
- *   account       → agent Account rows created for internal staff
- *
- * Agent vs customer heuristic (matches WeChat ecosystem):
- *   wx_userid starts with "wm" or "wo" → customer
- *   otherwise                          → agent (internal staff)
- */
 
 import fs from "fs";
 import path from "path";
@@ -54,10 +38,7 @@ export async function seedFromWecomDb(dbPath: string): Promise<void> {
     console.log("[seed-wecom] reading from", dbPath);
 
     try {
-        // ---- Build wechat lookup maps ----
-        // wx_userid → { name, remark, avatar, isAgent }
         const wxInfoMap = new Map<string, { name: string; remark: string | null; avatar: string | null; isAgent: boolean }>();
-        // wechat internal id → wx_userid (for chat_member join)
         const wxIdToUserid = new Map<string, string>();
 
         const allWechat = db.query("SELECT id, wx_userid, wx_name, remark, wx_avatar FROM wechat").all() as any[];
@@ -76,7 +57,6 @@ export async function seedFromWecomDb(dbPath: string): Promise<void> {
         function getRole(wxUserid: string): "agent" | "customer" | "unknown" {
             const info = wxInfoMap.get(wxUserid);
             if (info) return info.isAgent ? "agent" : "customer";
-            // Fallback: pattern match for IDs not in wechat table
             return isInternalStaff(wxUserid) ? "agent" : "customer";
         }
 
@@ -94,7 +74,6 @@ export async function seedFromWecomDb(dbPath: string): Promise<void> {
 
         const now = Date.now();
 
-        // ---- 1. Chats ----
         const chatLastMsgMap = new Map<string, number>();
         for (const r of db.query("SELECT chat_id, last_send_time FROM chat_last_msg").all() as any[]) {
             chatLastMsgMap.set(r.chat_id, r.last_send_time);
@@ -119,7 +98,6 @@ export async function seedFromWecomDb(dbPath: string): Promise<void> {
         );
         console.log(`[seed-wecom] chats: ${chatRows.length}`);
 
-        // ---- 2. Chat members ----
         const memberRows: Record<string, any>[] = [];
         for (const m of db.query("SELECT * FROM chat_member").all() as any[]) {
             const wxUserid = wxIdToUserid.get(m.wechat_id) || m.wechat_id;
@@ -142,9 +120,7 @@ export async function seedFromWecomDb(dbPath: string): Promise<void> {
         );
         console.log(`[seed-wecom] chat members: ${memberRows.length}`);
 
-        // ---- 3. Conversations (largest — stream in batches) ----
         const convFile = path.join(DATA_DIR, "conversation.jsonl");
-        // Truncate first
         fs.writeFileSync(convFile, "");
 
         let convCount = 0;
@@ -179,7 +155,6 @@ export async function seedFromWecomDb(dbPath: string): Promise<void> {
         }
         console.log(`[seed-wecom] conversations: ${convCount}`);
 
-        // ---- 4. Agent accounts (internal staff → Account rows for leaderboard/metrics) ----
         const accountFile = path.join(DATA_DIR, "account.jsonl");
         const existingEmails = new Set<string>();
         if (fs.existsSync(accountFile)) {
@@ -224,7 +199,6 @@ export async function seedFromWecomDb(dbPath: string): Promise<void> {
         db.close();
     }
 
-    // Mark seeded
     fs.writeFileSync(SEED_FLAG, String(Date.now()));
     console.log("[seed-wecom] import complete");
 }

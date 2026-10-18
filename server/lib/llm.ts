@@ -1,15 +1,3 @@
-/**
- * LLM abstraction — speaks OpenAI-compatible Chat Completions protocol.
- * Compatible with OpenAI, DeepSeek, Aliyun Tongyi (DashScope compatible mode),
- * Zhipu GLM (OpenAI compat endpoint), Moonshot, etc.
- *
- * Env:
- *   LLM_BASE_URL    e.g. https://api.openai.com/v1   | https://api.deepseek.com/v1
- *   LLM_API_KEY     secret
- *   LLM_MODEL       e.g. gpt-4o-mini | deepseek-chat | qwen-turbo | glm-4-flash
- *
- * When LLM_API_KEY is missing, callers should use the rule-based fallback.
- */
 export interface LlmMessage {
     role: "system" | "user" | "assistant";
     content: string;
@@ -47,7 +35,6 @@ export async function llmChat(messages: LlmMessage[], opts?: { temperature?: num
     return data?.choices?.[0]?.message?.content || "";
 }
 
-/** Best-effort JSON extraction from model output (handles ```json fenced blocks). */
 export function extractJson(content: string): any | null {
     if (!content) return null;
     let txt = content.trim();

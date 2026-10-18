@@ -1,7 +1,3 @@
-/**
- * 邮箱模块服务：代理 NW邮箱系统（收发/附件/信箱）+ AI 能力（摘要/起草回复）+
- * 收件-客户自动关联（EmailLink 落库）+ 订单材料作为附件发送。
- */
 import Repository from "../../lib/repository";
 import { emailClient, type EmailDetail } from "../../lib/email-client";
 import { isLlmConfigured, llmChat, extractJson } from "../../lib/llm";
@@ -11,6 +7,7 @@ import type { CustomerEntity } from "../../../shared/modules/customer/customer.e
 import type { EmailLinkEntity } from "../../../shared/modules/email/link.entity";
 import { readMaterialBuffer, findOne as findFile } from "../file/file.service";
 import { EmailDTO, EmailDetailDTO, type EmailLinkDTO, type MailboxInfo } from "../../../shared/modules/email/email.entity";
+import { effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
 
 const linkRepo = Repository.instance<EmailLinkEntity>("EmailLink");
 const customerRepo = Repository.instance<CustomerEntity>("Customer");
@@ -24,13 +21,11 @@ function assertSender(from: string): void {
     }
 }
 
-/** 从 "名字 <a@b.c>" 或裸地址中提取邮箱。 */
 export function extractEmailAddress(raw: string): string {
     const m = String(raw || "").match(/([\w.+-]+@[\w.-]+)/);
     return m ? m[1].toLowerCase() : "";
 }
 
-// ---------- 信箱 / 列表 / 详情 ----------
 
 export async function listMailboxes(): Promise<MailboxInfo[]> {
     return emailClient.listMailboxes();
@@ -51,9 +46,7 @@ export async function getEmailDetail(id: string): Promise<EmailDetailDTO> {
     return new EmailDetailDTO(d);
 }
 
-// ---------- 发送 ----------
 
-/** 发送邮件。fileIds 中的 File 实体（本系统材料）转 base64 附件。 */
 export async function sendEmail(input: {
     from: string;
     to: string;
@@ -81,7 +74,6 @@ export async function sendEmail(input: {
     });
 }
 
-/** 下载附件原样返回（控制器直接透传 Response）。 */
 export async function downloadAttachment(id: string, index: number) {
     return emailClient.downloadAttachment(id, index);
 }
@@ -90,9 +82,7 @@ export async function sendLog(page: number, limit: number) {
     return emailClient.sendLog(page, limit);
 }
 
-// ---------- AI 能力 ----------
 
-/** AI 摘要一封邮件：正文 → 摘要 + 意图分类。 */
 export async function summarizeEmail(id: string): Promise<{ summary: string; intent: string }> {
     const d = await emailClient.getEmailDetail(id);
     if (!d) throw "email not found";
@@ -115,7 +105,6 @@ export async function summarizeEmail(id: string): Promise<{ summary: string; int
     };
 }
 
-/** AI 起草回复：结合原邮件与补充指令生成回复正文（HTML）。 */
 export async function draftReply(id: string, instruction?: string): Promise<{ draft: string }> {
     const d = await emailClient.getEmailDetail(id);
     if (!d) throw "email not found";
@@ -135,7 +124,6 @@ export async function draftReply(id: string, instruction?: string): Promise<{ dr
     return { draft: raw.trim() };
 }
 
-// ---------- 收件 ↔ 客户关联 ----------
 
 function toLinkDTO(row: EmailLinkEntity, customerName?: string): EmailLinkDTO {
     return {
@@ -150,7 +138,6 @@ function toLinkDTO(row: EmailLinkEntity, customerName?: string): EmailLinkDTO {
     };
 }
 
-/** 查询客户邮件往来。customer_id（档案 id）优先；否则按邮箱精确匹配客户档案。 */
 export async function customerLinks(opts: { customer_id?: string; email?: string; limit?: number }): Promise<EmailLinkDTO[]> {
     let customerId = opts.customer_id || null;
     if (!customerId && opts.email) {
@@ -165,7 +152,6 @@ export async function customerLinks(opts: { customer_id?: string; email?: string
         .map((r) => toLinkDTO(r, customer?.name));
 }
 
-/** 扫描最近邮件，按发件人邮箱匹配客户档案并落 EmailLink。返回新增关联数。 */
 export async function scanCustomerLinks(limit = 100): Promise<number> {
     const { list } = await emailClient.listEmails({ limit });
     let matched = 0;
@@ -193,31 +179,30 @@ export async function scanCustomerLinks(limit = 100): Promise<number> {
 }
 
 let linkIntervalId: ReturnType<typeof setInterval> | null = null;
-/** 当前生效的扫描间隔（毫秒）；0 表示未运行。用于判断设置变更是否需要重启。 */
 let linkActiveIntervalMs = 0;
 
-// ---------- 订单联动 ----------
 
-/** 订单材料分组：发材料邮件时前端勾选附件的数据源。 */
 export async function orderMaterialGroups(orderId: string): Promise<Array<{
-    application_id: string
+    customer_id: string
     applicant_name: string
     materials: Array<{ id: string; category: string; files: Array<{ id: string; filename: string }> }>
 }>> {
-    const applicationService = await import("../application/application.service");
-    const apps = await applicationService.listByOrder(orderId);
+    const orderRepo = Repository.instance<any>("Order");
+    const order = await orderRepo.findOne({ id: orderId });
+    if (!order) throw "order not found";
+    const customers = effectiveCustomers(order);
     const materialService = await import("../material/material.service");
-    const materials = await materialService.findAllByApplications(apps.map((a) => a.id));
-    const byApp = new Map<string, typeof materials>();
+    const materials = await materialService.listByOrder(orderId);
+    const byCustomer = new Map<string, typeof materials>();
     for (const m of materials) {
-        const arr = byApp.get(m.application_id) || [];
+        const arr = byCustomer.get(m.customer_id) || [];
         arr.push(m);
-        byApp.set(m.application_id, arr);
+        byCustomer.set(m.customer_id, arr);
     }
-    return apps.map((a) => ({
-        application_id: a.id,
-        applicant_name: a.name || "",
-        materials: (byApp.get(a.id) || []).map((m) => ({
+    return customers.map((c) => ({
+        customer_id: c.id,
+        applicant_name: c.name || "",
+        materials: (byCustomer.get(c.id) || []).map((m) => ({
             id: m.id,
             category: m.category,
             files: (m.files || []).map((f) => ({ id: f.id, filename: f.filename })),
@@ -225,7 +210,6 @@ export async function orderMaterialGroups(orderId: string): Promise<Array<{
     }));
 }
 
-/** AI 起草订单邮件：结合订单名、申请人、所选材料生成主题与正文。 */
 export async function draftOrderEmail(orderId: string, instruction?: string, fileIds?: string[]): Promise<{ subject: string; draft: string }> {
     const orderRepo = Repository.instance<any>("Order");
     const order = await orderRepo.findOne({ id: orderId });
@@ -265,7 +249,6 @@ export async function draftOrderEmail(orderId: string, instruction?: string, fil
     return { subject: subject || "【签证服务】材料发送", draft };
 }
 
-/** 定时扫描收件-客户关联。开关与间隔来自「系统配置 → 外围系统接入 · NW 邮箱」。 */
 export function startEmailLinkJob(): void {
     if (linkIntervalId) return;
     const cfg = getIntegration("email");
@@ -290,7 +273,6 @@ export function stopEmailLinkJob(): void {
     linkActiveIntervalMs = 0;
 }
 
-/** 设置变更后按需重启关联任务（开关/间隔/账号改动，无需重启进程）。 */
 export function restartEmailLinkJob(): void {
     const cfg = getIntegration("email");
     const wantMs = cfg.enabled && emailClient.isConfigured() ? cfg.intervalMs ?? 15 * 60 * 1000 : 0;
@@ -299,7 +281,6 @@ export function restartEmailLinkJob(): void {
     startEmailLinkJob();
 }
 
-// 邮箱接入设置变更时自动重启关联任务
 onIntegrationChanged((id) => {
     if (id === "email") restartEmailLinkJob();
 });

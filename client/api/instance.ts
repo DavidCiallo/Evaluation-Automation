@@ -4,7 +4,6 @@ import { accountRoutes } from "../../shared/modules/account/account.router";
 import { chatRoutes } from "../../shared/modules/chat/chat.router";
 import { conversationRoutes } from "../../shared/modules/conversation/conversation.router";
 import { orderRoutes } from "../../shared/modules/order/order.router";
-import { applicationRoutes } from "../../shared/modules/application/application.router";
 import { customerRoutes } from "../../shared/modules/customer/customer.router";
 import { fileRoutes } from "../../shared/modules/file/file.router";
 import { materialRoutes } from "../../shared/modules/material/material.router";
@@ -21,13 +20,13 @@ import { confirmationRoutes } from "../../shared/modules/confirmation/confirmati
 import { accountPoolRoutes } from "../../shared/modules/account-pool/account-pool.router";
 import { robotTaskRoutes } from "../../shared/modules/robot-task/robot-task.router";
 import { formRoutes } from "../../shared/modules/form/form.router";
+import { backupRoutes } from "../../shared/modules/backup/backup.router";
 
 export const authApi = createClient(authRoutes);
 export const accountApi = createClient(accountRoutes);
 export const chatApi = createClient(chatRoutes);
 export const conversationApi = createClient(conversationRoutes);
 export const orderApi = createClient(orderRoutes);
-export const applicationApi = createClient(applicationRoutes);
 export const customerApi = createClient(customerRoutes);
 export const fileApi = createClient(fileRoutes);
 export const materialApi = createClient(materialRoutes);
@@ -44,3 +43,4 @@ export const confirmationApi = createClient(confirmationRoutes);
 export const accountPoolApi = createClient(accountPoolRoutes);
 export const robotTaskApi = createClient(robotTaskRoutes);
 export const formApi = createClient(formRoutes);
+export const backupApi = createClient(backupRoutes);

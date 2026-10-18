@@ -1,4 +1,3 @@
-/** Repository driver interface — pluggable persistence backend */
 export interface RepositoryDriver {
     find(collection: string, where?: Record<string, any>, config?: { limit?: number; offset?: number; since?: number }): Promise<Record<string, any>[]>;
     findEach(collection: string, where: Record<string, any>, callback: (row: Record<string, any>) => void, config?: { limit?: number; since?: number }): Promise<number>;

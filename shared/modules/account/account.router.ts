@@ -5,6 +5,7 @@ import {
     AccountUpdateResponse,
     AccountDeleteResponse,
 } from "./account.interface";
+import type { AccountFile } from "./account.entity";
 
 export const accountRoutes = {
     base: "/api",
@@ -26,7 +27,7 @@ export const accountRoutes = {
     },
     update: {
         path: "/update",
-        request: {} as { id: string; account: { name?: string; email?: string; password?: string }; auth?: string },
+        request: {} as { id: string; account: { name?: string; email?: string; password?: string; files?: AccountFile[] }; auth?: string },
         response: {} as AccountUpdateResponse,
     },
     delete: {

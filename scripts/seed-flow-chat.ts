@@ -1,8 +1,3 @@
-/**
- * 为流程冒烟测试注入独立测试会话 chat002 + 成员（客服张经理 + 客户陈丽/赵强）。
- * 用法：先 bun scripts/rebuild-demo.ts（清库重建），再 bun scripts/seed-flow-chat.ts。
- * 幂等：chat002 已存在则跳过。
- */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 

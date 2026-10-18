@@ -1,10 +1,3 @@
-/**
- * 外围系统接入设置控制器：读写设置，并返回带运行状态的视图。
- *
- * 后台任务的重启由各任务自己注册的变更监听完成（见 lib/integration-settings.ts
- * 的 onIntegrationChanged），控制器只负责校验入参、落库、回读。
- * 因此改完接入设置接口返回时，轮询器/摄入任务已经按新设置重启完毕。
- */
 import { integrationRoutes } from "../../../shared/modules/config/integration.router";
 import {
     IntegrationGetRequest,
@@ -28,7 +21,6 @@ function assertId(id: string): IntegrationTargetId {
     return id as IntegrationTargetId;
 }
 
-/** 组装视图：带上轮询器实际运行状态。 */
 async function view() {
     await ensureIntegrationSettings();
     const status = getPollerStatus();
@@ -49,7 +41,6 @@ async function update(request: IntegrationUpdateRequest) {
     const patch: IntegrationPatch = request.patch || {};
     await ensureIntegrationSettings();
     await saveIntegration(id, patch);
-    // 监听器是同步回调、内部异步重启，等一拍让日志与运行状态落定再回读
     await new Promise((r) => setTimeout(r, 0));
     return view();
 }

@@ -1,56 +1,104 @@
-/**
- * 账号池（AccountPool）：订单下的「办签账号」。
- *
- * 为什么独立于订单插件数据袋：账号需要**跨订单查重**——
- * 同一个邮箱不能在两个订单里各注册一次（tls/fv 只认唯一账号）。
- * 放在订单的 data 分片里就查不了全局。
- *
- * 账号与订单的关系：一个订单通常 1 个号（一个号能写完 tls+fv 的申请单），
- * 但经常要拆成 2 个号。申请单经 account_id 挂到具体账号上，因此
- * 「几个号、哪个申请单填在哪个号里」由客服在账号分配阶段决定。
- *
- * 注意与 Account 的区别：Account 是客服登录账号（account.module），
- * 这里是客户的办签账号，两者不可混用，故集合名取 AccountPool。
- */
 
-/** 账号状态。planned=客服已定方案待注册；registering=机器人处理中；registered=已注册；failed=注册失败。 */
-export type PoolAccountStatus = "planned" | "registering" | "registered" | "failed";
+export type PoolPlatform = "fv" | "tls" | "vfs" | "es" | "other";
 
-export const POOL_ACCOUNT_STATUS_LABEL: Record<PoolAccountStatus, string> = {
-    planned: "待注册",
-    registering: "注册中",
-    registered: "已注册",
-    failed: "注册失败",
+export const POOL_PLATFORMS: { value: PoolPlatform; label: string }[] = [
+    { value: "fv", label: "FV" },
+    { value: "tls", label: "TLS" },
+    { value: "vfs", label: "VFS" },
+    { value: "es", label: "西班牙" },
+    { value: "other", label: "其他" },
+];
+
+export function platformLabel(value: string | null | undefined): string {
+    return POOL_PLATFORMS.find((p) => p.value === value)?.label || "未指定";
+}
+
+export type PlatformOutput = "fv_number" | "tls_link" | "none";
+
+export const PLATFORM_OUTPUT: Record<PoolPlatform, PlatformOutput> = {
+    fv: "fv_number",
+    tls: "tls_link",
+    vfs: "none",
+    es: "none",
+    other: "none",
 };
 
+const PLATFORMS_BY_VISA: Record<string, PoolPlatform[]> = {
+    fr: ["fv", "tls"],
+    schengen: ["vfs"],
+    es: ["es"],
+};
+
+export function requiredPlatforms(visaType: string | null | undefined): PoolPlatform[] {
+    return PLATFORMS_BY_VISA[String(visaType || "")] || ["fv"];
+}
+
+export function outputGaps(
+    account: {
+        platforms: PoolPlatform[];
+        customer_ids: string[];
+        fv_numbers: Record<string, string>;
+        tls_links: string[];
+    },
+    customerName: (id: string) => string,
+): string[] {
+    const gaps: string[] = [];
+    const platforms = account.platforms || [];
+    if (platforms.some((p) => PLATFORM_OUTPUT[p] === "fv_number")) {
+        const missing = (account.customer_ids || []).filter((id) => !String(account.fv_numbers?.[id] || "").trim());
+        if (missing.length > 0) gaps.push(`缺 FV 号：${missing.map(customerName).join("、")}`);
+    }
+    if (platforms.some((p) => PLATFORM_OUTPUT[p] === "tls_link")) {
+        const has = (account.tls_links || []).some((l) => String(l || "").trim());
+        if (!has) gaps.push("缺 TLS 链接");
+    }
+    return gaps;
+}
+
+export function isRegistrationDone(account: {
+    email: string;
+    password: string;
+    platforms: PoolPlatform[];
+    customer_ids: string[];
+    fv_numbers: Record<string, string>;
+    tls_links: string[];
+}): boolean {
+    if (!String(account.email || "").trim()) return false;
+    if (!String(account.password || "").trim()) return false;
+    if ((account.customer_ids || []).length === 0) return false;
+    return outputGaps(account, () => "").length === 0;
+}
+
+export interface PoolVoucher {
+    file_id: string;
+    filename: string;
+    storage_name: string;
+    content_type: string;
+    upload_time: number;
+}
+
 export interface PoolAccountEntity {
-    id: string;
-    create_time: number;
+    id: string;    create_time: number;
     update_time: number | null;
     delete_time: number | null;
-    /** 归属订单。账号跟随订单生命周期，订单取消则不启用。 */
     order_id: string;
-    /** 订单内序号，从 1 开始（界面显示「账号 1」「账号 2」） */
     seq: number;
-    /** 账号用途标记，便于客服区分（如「主账号」「补充账号」） */
     label: string;
-    /** 注册邮箱（登录名）。跨订单唯一，查重用。 */
     email: string;
-    /**
-     * 账号密码。当前明文存储，与项目既有 Account.password 口径一致；
-     * 若后续要加密，应连同 Account 一起改（见 lib 中的加密约定另一处）。
-     */
+    mailbox_id: string | null;
+    mailbox_labels: string[];
+    grant_end_time: number | null;
     password: string;
-    status: PoolAccountStatus;
-    /** 该账号承载的申请单 id（Application.id） */
-    application_ids: string[];
-    /** 人工补录或回调回来的备注 */
+    customer_ids: string[];
+    platforms: PoolPlatform[];
+    fv_numbers: Record<string, string>;
+    tls_links: string[];
+    expected_place: string;
+    actual_place: string;
+    vouchers: PoolVoucher[];
     remark: string | null;
-    /** 注册失败原因 */
     error: string | null;
-    /** 由哪次机器人任务产生（可追溯到回调） */
     task_id: string | null;
-    /** 最近一次回调时间 */
     registered_time: number | null;
     version: number;
 }
@@ -60,13 +108,22 @@ export interface PoolAccountDTO {
     order_id: string;
     seq: number;
     label: string;
+    platforms: PoolPlatform[];
+    platforms_label: string;
     email: string;
-    /** 密码是否已填（列表不默认回传明文，与接入设置口令的处理口径一致） */
+    mailbox_id: string | null;
+    mailbox_labels: string[];
+    grant_end_time: number | null;
     has_password: boolean;
     password?: string;
-    status: PoolAccountStatus;
-    status_label: string;
-    application_ids: string[];
+    customer_ids: string[];
+    fv_numbers: Record<string, string>;
+    tls_links: string[];
+    expected_place: string;
+    actual_place: string;
+    vouchers: PoolVoucher[];
+    outputs_ready: boolean;
+    outputs_missing: string[];
     remark: string | null;
     error: string | null;
     task_id: string | null;
@@ -75,21 +132,35 @@ export interface PoolAccountDTO {
     create_time: number;
 }
 
-/**
- * 转 DTO。withSecret=true 时才回传明文密码——
- * 界面默认不显示，需要时客服显式点「查看密码」再取。
- */
-export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false): PoolAccountDTO {
+export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false, customerName?: (id: string) => string): PoolAccountDTO {
+    const platforms = e.platforms || [];
+    const own = {
+        platforms,
+        customer_ids: e.customer_ids || [],
+        fv_numbers: e.fv_numbers || {},
+        tls_links: e.tls_links || [],
+    };
+    const gaps = outputGaps(own, customerName || ((id) => id));
     const dto: PoolAccountDTO = {
         id: e.id,
         order_id: e.order_id,
         seq: e.seq,
         label: e.label || "",
+        platforms,
+        platforms_label: platforms.map((p) => platformLabel(p)).join(" + "),
         email: e.email || "",
+        mailbox_id: e.mailbox_id ?? null,
+        mailbox_labels: e.mailbox_labels || [],
+        grant_end_time: e.grant_end_time ?? null,
         has_password: !!e.password,
-        status: e.status,
-        status_label: POOL_ACCOUNT_STATUS_LABEL[e.status] || e.status,
-        application_ids: e.application_ids || [],
+        customer_ids: e.customer_ids || [],
+        fv_numbers: e.fv_numbers || {},
+        tls_links: e.tls_links || [],
+        expected_place: e.expected_place || "",
+        actual_place: e.actual_place || "",
+        vouchers: (e.vouchers || []).map((v) => ({ ...v })),
+        outputs_ready: gaps.length === 0,
+        outputs_missing: gaps,
         remark: e.remark ?? null,
         error: e.error ?? null,
         task_id: e.task_id ?? null,
@@ -101,11 +172,6 @@ export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false): Pool
     return dto;
 }
 
-/**
- * 注册机器人填表所需的申请人资料包。
- * 机器人按这个结构填 tls/fv 的表单，故字段与确认单快照同构——
- * 客户回签过的资料才是权威来源。
- */
 export interface ApplicantPayload {
     name: string;
     gender: string | null;
@@ -116,13 +182,12 @@ export interface ApplicantPayload {
     email: string | null;
     visa_country: string | null;
     visa_type: string | null;
-    /** 该申请人在本账号下要填的申请单 id */
-    application_id: string;
+    customer_id: string;
 }
 
-/** 账号的填表计划：机器人照此为某个账号填若干张申请单。 */
 export interface AccountFillPlan {
     account_id: string;
+    platforms: PoolPlatform[];
     email: string;
     password: string;
     applicants: ApplicantPayload[];

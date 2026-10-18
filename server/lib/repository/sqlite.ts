@@ -1,13 +1,3 @@
-/**
- * SQLite 存储驱动（bun:sqlite，单文件 data/app.db，WAL 模式）。
- * 与 JsonlDriver 语义逐一对齐：
- *   - find 按「插入序倒序」（rowid DESC）分页，等价于 JSONL 的文件尾向头扫描；
- *   - where 查询支持 $eq/$ne/$gt/$gte/$lt/$lte/$in 操作符，匹配逻辑与 jsonl.matches 完全一致；
- *   - update/hardDelete/atomicPatch 的 where 为「严格全等匹配」（无操作符），
- *     where 只含 {id} 时走主键直改快路径；
- *   - JSON 数据整体存 data 列，create_time/update_time/delete_time 物化成列供 SQL 过滤。
- * bun:sqlite 为同步 API，单进程内天然串行，无需 jsonl 的 per-collection 写锁。
- */
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -32,7 +22,6 @@ function getDb(): Database {
     return db;
 }
 
-/** 集合名只允许小写字母数字下划线（Repository.instance 已做 toLowerCase）。 */
 function tableName(collection: string): string {
     const safe = collection.toLowerCase().replace(/[^a-z0-9_]/g, "_");
     if (!safe) throw new Error(`invalid collection name: ${collection}`);
@@ -64,13 +53,12 @@ interface Row {
 
 function parseRow(r: Row): Record<string, any> {
     try {
-        return JSON.parse(r.data);
+        return { ...JSON.parse(r.data), id: r.id };
     } catch {
         return { id: r.id };
     }
 }
 
-/** 与 jsonl.ts 的 matches() 语义一致的操作符匹配。 */
 function matches(row: Record<string, any>, where: Record<string, any>): boolean {
     for (const [key, val] of Object.entries(where)) {
         if (val === undefined || val === "") continue;
@@ -96,7 +84,6 @@ function matches(row: Record<string, any>, where: Record<string, any>): boolean 
     return true;
 }
 
-/** update/hardDelete/atomicPatch 用：与 jsonl.ts 的 update 匹配语义一致（严格 !== 全等）。 */
 function equalsWhere(row: Record<string, any>, where: Record<string, any>): boolean {
     for (const [key, val] of Object.entries(where)) {
         if (row[key] !== val) return false;
@@ -104,12 +91,10 @@ function equalsWhere(row: Record<string, any>, where: Record<string, any>): bool
     return true;
 }
 
-/** where 的键集合是否恰好是 {id}（主键快路径）。 */
 function isIdOnlyWhere(where: Record<string, any>): where is { id: string } {
     return typeof where.id === "string" && Object.keys(where).length === 1;
 }
 
-/** 按 jsonl find 的过滤语义扫表（SQL 只做 delete_time/since 初筛，其余 JS 精匹配）。 */
 function scan(name: string, reverse: boolean): Row[] {
     ensureTable(name);
     const sql = `SELECT id, data, create_time, update_time, delete_time, rowid FROM "${name}" ORDER BY rowid ${reverse ? "DESC" : "ASC"}`;
@@ -123,8 +108,6 @@ export const SqliteDriver: RepositoryDriver = {
         const since = config?.since;
         const limit = config?.limit;
         const offset = config?.offset || 0;
-        // where 非空时匹配在 JS 侧完成：SQL 的 LIMIT 会提前截掉尚未取到的匹配行，
-        // 导致「过滤后不足 limit 条」。此时只能取全量（仍受 since/delete_time 初筛）再在 JS 分页。
         const hasFilter = Object.keys(where).length > 0;
 
         let sql = `SELECT id, data, create_time, update_time, delete_time, rowid FROM "${name}" WHERE delete_time IS NULL`;
@@ -136,7 +119,6 @@ export const SqliteDriver: RepositoryDriver = {
         sql += ` ORDER BY rowid DESC`;
 
         if (!hasFilter && limit !== undefined) {
-            // 无 JS 过滤时分页全部下推 SQL
             sql += ` LIMIT ? OFFSET ?`;
             params.push(limit, offset);
             const rows = getDb().prepare(sql).all(...params) as Row[];
@@ -149,7 +131,6 @@ export const SqliteDriver: RepositoryDriver = {
             const row = parseRow(r);
             if (!matches(row, where)) continue;
             results.push(row);
-            // 已取到 offset+limit 条即停，避免继续扫表
             if (limit !== undefined && results.length >= offset + limit) break;
         }
         if (offset > 0 || limit !== undefined) {
@@ -217,7 +198,6 @@ export const SqliteDriver: RepositoryDriver = {
         const name = tableName(collection);
         ensureTable(name);
         const idSet = new Set(ids);
-        // SQL 侧按 id 集合过滤（分批 IN），行序仍按插入序
         const all: Record<string, any>[] = [];
         const list = [...idSet];
         const CHUNK = 500;
@@ -262,12 +242,10 @@ export const SqliteDriver: RepositoryDriver = {
         ensureTable(name);
         const now = Date.now();
         const stmt = getDb().prepare(`UPDATE "${name}" SET data = ?, update_time = ?, delete_time = ? WHERE id = ?`);
-        // delete_time 物化成列供 SQL 过滤，JSON 与列必须同步写
         const writeBack = (id: string, row: Record<string, any>): void => {
             stmt.run(JSON.stringify(row), row.update_time ?? now, row.delete_time ?? null, id);
         };
 
-        // 快路径：where 恰为 {id} 时主键直改
         if (isIdOnlyWhere(where)) {
             const r = getDb().prepare(`SELECT data FROM "${name}" WHERE id = ?`).get(where.id) as { data: string } | null;
             if (!r) return false;

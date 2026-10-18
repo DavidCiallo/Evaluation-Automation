@@ -12,10 +12,6 @@ import {
 
 type FormDataItem = { field_id?: string; field_name: string; field_value: string; field_type: string }
 
-/**
- * 右栏「表单详情」查看卡 —— 主从联动：展示左侧选中表单的填写内容。
- * 只读视图：不做写入。内容是定高滚动区，切换表单/加载中都不会改变卡片高度。
- */
 export function FormDetailCard({ order, form, auth }: {
     order: OrderDTO
     form: FormAssignment | null
@@ -60,7 +56,6 @@ export function FormDetailCard({ order, form, auth }: {
 
     return (
         <div className="flex h-[26rem] flex-col gap-3">
-            {/* 表单概要 */}
             <div className="flex flex-wrap items-center gap-2">
                 <Badge
                     variant={form.status === "completed" ? "secondary" : "outline"}
@@ -77,7 +72,6 @@ export function FormDetailCard({ order, form, auth }: {
                 </div>
             )}
 
-            {/* 填写内容：定高滚动区，切换表单或加载都不改变卡片高度 */}
             <div className="min-h-0 flex-1 space-y-0.5 overflow-auto border-t pt-2">
                 {loading && (
                     <span className="text-muted-foreground flex items-center gap-1 text-xs">

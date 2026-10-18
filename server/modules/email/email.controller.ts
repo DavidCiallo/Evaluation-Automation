@@ -31,7 +31,6 @@ async function send(request: any) {
     });
 }
 
-/** 附件下载：直接透传文件流（mount 对 Response 原样返回）。 */
 async function attachment(request: any) {
     if (!request.id) throw "id is required";
     const { buffer, contentType, filename } = await svc.downloadAttachment(String(request.id), Number(request.index || 0));

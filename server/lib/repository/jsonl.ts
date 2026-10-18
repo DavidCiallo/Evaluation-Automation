@@ -17,7 +17,6 @@ function collectionFile(name: string): string {
     return path.join(DATA_DIR, `${name}.jsonl`);
 }
 
-/** Read lines from end to start (newest first) — used for paginated find() with DESC order */
 async function* readLinesReverse(name: string): AsyncGenerator<Record<string, any>, void, void> {
     const file = collectionFile(name);
     if (!fs.existsSync(file)) return;
@@ -56,7 +55,6 @@ async function* readLinesReverse(name: string): AsyncGenerator<Record<string, an
     }
 }
 
-/** Read lines forward — used for findOne(), count(), findAllIgnoreDelete() */
 async function* readLines(name: string): AsyncGenerator<Record<string, any>, void, void> {
     const file = collectionFile(name);
     if (!fs.existsSync(file)) return;
@@ -89,7 +87,6 @@ async function* readLines(name: string): AsyncGenerator<Record<string, any>, voi
     }
 }
 
-/** Check if a row matches the where conditions. Supports operators: $eq, $ne, $gt, $gte, $lt, $lte, $in. */
 function matches(row: Record<string, any>, where: Record<string, any>): boolean {
     for (const [key, val] of Object.entries(where)) {
         if (val === undefined || val === "") continue;
@@ -115,7 +112,6 @@ function matches(row: Record<string, any>, where: Record<string, any>): boolean 
     return true;
 }
 
-/** Write lock per collection */
 const writeLocks = new Map<string, Promise<void>>();
 
 async function withLock<R>(collection: string, fn: () => Promise<R>): Promise<R> {

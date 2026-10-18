@@ -1,13 +1,14 @@
 import { MaterialDTO } from "./material.entity";
 
 export class MaterialListRequest {
-    /** 按申请单列出 */
-    public application_id: string;
+    public order_id: string;
+    public customer_id: string | null;
     public auth?: string;
 
     constructor(data: any) {
-        if (!data.application_id) throw new Error("application_id is required");
-        this.application_id = data.application_id;
+        if (!data.order_id) throw new Error("order_id is required");
+        this.order_id = data.order_id;
+        this.customer_id = data.customer_id ? String(data.customer_id) : null;
         this.auth = data.auth;
     }
 
@@ -29,7 +30,8 @@ export class MaterialListResponse {
 }
 
 export class MaterialCreateRequest {
-    public application_id: string;
+    public order_id: string;
+    public customer_id: string;
     public category: string;
     public required?: boolean;
     public received?: boolean;
@@ -37,9 +39,11 @@ export class MaterialCreateRequest {
     public auth?: string;
 
     constructor(data: any) {
-        if (!data.application_id) throw new Error("application_id is required");
+        if (!data.order_id) throw new Error("order_id is required");
+        if (!data.customer_id) throw new Error("customer_id is required");
         if (!data.category || !String(data.category).trim()) throw new Error("category is required");
-        this.application_id = data.application_id;
+        this.order_id = data.order_id;
+        this.customer_id = String(data.customer_id);
         this.category = String(data.category).trim();
         this.required = !!data.required;
         this.received = !!data.received;
@@ -94,7 +98,6 @@ export class MaterialUpdateResponse {
     }
 }
 
-/** 给材料行附加/移除文件。payload = { file_id, attach?: boolean } */
 export class MaterialAttachFileRequest {
     public id: string;
     public file_id: string;

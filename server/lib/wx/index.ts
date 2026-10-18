@@ -1,10 +1,6 @@
 import { WeComBin } from "./base";
 import { WeComExternalContact } from "./externalcontact";
 
-/**
- * Singleton initializer. Returns null when env CORPID is missing, in which case
- * callers should fall back to the mock data generator.
- */
 const bin = process.env.CORPID
     ? new WeComBin({
           corpId: process.env.CORPID!,
