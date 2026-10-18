@@ -55,16 +55,7 @@ export function fmtDuration(ms: number): string {
 
 export function maxPctForStageIndex(stageIndex: number, total: number): number {
     if (stageIndex >= total - 1) return 100
-    switch (stageIndex) {
-        case 0:
-            return 40
-        case 1:
-            return 60
-        case 2:
-            return 80
-        default:
-            return 90
-    }
+    return 80
 }
 
 const NEXT_STEP_PCT = 10
