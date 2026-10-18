@@ -21,7 +21,7 @@ import {
     type TripTask,
     type TripPax,
 } from "../../../../../shared/modules/order/plugins/standard.manifest"
-import { ItineraryConsentCard } from "./ItineraryConsentCard"
+import type { TripPrefill, TripPrefillPax } from "../../../../../server/lib/trip-prefill"
 import { stageBlockReason } from "../../StageBar"
 
 type CityInfo = { city: string; country: string; iata: string; name: string; zh: string }
@@ -107,6 +107,8 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
     const [returnDate, setReturnDate] = useState("")
     const [paxList, setPaxList] = useState<TripPax[]>([])
     const [busy, setBusy] = useState(false)
+    const [loadingPrefill, setLoadingPrefill] = useState(false)
+    const [prefillSources, setPrefillSources] = useState<TripPrefill["sources"]>([])
 
     useEffect(() => {
         if (!open) return
@@ -114,8 +116,9 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
         setTo("")
         setDate("")
         setReturnDate("")
-        setPaxList(applicants.slice(0, 6).map((a) => ({
-            customer_id: a.id,
+        setPrefillSources([])
+        const base = applicants.slice(0, 6).map((a) => ({
+            customer_id: a.customer_id || a.id,
             name: a.name || "",
             surname: "",
             givenname: "",
@@ -127,8 +130,76 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
             phone: null,
             phone_area: "+86",
             email: null,
-        })))
-    }, [open, applicants])
+        }))
+        setPaxList(base)
+
+        let alive = true
+        setLoadingPrefill(true)
+        action(order, auth, "prefill-trip-task", {})
+            .then((res: any) => {
+                if (!alive) return
+                const prefill: TripPrefill | null = res?.data?.result?.prefill
+                if (!prefill) return
+                if (prefill.route) {
+                    setFrom(prefill.route.from)
+                    setTo(prefill.route.to)
+                    setDate(prefill.route.date)
+                    setReturnDate(prefill.route.return_date || "")
+                }
+                setPrefillSources(prefill.sources || [])
+                const used = new Set<number>()
+                const formName: Record<string, string | null> = {}
+                const appName: Record<string, string | null> = {}
+                for (const s of prefill.sources) if (s.customer_id) formName[s.customer_id] = s.customer_name
+                for (const a of applicants) if (a.name) appName[a.customer_id || a.id] = a.name
+                const take = (pick: (x: TripPrefillPax) => boolean) => {
+                    const j = prefill.pax.findIndex((x, k) => !used.has(k) && pick(x))
+                    if (j >= 0) used.add(j)
+                    return j
+                }
+                const byId = (p: TripPax) => take((x) => {
+                    const cid = p.customer_id || ""
+                    const n = p.name || ""
+                    const names = [n, formName[cid] || "", appName[cid] || ""]
+                    return names.some((v) => v && (x.passenger_name.includes(v) || v.includes(x.passenger_name)))
+                })
+                const byPassport = (p: TripPax) => {
+                    const mine = (p.passport_no || "").toUpperCase()
+                    return mine ? take((x) => (x.passport_no || "").toUpperCase() === mine) : -1
+                }
+                const byName = (p: TripPax) => {
+                    const n = p.name
+                    return n ? take((x) => x.passenger_name.includes(n) || n.includes(x.passenger_name)) : -1
+                }
+                const ordered = base.map((p) => ({ p, j: byPassport(p) }))
+                ordered.forEach((o) => { if (o.j < 0 && o.p.customer_id) o.j = byId(o.p) })
+                ordered.forEach((o) => { if (o.j < 0) o.j = byName(o.p) })
+                ordered.forEach((o) => { if (o.j < 0) o.j = take(() => true) })
+                const matched = ordered.map((o) => o.j)
+                setPaxList(base.map((p, i) => {
+                    const idx = matched[i] ?? -1
+                    const found = idx >= 0 ? prefill.pax[idx] : undefined
+                    const patch: Partial<TripPax> = {}
+                    if (found) {
+                        if (found.surname) patch.surname = found.surname.toUpperCase()
+                        if (found.givenname) patch.givenname = found.givenname.toUpperCase()
+                        if (found.gender) patch.gender = /女|female|f$/i.test(found.gender) ? "女" : "男"
+                        if (found.birthday) patch.birthday = found.birthday
+                        if (found.passport_no) patch.passport_no = found.passport_no
+                        if (found.passport_expiry) patch.passport_expiry = found.passport_expiry
+                    }
+                    if (i === 0) {
+                        if (prefill.phone) patch.phone = prefill.phone
+                        if (prefill.phone_area) patch.phone_area = prefill.phone_area
+                        if (prefill.email) patch.email = prefill.email
+                    }
+                    return { ...p, ...patch }
+                }))
+            })
+            .catch(() => {})
+            .finally(() => { if (alive) setLoadingPrefill(false) })
+        return () => { alive = false }
+    }, [open, order.id, applicants])
 
     const submit = async () => {
         if (!from.trim() || !to.trim() || !date) {
@@ -166,10 +237,20 @@ function CreateTripDialog({ open, onClose, order, auth, reload, applicants }: {
                 <DialogHeader>
                     <DialogTitle>新建机票任务（ctrip）</DialogTitle>
                     <DialogDescription>
-                        航线用 IATA 码（如 PVG → CDG）。乘客护照信息预填自客户名单，拼音姓/名与联系方式请确认后提交。
+                        航线用 IATA 码（如 PVG → CDG）。已在表单步骤完成的客户，其护照信息与联系方式按表单字段自动带入。
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3">
+                    {loadingPrefill && (
+                        <p className="text-muted-foreground flex items-center gap-1 text-xs">
+                            <Loader2 className="size-3 animate-spin" /> 正在读取表单数据…
+                        </p>
+                    )}
+                    {prefillSources.length > 0 && (
+                        <p className="text-muted-foreground rounded-md bg-muted px-2 py-1 text-xs">
+                            已从表单带入：{Array.from(new Set(prefillSources.map((s) => `${s.customer_name}（${s.label}）`))).join("、")}
+                        </p>
+                    )}
                     <div className="grid grid-cols-3 gap-2">
                         <div className="space-y-1">
                             <Label>出发地 IATA</Label>
@@ -225,24 +306,36 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
     const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}
     const trips: TripTask[] = std.tripTasks || []
     const applicants: ApplicantDetail[] = order.applicants_detail || []
-    const tripBlocked = stageBlockReason(order.stages, "materials")
+    const stayGap = order.stages
+        ?.find((s) => s.id === "materials")
+        ?.requirements.find((r) => !r.met && !r.label.includes("行程单"))
+    const tripBlocked = stayGap ? `需先满足「${stayGap.label}」${stayGap.detail ? `：${stayGap.detail}` : ""}` : null
 
     const [open, setOpen] = useState(false)
     const [busyId, setBusyId] = useState("")
     const [syncing, setSyncing] = useState(false)
 
-    const syncAll = async () => {
+    const syncAll = async (silent = false) => {
         setSyncing(true)
         try {
             const res: any = await action(order, auth, "sync-trip-tasks", {})
-            toast.success(`已同步（${res?.data?.result?.changed ?? 0} 个任务有更新）`)
-            reload()
+            const changed = res?.data?.result?.changed ?? 0
+            if (!silent) toast.success(`已同步（${changed} 个任务有更新）`)
+            if (changed > 0) reload()
         } catch (e: any) {
-            toast.error(`同步失败: ${e?.message || ""}`)
+            if (!silent) toast.error(`同步失败: ${e?.message || ""}`)
         } finally {
             setSyncing(false)
         }
     }
+
+    const live = trips.some((t) => t.state !== "done")
+    useEffect(() => {
+        if (!live) return
+        syncAll(true)
+        const timer = setInterval(() => { syncAll(true) }, 15000)
+        return () => clearInterval(timer)
+    }, [open, live])
 
     const attach = async (trip: TripTask) => {
         setBusyId(trip.id)
@@ -271,10 +364,10 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
     }
 
     const stateBadge = (trip: TripTask) => {
-        const done = trip.state === "done"
+        const done = ["done", "finished"].includes(trip.state)
         return (
             <Badge variant={done ? "secondary" : "outline"} className={done ? "bg-green-100 text-green-800" : ""}>
-                {done ? "已完成" : trip.state || "进行中"}
+                {done ? "已完成" : [trip.state || "进行中", trip.stage && trip.stage !== trip.state ? trip.stage : ""].filter(Boolean).join(" · ")}
             </Badge>
         )
     }
@@ -285,7 +378,7 @@ function TripTaskSection({ order, auth, reload }: PluginSectionProps) {
                 <p className="text-muted-foreground text-xs">ctrip 机票任务：产物 PDF 可一键挂为客户材料。</p>
                 <div className="flex items-center gap-1">
                     {trips.length > 0 && (
-                        <Button size="sm" variant="outline" onClick={syncAll} disabled={syncing}>
+                        <Button size="sm" variant="outline" onClick={() => syncAll()} disabled={syncing}>
                             {syncing ? <Loader2 className="mr-1 size-3 animate-spin" /> : <RefreshCw className="mr-1 size-3" />}
                             同步状态
                         </Button>
@@ -735,7 +828,6 @@ function ManualItinerarySection({ order, auth, reload }: PluginSectionProps) {
 export function ItinerarySection({ order, auth, reload }: PluginSectionProps) {
     return (
         <div className="space-y-4">
-            <ItineraryConsentCard order={order} auth={auth} reload={reload} />
             <TripTaskSection order={order} auth={auth} reload={reload} />
             <ManualItinerarySection order={order} auth={auth} reload={reload} />
         </div>
