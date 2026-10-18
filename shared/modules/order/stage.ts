@@ -17,7 +17,6 @@ export type OrderRequirementKey =
     | "accounts_allocated" // 每位客户都挂到了具体办签账号上
     | "accounts_registered" // 所有账号已注册且客户填表完成
     | "appointments_booked" // 每个账号都已录入实际预约位置
-    | "itinerary_consent" // 客户已同意按行程办理（客服确认）
     | "itinerary_exists" // 至少一份行程单或机票任务
     | "materials_received" // 各客户的必备材料行均已收到
     | "applications_finished"; // 所有客户已出签/拒签/取回/取消
@@ -83,10 +82,10 @@ export const ORDER_STAGES: OrderStageMeta[] = [
     {
         id: "materials",
         label: "材料制作",
-        description: "客户同意行程后做行程单（机票任务算行程单的一部分），并收齐各客户必备材料",
+        description: "做行程单（机票任务算行程单的一部分），并收齐各客户必备材料",
         optional: false,
         waivable: true,
-        requirements: ["customers_complete", "itinerary_consent", "itinerary_exists", "materials_received"],
+        requirements: ["itinerary_exists", "materials_received"],
     },
     {
         id: "completion",
@@ -111,7 +110,6 @@ export const ORDER_REQUIREMENT_LABEL: Record<OrderRequirementKey, string> = {
     accounts_allocated: "每位客户都已分配到办签账号",
     accounts_registered: "所有账号已注册且客户填表完成",
     appointments_booked: "每个账号都已约到位置",
-    itinerary_consent: "客户已同意行程方案",
     itinerary_exists: "已生成行程单或已建机票任务",
     materials_received: "必备材料已收齐",
     applications_finished: "所有客户已出结果",
@@ -165,28 +163,3 @@ export interface OrderActionGate {
 }
 
 
-export interface ItineraryConsent {
-    detected: boolean;
-    detected_time: number | null;
-    detected_evidence: string | null;
-    confirmed: boolean;
-    confirmed_by: string | null;
-    confirmed_time: number | null;
-    revoked_time?: number | null;
-}
-
-export function emptyItineraryConsent(): ItineraryConsent {
-    return {
-        detected: false,
-        detected_time: null,
-        detected_evidence: null,
-        confirmed: false,
-        confirmed_by: null,
-        confirmed_time: null,
-        revoked_time: null,
-    };
-}
-
-export function hasItineraryConsent(c: ItineraryConsent | null | undefined): boolean {
-    return !!c?.confirmed;
-}

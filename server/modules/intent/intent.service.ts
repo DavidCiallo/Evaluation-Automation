@@ -27,29 +27,9 @@ const VISA_TYPE_PATTERNS: Array<[RegExp, string]> = [
 
 const INTENT_KEYWORDS = /(办|签证|申请|办理|加急|面签|材料|护照|出签|出签率|多少钱|费用)/i;
 
-const CONSENT_PATTERNS: RegExp[] = [
-    /(就|按|照)\s*(这|那)(个|样|么)\s*(办|做|来|定|走)/,
-    /(帮我|麻烦|那就|请)\s*(订|定|买|出)\s*(票|机票|行程)?/,
-    /(同意|接受)\s*(这个|该|此)?\s*(方案|报价|价格|行程|安排)/,
-    /(没问题|可以|好的|同意|赞成)\s*[，,。！!]?\s*$/,
-];
-
-const CONSENT_NEGATIVE = /(考虑|想想|再看|再说|商量|犹豫|贵|便宜|改一下|改改|换一个|换下|不行|不要|不用|先不|暂时不|等一下|稍等|但是|不过|可是)/;
-
-export function detectConsentEvidence(text: string): string | null {
-    const t = (text || "").trim();
-    if (!t) return null;
-    if (CONSENT_NEGATIVE.test(t)) return null;
-    for (const re of CONSENT_PATTERNS) {
-        const m = t.match(re);
-        if (m) return m[0].slice(0, 30);
-    }
-    return null;
-}
-
 export function hasIntentSignal(text: string): boolean {
     const t = text || "";
-    return INTENT_KEYWORDS.test(t) || detectConsentEvidence(t) !== null;
+    return INTENT_KEYWORDS.test(t);
 }
 
 function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentDraftData | null } {
@@ -123,7 +103,6 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentD
     if (!phone) missing.push("customer_phone");
     if (!departure) missing.push("departure");
 
-    const consentEvidence = detectConsentEvidence(text);
     return {
         hasIntent: true,
         draft: {
@@ -135,8 +114,6 @@ function extractDraftByRules(text: string): { hasIntent: boolean; draft: IntentD
             applicant_count: count ?? null,
             customer_phone: phone || null,
             missing_fields: missing,
-            itinerary_consent: consentEvidence !== null,
-            itinerary_consent_evidence: consentEvidence,
         },
     };
 }
@@ -169,23 +146,7 @@ async function extractDraftByLLM(messages: ConversationEntity[]): Promise<{ raw:
         customer_phone: parsed.customer_phone ?? null,
         customer_name: parsed.customer_name ?? null,
         missing_fields: Array.isArray(parsed.missing_fields) ? parsed.missing_fields : [],
-        itinerary_consent: parsed.itinerary_consent === true,
-        itinerary_consent_evidence:
-            typeof parsed.itinerary_consent_evidence === "string" ? parsed.itinerary_consent_evidence : null,
     };
-    if (!draft.itinerary_consent && draft.itinerary_consent_evidence) draft.itinerary_consent = true;
-    if (!draft.itinerary_consent_evidence) {
-        const evidence = detectConsentEvidence(
-            messages
-                .filter((m) => m.from_role === "customer")
-                .map((m) => m.content || "")
-                .join("\n"),
-        );
-        if (evidence) {
-            draft.itinerary_consent = true;
-            draft.itinerary_consent_evidence = evidence;
-        }
-    }
     return { raw, draft, hasIntent };
 }
 
@@ -209,15 +170,6 @@ export async function extractDraft(messages: ConversationEntity[]): Promise<{ dr
         }
     }
     return { draft: extractDraftByRules(lastText).draft, raw: "(rule-fallback)" };
-}
-
-export function extractConsentSignal(messages: ConversationEntity[]): { detected: boolean; evidence: string | null } {
-    const customerText = messages
-        .filter((m) => m.from_role === "customer")
-        .map((m) => m.content || "")
-        .join("\n");
-    const evidence = detectConsentEvidence(customerText);
-    return { detected: evidence !== null, evidence };
 }
 
 export async function extractDraftForChat(chatId: string, limit = 20): Promise<{

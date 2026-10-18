@@ -8,8 +8,6 @@ export interface IntentDraftData {
     customer_phone?: string | null;
     customer_name?: string | null;
     missing_fields?: string[];
-    itinerary_consent?: boolean;
-    itinerary_consent_evidence?: string | null;
 }
 
 export class IntentDraftRequest {

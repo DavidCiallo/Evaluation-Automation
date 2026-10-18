@@ -25,35 +25,16 @@ import { extractDraft, detectRemarkUpdates, loadRecentMessages, hasIntentSignal 
 import { getFormProvider, listAllForms, type FormDataItem } from "../../../../lib/form-providers";
 import { claimSubmission } from "../../../form/mike-ingest";
 import { ctripClient } from "../../../../lib/ctrip-client";
+import { extractTripPrefill } from "../../../../lib/trip-prefill";
 import { saveToDisk, createFile as createFileRecord } from "../../../file/file.service";
 import * as materialService from "../../../material/material.service";
 import { isLlmConfigured, llmChat, extractJson } from "../../../../lib/llm";
 import { getConfigValue } from "../../../config/config.service";
-import { extractConsentSignal } from "../../../intent/intent.service";
-import {
-    emptyItineraryConsent,
-    ORDER_STAGES,
-    type ItineraryConsent,
-    type OrderStageId,
-} from "../../../../../shared/modules/order/stage";
+import { ORDER_STAGES, type OrderStageId } from "../../../../../shared/modules/order/stage";
 import { getStageWaivers } from "../../stage.service";
 
 const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
-
-async function detectItineraryConsent(order: OrderEntity): Promise<ItineraryConsent | null> {
-    if (!order.chat_id) return null;
-    const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-    const current = (std.itineraryConsent as ItineraryConsent) || emptyItineraryConsent();
-    if (current.confirmed) return null;
-
-    const messages = await loadRecentMessages(order.chat_id, 20);
-    const { detected, evidence } = extractConsentSignal(messages);
-    if (!detected || !evidence) return null;
-    if (current.detected && current.detected_evidence === evidence) return null;
-
-    return { ...current, detected: true, detected_time: Date.now(), detected_evidence: evidence };
-}
 
 async function resolveCustomerIdByName(name: string): Promise<string | null> {
     const q = name.trim().toLowerCase();
@@ -813,7 +794,9 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "get-form-data": async (order: OrderEntity, payload: any) => {
             if (!payload?.form_id) throw "form_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const form = (std.forms || []).find((f) => f.id === payload.form_id);
+            const form = (std.forms || [])
+                .filter((f) => f.id === payload.form_id && (payload.customer_id ? f.customer_id === payload.customer_id : true))
+                .sort((a, b) => (b.completed_time || 0) - (a.completed_time || 0))[0];
             if (!form) throw "form assignment not found";
 
             const customers = std.draft?.customers || std.confirmed?.customers || [];
@@ -821,6 +804,28 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const providerDef = getFormProvider(form.provider);
             const data: FormDataItem[] = await providerDef.fetchData({ form_key: form.form_name, external_id: form.item_id || null, code: form.code || null, customer_name: customerName });
             return { data };
+        },
+
+        "prefill-trip-task": async (order: OrderEntity) => {
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
+            const done = (std.forms || []).filter((f) => f.status === "completed");
+            const fetched = await Promise.all(done.map(async (f) => {
+                const customer = customers.find((c) => c.id === f.customer_id);
+                try {
+                    const items = await getFormProvider(f.provider).fetchData({
+                        form_key: f.form_name,
+                        external_id: f.item_id || null,
+                        code: f.code || null,
+                        customer_name: customer?.name || "",
+                    });
+                    return { form_id: f.id, customer_id: f.customer_id, customer_name: customer?.name || "", submitted_at: f.completed_time || 0, items };
+                } catch {
+                    return null;
+                }
+            }));
+            const answers = fetched.filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => b.submitted_at - a.submitted_at);
+            return { prefill: extractTripPrefill(answers) };
         },
 
         "remove-form": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
@@ -838,56 +843,6 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const mapped = extractionToDraft(draft, order.order_name || "");
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { draft: mapped });
             return { draft: mapped };
-        },
-
-
-        "detect-itinerary-consent": async (order: OrderEntity, _payload: any, ctx: PluginContext) => {
-            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const current = (std.itineraryConsent as ItineraryConsent) || emptyItineraryConsent();
-            if (current.confirmed) return { consent: current };
-            const messages = order.chat_id ? await loadRecentMessages(order.chat_id, 20) : [];
-            const { detected, evidence } = extractConsentSignal(messages);
-            const next: ItineraryConsent = {
-                ...current,
-                detected,
-                detected_time: detected ? Date.now() : current.detected_time,
-                detected_evidence: evidence,
-            };
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { itineraryConsent: next });
-            return { consent: next };
-        },
-
-        "confirm-itinerary-consent": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
-            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const current = (std.itineraryConsent as ItineraryConsent) || emptyItineraryConsent();
-            const next: ItineraryConsent = {
-                ...current,
-                confirmed: true,
-                confirmed_by: String(payload?.by || "客服"),
-                confirmed_time: Date.now(),
-                revoked_time: null,
-            };
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { itineraryConsent: next });
-            await ctx.appendRemark(
-                `【客户同意】已确认客户同意行程方案${payload?.note ? `：${payload.note}` : ""}`,
-                "manual",
-            );
-            return { consent: next };
-        },
-
-        "revoke-itinerary-consent": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
-            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const current = (std.itineraryConsent as ItineraryConsent) || emptyItineraryConsent();
-            const next: ItineraryConsent = {
-                ...current,
-                confirmed: false,
-                confirmed_by: null,
-                confirmed_time: null,
-                revoked_time: Date.now(),
-            };
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { itineraryConsent: next });
-            await ctx.appendRemark(`【撤销同意】客户同意已撤回${payload?.reason ? `：${payload.reason}` : ""}`, "manual");
-            return { consent: next };
         },
 
 
@@ -953,20 +908,18 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "dispatch-robot-task": { at: "registration", require: ["accounts_allocated"] },
         "list-robot-tasks": {},
 
-        "generate-itinerary": { at: "materials", require: ["itinerary_consent"] },
-        "save-itinerary": { at: "materials", require: ["itinerary_consent"] },
+        "generate-itinerary": { at: "materials" },
+        "save-itinerary": { at: "materials" },
         "delete-itinerary": { at: "materials" },
         "export-itinerary": { at: "materials" },
 
-        "create-trip-task": { at: "materials", require: ["itinerary_exists"] },
+        "create-trip-task": { at: "materials" },
         "sync-trip-tasks": { at: "materials" },
         "attach-trip-files": { at: "materials" },
         "delete-trip-task": { at: "materials" },
         "list-trip-cities": {},
+        "prefill-trip-task": { at: "materials" },
 
-        "detect-itinerary-consent": {},
-        "confirm-itinerary-consent": {},
-        "revoke-itinerary-consent": {},
         "waive-stage": {},
         "unwaive-stage": {},
         "eval-stages": {},
@@ -982,10 +935,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         const hasDraft = !!std.draft;
         const result: PluginMessageResult = {};
 
-        const consent = await detectItineraryConsent(order);
-        if (consent) result.dataPatch = { itineraryConsent: consent };
-
-        if (!hasDraft && !hasIntentSignal(text) && !consent) return;
+        if (!hasDraft && !hasIntentSignal(text)) return;
 
         const messages = await loadRecentMessages(order.chat_id, 20);
 

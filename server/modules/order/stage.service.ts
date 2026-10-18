@@ -22,7 +22,6 @@ import {
     type FormAssignment,
     type TripTask,
 } from "../../../shared/modules/order/plugins/standard.manifest";
-import { hasItineraryConsent, type ItineraryConsent } from "../../../shared/modules/order/stage";
 
 const materialRepo: Repository<MaterialLineEntity> = Repository.instance("Material");
 const confirmationRepo: Repository<ConfirmationEntity> = Repository.instance("Confirmation");
@@ -33,11 +32,6 @@ export type StageWaivers = Partial<Record<OrderStageId, StageWaiver>>;
 export function getStageWaivers(order: OrderEntity): StageWaivers {
     const std = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
     return (std.stageWaivers || {}) as StageWaivers;
-}
-
-export function getConsent(order: OrderEntity): ItineraryConsent | null {
-    const std = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-    return (std.itineraryConsent as ItineraryConsent) || null;
 }
 
 function stdData(order: OrderEntity): StandardPluginData {
@@ -163,8 +157,6 @@ async function evalRequirement(
             const accounts = await accountPoolRepo.find({ order_id: order.id });
             if (accounts.length === 0) return done(false, "尚未建立办签账号");
 
-            const registered = accounts.filter((a) => a.status === "registered");
-            const failed = accounts.filter((a) => a.status === "failed");
             const missing = accounts.filter((a) => !a.email || !a.password);
             const names = new Map((customers || []).map((c) => [c.id, c.name || "未命名"]));
             const gaps = accounts.flatMap((a) => outputGaps(a as any, (id) => names.get(id) || id));
@@ -173,10 +165,6 @@ async function evalRequirement(
             if (unfinished.length === 0) return done(true);
 
             const parts: string[] = [];
-            if (registered.length < accounts.length) {
-                parts.push(`已注册 ${registered.length}/${accounts.length} 个账号`);
-            }
-            if (failed.length > 0) parts.push(`${failed.length} 个注册失败`);
             if (missing.length > 0) parts.push(`${missing.length} 个账号缺邮箱或密码`);
             parts.push(...gaps);
             const noCustomer = unfinished.filter((a) => (a.customer_ids || []).length === 0);
@@ -201,13 +189,6 @@ async function evalRequirement(
                     ? `已约到 ${booked.length}/${accounts.length} 个账号的位置（另有 ${asked} 个已填预期位置待约）`
                     : `已约到 ${booked.length}/${accounts.length} 个账号的位置`;
             return done(false, detail);
-        }
-
-        case "itinerary_consent": {
-            const consent = getConsent(order);
-            if (hasItineraryConsent(consent)) return done(true);
-            if (consent?.detected) return done(false, "对话中疑似客户已同意，待客服确认");
-            return done(false, "尚未取得客户同意");
         }
 
         case "itinerary_exists": {
@@ -273,10 +254,9 @@ function deriveStageTimes(
         confs.flatMap((c) => [after(c.signed_time), after(c.revoked_time)]),
     );
     if (signed) out.set("info_confirmation", signed);
-    const consent = getConsent(order);
     const trip = latestOf((std.tripTasks || []).map((t) => t.create_time));
     const mat = latestOf(materials.filter((m) => m.received).map((m) => m.update_time || null));
-    const made = latestOf([consent?.confirmed_time || null, trip, mat]);
+    const made = latestOf([trip, mat]);
     if (made) out.set("materials", made);
 
     for (const [id, w] of Object.entries(waivers)) {

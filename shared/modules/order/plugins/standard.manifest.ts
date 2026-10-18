@@ -1,6 +1,6 @@
 import type { OrderPluginManifest } from "../plugin";
 import type { IntentDraftData } from "../../intent/intent.interface";
-import type { ItineraryConsent, OrderStageId, StageWaiver } from "../stage";
+import type { OrderStageId, StageWaiver } from "../stage";
 
 export const STANDARD_PLUGIN_ID = "standard";
 
@@ -197,7 +197,6 @@ export interface StandardPluginData {
     materials?: MaterialEntry[];
     itineraries?: ItineraryEntry[];
     tripTasks?: TripTask[];
-    itineraryConsent?: ItineraryConsent | null;
     stageWaivers?: Partial<Record<OrderStageId, StageWaiver>>;
 }
 
