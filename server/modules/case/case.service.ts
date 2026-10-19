@@ -8,7 +8,7 @@ import type { ConversationEntity } from "../../../shared/modules/conversation/co
 import type { CustomerEntity } from "../../../shared/modules/customer/customer.entity";
 import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { OrderCustomerInfo } from "../../../shared/modules/order/plugins/standard.manifest";
-import { analyzeChat, buildCandidates, parseNamesFromChatName } from "./analysis";
+import { analyzeChat, buildCandidates, chatNameTokens, inferNamesFromChatName } from "./analysis";
 import { detectVisaType, composeOrderName, visaTypePrefix } from "../../../shared/modules/order/visa";
 import { dispatchPluginAction } from "../order/order.service";
 
@@ -88,7 +88,8 @@ export async function createManualCase(
     const name = (chatName || "").trim();
     if (!name) throw "chat_name is required";
 
-    const raw = customerNames.length > 0 ? customerNames : parseNamesFromChatName(name);
+    const fromName = await inferNamesFromChatName(name, chatNameTokens(name));
+    const raw = customerNames.length > 0 ? customerNames : fromName;
     const candidates: CaseCustomerCandidate[] = [];
     for (const item of raw) {
         const cn = String(item || "").trim();
@@ -120,9 +121,7 @@ export async function createManualCase(
         candidates: resolved,
         split_plan,
         split_plan_source: null,
-        analysis_evidence: parseNamesFromChatName(name).length
-            ? `工单名解析出客户：${parseNamesFromChatName(name).join("、")}`
-            : null,
+        analysis_evidence: fromName.length ? `工单名解析出客户：${fromName.join("、")}` : null,
         analysis_error: null,
         confirmed: null,
         order_ids: [],
@@ -387,6 +386,15 @@ export async function confirmSplit(id: string, by: string, groups?: CaseSplitGro
     );
 
     return (await findOne(id))!;
+}
+
+export async function deleteCase(id: string): Promise<boolean> {
+    const cur = await findOne(id);
+    if (!cur) throw "case not found";
+    if (cur.status === "confirmed" || (cur.order_ids || []).length > 0) {
+        throw "工单已确认拆单，不能删除";
+    }
+    return caseRepo.delete({ id });
 }
 
 export async function listOrdersOfCase(caseId: string): Promise<OrderEntity[]> {

@@ -2,6 +2,7 @@ import {
     CaseCreateFromChatResponse,
     CaseCreateResponse,
     CaseCustomerResponse,
+    CaseDeleteResponse,
     CaseDetailResponse,
     CaseListResponse,
     CaseSplitConfirmResponse,
@@ -62,5 +63,10 @@ export const caseRoutes = {
         path: "/remove-customer",
         request: {} as { id: string; wechat_id: string; auth?: string },
         response: {} as CaseCustomerResponse,
+    },
+    delete: {
+        path: "/delete",
+        request: {} as { id: string; auth?: string },
+        response: {} as CaseDeleteResponse,
     },
 } as const;
