@@ -7,8 +7,11 @@ import {
 } from "../../lib/contract-client";
 import { buildContent } from "./content";
 import type { SubmissionEntity } from "../../../shared/modules/form/submission.entity";
+import type { ServerOrderPlugin } from "../order/plugin-registry";
+import type { ConfirmationEntity, ConfirmationStatus } from "../../../shared/modules/confirmation/confirmation.entity";
 
 const submissionRepo: Repository<SubmissionEntity> = Repository.instance("Submission");
+const confirmationRepo: Repository<ConfirmationEntity> = Repository.instance("Confirmation");
 
 const DEADLINE_DAYS = 7;
 
@@ -105,4 +108,33 @@ export async function listGeneratedContracts(): Promise<
             submission_key: s.key,
             contract_id: s.claimed_by!.replace(/^contract:/, ""),
         }));
+}
+
+export async function triggerForNewSubmissions(before: Set<string>): Promise<void> {
+    const all = await submissionRepo.find({}, { limit: 500 });
+    const fresh = all.filter((s) => !before.has(s.key));
+    if (fresh.length === 0) return;
+    const keys = new Set(fresh.map((s) => s.key));
+
+    const { ensurePluginsRegistered } = await import("../order/plugins/index");
+    const { getEnabledOrderPlugins } = await import("../order/plugin-registry");
+    const { orderRepo } = await import("../order/order.service");
+    const { tryAutomationEvent } = await import("../job/event-bus");
+    ensurePluginsRegistered();
+    const plugins = getEnabledOrderPlugins().filter((p) => p.automationLinks) as Array<Required<Pick<ServerOrderPlugin, "automationLinks">>>;
+    for (const order of await orderRepo.find({}, { limit: 5000 })) {
+        if (order.cancelled_at || order.delete_time) continue;
+        const linked = plugins.flatMap((p) => p.automationLinks(order));
+        if (linked.some((k) => keys.has(k))) void tryAutomationEvent(order.id, "form_submitted");
+    }
+}
+
+export async function triggerForReceivedConfirmations(before: Map<string, ConfirmationStatus>): Promise<void> {
+    const rows = await confirmationRepo.find({}, { limit: 5000 });
+    const { tryAutomationEvent } = await import("../job/event-bus");
+    const touched = new Set<string>();
+    for (const r of rows) {
+        if (before.has(r.id) && before.get(r.id) !== r.status) touched.add(r.order_id);
+    }
+    for (const id of touched) void tryAutomationEvent(id, "confirmation_received");
 }

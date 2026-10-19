@@ -22,6 +22,8 @@ export interface ServerOrderPlugin {
     actions?: Record<string, PluginAction>;
     actionGates?: Record<string, OrderActionGate>;
     onMessage?: OnMessageHook;
+    /** 返回该订单已关联的外部数据键（如表单提交 key），供钩子判断事件归属 */
+    automationLinks?: (order: OrderEntity) => string[];
 }
 
 const plugins = new Map<string, ServerOrderPlugin>();

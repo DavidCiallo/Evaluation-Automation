@@ -12,8 +12,16 @@ export function isMikeIngestRunning(): boolean {
     return intervalId !== null;
 }
 
-export async function ingestMikeSubmissions(pages = 2): Promise<number> {
+export async function ingestMikeSubmissions(
+    pages = 2,
+    events: { notifySubmissions?: boolean } = {},
+): Promise<number> {
     if (!mikeClient.isConfigured()) return 0;
+    const beforeKeys = new Set(
+        events.notifySubmissions
+            ? (await submissionRepo.find({}, { limit: 500 })).map((s) => s.key)
+            : [],
+    );
     let inserted = 0;
     for (let page = 1; page <= pages; page++) {
         let list: Awaited<ReturnType<typeof mikeClient.getSubmissions>>["list"];
@@ -43,7 +51,13 @@ export async function ingestMikeSubmissions(pages = 2): Promise<number> {
         }
         if (list.length < 100) break;
     }
-    if (inserted > 0) console.log(`[mike-ingest] ${inserted} new submission(s) stored`);
+    if (inserted > 0) {
+        console.log(`[mike-ingest] ${inserted} new submission(s) stored`);
+        if (events.notifySubmissions) {
+            const { triggerForNewSubmissions } = await import("./submission-sync.service");
+            void triggerForNewSubmissions(beforeKeys);
+        }
+    }
     return inserted;
 }
 

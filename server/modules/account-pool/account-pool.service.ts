@@ -1,3 +1,4 @@
+import { tryAutomationEvent } from "../job/event-bus";
 import Repository from "../../lib/repository";
 import { nanoid } from "nanoid";
 import type { PoolAccountEntity, PoolAccountDTO, AccountFillPlan, ApplicantPayload, PoolPlatform, PoolVoucher } from "../../../shared/modules/account-pool/account-pool.entity";
@@ -166,7 +167,9 @@ export async function upsertAccount(
     if (patch.label !== undefined) await repo.update({ id }, { label: patch.label });
     if (patch.remark !== undefined) await repo.update({ id }, { remark: patch.remark });
 
-    return (await findOne(id))!;
+    const next = (await findOne(id))!;
+    if (next.email && next.password) void tryAutomationEvent(next.order_id, "account_bound");
+    return next;
 }
 
 export async function grantMailbox(account: PoolAccountEntity, note?: string): Promise<PoolAccountEntity> {

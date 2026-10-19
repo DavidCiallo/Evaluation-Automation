@@ -24,6 +24,7 @@ import {
 import { extractDraft, detectRemarkUpdates, loadRecentMessages, hasIntentSignal } from "../../../intent/intent.service";
 import { getFormProvider, listAllForms, type FormDataItem } from "../../../../lib/form-providers";
 import { claimSubmission } from "../../../form/mike-ingest";
+import { checkFormAssignment, refreshFormExtractions, type FormCheckResult } from "../../../form/form-check";
 import { ctripClient } from "../../../../lib/ctrip-client";
 import { extractTripPrefill } from "../../../../lib/trip-prefill";
 import { saveToDisk, createFile as createFileRecord } from "../../../file/file.service";
@@ -294,6 +295,11 @@ ${body}
 
 export const standardOrderPlugin: ServerOrderPlugin = {
     manifest: standardManifest,
+
+    automationLinks: (order) => {
+        const std = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+        return (std.forms || []).map((f) => f.item_id).filter((x): x is string => Boolean(x));
+    },
 
     actions: {
         "edit-order-info": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
@@ -681,6 +687,9 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const form = forms.find((f) => f.id === payload.form_id);
             if (!form) throw "form assignment not found";
             if (form.provider !== "mike") throw "link-mike-submission only applies to mike forms";
+            const customers = std.draft?.customers || std.confirmed?.customers || [];
+            const customer = customers.find((c) => c.id === form.customer_id);
+            if (!customer) throw "该表单关联的客户已不在订单客户名单中，无法校验内容";
 
             const submitTime = Number(payload.submit_time) || 0;
             const updatedForms = forms.map((f) =>
@@ -694,9 +703,12 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                       }
                     : f,
             );
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: updatedForms });
             await claimSubmission(String(payload.submission_key), form.id).catch(() => {});
-            return { forms: updatedForms };
+            const linked = updatedForms.find((f) => f.id === form.id)!;
+            const check = await checkFormAssignment(linked, customer);
+            const checked = updatedForms.map((f) => (f.id === form.id ? { ...f, extraction: check.extraction } : f));
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: checked });
+            return { forms: checked, valid: check.ok, reason: check.reason };
         },
 
         "auto-bind-mike": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
@@ -747,6 +759,8 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 for (const a of added) {
                     if (a.item_id) await claimSubmission(a.item_id, a.id).catch(() => {});
                 }
+                const { forms: checked } = await refreshFormExtractions(customers, [...forms, ...added]);
+                await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: checked });
             }
             return { bound: added, skipped };
         },
@@ -787,8 +801,20 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                     matched_name: re.matched_name ?? f.matched_name,
                 };
             });
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: updatedForms });
-            return { completed: re.completed, completedTime: re.completed ? re.completed_time || Date.now() : null };
+            let finalForms = updatedForms;
+            let check: FormCheckResult | null = null;
+            if (re.completed) {
+                const checked = await refreshFormExtractions(customers, updatedForms);
+                finalForms = checked.forms;
+                check = checked.byCustomer.get(form.customer_id)?.result ?? null;
+            }
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: finalForms });
+            return {
+                completed: re.completed,
+                completedTime: re.completed ? re.completed_time || Date.now() : null,
+                valid: check ? check.ok : null,
+                reason: check ? check.reason : null,
+            };
         },
 
         "get-form-data": async (order: OrderEntity, payload: any) => {

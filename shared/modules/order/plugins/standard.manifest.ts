@@ -72,6 +72,16 @@ export interface FormAssignment {
     completed_time?: number;
     bound_time?: number;
     matched_name?: string | null;
+    extraction?: {
+        /** 从表单提取出的签证必备字段 */
+        fields: Record<string, string>;
+        filled_count: number;
+        min_items: number;
+        /** 缺失的必备字段标签 */
+        missing: string[];
+        checked_time: number;
+        error: string | null;
+    };
 }
 
 export const MOCK_FORMS: string[] = [];
@@ -144,7 +154,7 @@ export interface TripPax {
     customer_id: string | null;
     /** 中文姓名（展示用） */
     name: string;
-    /** 拼音姓（大写，如 LIU） */
+    /** 拼音姓（大写） */
     surname: string;
     givenname: string;
     /** "男" | "女" */
