@@ -1,6 +1,7 @@
 import { defineConfig } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
 import path from "node:path";
+import http from "node:http";
 
 export default defineConfig({
     html: {
@@ -33,6 +34,7 @@ export default defineConfig({
             "/api": {
                 target: "http://127.0.0.1:2900",
                 changeOrigin: true,
+                agent: new http.Agent({ keepAlive: true, maxSockets: 64 }),
             },
         },
     },
