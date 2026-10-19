@@ -96,19 +96,20 @@ export const DEFAULT_FORM_TRANSCRIBE_PROMPT = `你是签证业务数据录入助
 请把表单内容映射为签证申请人的结构化字段，只输出 JSON，不要解释文字。
 
 目标字段（值格式要求）：
-- name: 申请人中文姓名
+- name: 申请人中文姓名（只写姓名本身）
 - gender: 性别（男/女）
-- dob: 出生日期（YYYY-MM-DD）
+- surname_pinyin: 姓的拼音，不含空格（如 wang）
+- givenname_pinyin: 名的拼音，字与字之间用空格分隔，不含姓（如 xiao ming）
 - passport_no: 护照号码（仅护照号本身，不含其他文字）
-- passport_expiry: 护照有效期截止日（YYYY-MM-DD，只有年月时补 01 日）
-- visa_country: 申请签证的国家（如"西班牙"，去掉"签证"等后缀）
-- visa_type: 签证类型（如"旅游"）
-- departure: 出发地/递签城市（取城市名，如"上海"）
+- birth_date: 出生日期（YYYY-MM-DD）
+- passport_issue_date: 护照签发日期（YYYY-MM-DD）
+- passport_expiry: 护照有效期截止日（YYYY-MM-DD）
 
 规则：
-- 表单中没有的字段填 null，宁缺勿猜
+- 只从表单里取值，表单中没有或无法确定的字段填 null，宁缺勿猜
+- 不要从姓名音译拼音；拼音必须来自表单里客户自己填写的内容
 - 日期统一转成 YYYY-MM-DD
-- 只输出 JSON：{"name":..., "gender":..., "dob":..., "passport_no":..., "passport_expiry":..., "visa_country":..., "visa_type":..., "departure":..., "confidence":"high|medium|low", "notes":"一句话备注"}
+- 只输出 JSON：{"name":..., "gender":..., "surname_pinyin":..., "givenname_pinyin":..., "passport_no":..., "birth_date":..., "passport_issue_date":..., "passport_expiry":...}
 
 表单数据：
 {fields_json}`;
@@ -193,6 +194,7 @@ const DEFAULTS: Record<string, any> = {
     remark_detect_prompt: DEFAULT_REMARK_DETECT_PROMPT,
     itinerary_prompt: DEFAULT_ITINERARY_PROMPT,
     form_transcribe_prompt: DEFAULT_FORM_TRANSCRIBE_PROMPT,
+    form_min_items: 20,
     email_summarize_prompt: DEFAULT_EMAIL_SUMMARIZE_PROMPT,
     email_reply_prompt: DEFAULT_EMAIL_REPLY_PROMPT,
     business_start_hour: 8,
@@ -245,6 +247,7 @@ const ALLOWED_KEYS = new Set([
     "remark_detect_prompt",
     "itinerary_prompt",
     "form_transcribe_prompt",
+    "form_min_items",
     "email_summarize_prompt",
     "email_reply_prompt",
     "business_start_hour",
