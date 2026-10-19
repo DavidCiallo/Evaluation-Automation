@@ -30,10 +30,12 @@ import { syncMount } from "../modules/sync/sync.controller";
 import { exemptionMount } from "../modules/exemption/exemption.controller";
 import { emailMount } from "../modules/email/email.controller";
 import { backupMount } from "../modules/backup/backup.controller";
+import { jobMount } from "../modules/job/job.controller";
 import { startPoller } from "../modules/sync/sync.service";
 import { startMetricsJob } from "../modules/metric/metric.service";
 import { startMikeIngest } from "../modules/form/mike-ingest";
 import { startEmailLinkJob } from "../modules/email/email.service";
+import { startJobScheduler } from "../modules/job/job.service";
 import { isWxConfigured } from "../lib/wx";
 import { isWecomSeeded, seedFromWecomDb } from "../lib/seed-wecom";
 import { ensureIntegrationSettings, getIntegration } from "../lib/integration-settings";
@@ -71,6 +73,7 @@ if (!sdk.pollerEnabled) {
 startMetricsJob();
 startMikeIngest();
 startEmailLinkJob();
+startJobScheduler();
 
 // @ts-ignore
 Bun.serve({
@@ -143,6 +146,7 @@ Bun.serve({
             exemptionMount,
             emailMount,
             backupMount,
+            jobMount,
         ]);
         if (apiResponse) return apiResponse;
 

@@ -21,6 +21,7 @@ import { accountPoolRoutes } from "../../shared/modules/account-pool/account-poo
 import { robotTaskRoutes } from "../../shared/modules/robot-task/robot-task.router";
 import { formRoutes } from "../../shared/modules/form/form.router";
 import { backupRoutes } from "../../shared/modules/backup/backup.router";
+import { jobRoutes } from "../../shared/modules/job/job.router";
 
 export const authApi = createClient(authRoutes);
 export const accountApi = createClient(accountRoutes);
@@ -44,3 +45,4 @@ export const accountPoolApi = createClient(accountPoolRoutes);
 export const robotTaskApi = createClient(robotTaskRoutes);
 export const formApi = createClient(formRoutes);
 export const backupApi = createClient(backupRoutes);
+export const jobApi = createClient(jobRoutes);
