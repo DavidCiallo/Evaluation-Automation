@@ -15,7 +15,7 @@ import type { ConversationEntity } from "../../../shared/modules/conversation/co
 import { getOrderPlugin, getEnabledOrderPlugins, type PluginContext } from "./plugin-registry";
 import { STANDARD_PLUGIN_ID, effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
 import { getVisaType } from "../../../shared/modules/order/visa";
-import { agentLabel, isKnownAgent } from "../../../shared/modules/case/case.entity";
+import { AGENT_OPTIONS, agentLabel, isKnownAgent } from "../../../shared/modules/case/case.entity";
 
 export const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
@@ -156,6 +156,7 @@ export async function getRelatedChats(orderId: string): Promise<{
     const otherCustomerIds = mainGroupMembers
         .filter((m) => m.role === "customer" && m.wechat_id !== order.customer_id)
         .map((m) => m.wechat_id);
+    if (order.customer_id) otherCustomerIds.push(order.customer_id);
     const uniqueOtherCustomers = [...new Set(otherCustomerIds)];
 
     if (uniqueOtherCustomers.length > 0) {
@@ -548,7 +549,9 @@ async function resolveAgentNames(agentIds: string[]): Promise<Map<string, string
         if (a.wechat_id) map.set(a.wechat_id, a.name || a.wechat_id);
     }
     for (const id of unique) {
-        if (!map.has(id) && isKnownAgent(id)) map.set(id, agentLabel(id));
+        if (map.has(id)) continue;
+        if (isKnownAgent(id)) map.set(id, agentLabel(id));
+        else if (AGENT_OPTIONS.some((a) => a.label === id)) map.set(id, id);
     }
     return map;
 }
