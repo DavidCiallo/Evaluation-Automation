@@ -10,6 +10,7 @@ import {
   BarChart3,
   Bot,
   Mail,
+  ListChecks,
   type LucideIcon,
 } from "lucide-react"
 
@@ -31,6 +32,7 @@ const mainNav: NavItem[] = [
   { title: "订单管理", href: "/orders", icon: ClipboardList },
   { title: "客户档案", href: "/customers", icon: IdCard },
   { title: "邮件中心", href: "/emails", icon: Mail, badge: "AI" },
+  { title: "自动化任务", href: "/jobs", icon: ListChecks },
   { title: "客服账号", href: "/account", icon: Users },
 ]
 

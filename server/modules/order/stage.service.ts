@@ -4,6 +4,7 @@ import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
 import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { PoolAccountEntity } from "../../../shared/modules/account-pool/account-pool.entity";
+import { evaluateCustomerForms } from "../form/form-check";
 import { outputGaps, isRegistrationDone } from "../../../shared/modules/account-pool/account-pool.entity";
 import {
     ORDER_STAGES,
@@ -51,6 +52,13 @@ const REQUIRED_CUSTOMER_FIELDS: Array<{ key: keyof OrderCustomerInfo; label: str
 ];
 
 async function refreshConfirmedFromService(rows: ConfirmationEntity[]): Promise<void> {
+    const before = new Map(rows.map((e) => [e.id, e.status]));
+    await syncConfirmedFromService(rows);
+    const { triggerForReceivedConfirmations } = await import("../form/submission-sync.service");
+    await triggerForReceivedConfirmations(before);
+}
+
+async function syncConfirmedFromService(rows: ConfirmationEntity[]): Promise<void> {
     for (const e of rows) {
         if (e.status !== "pending" || !e.token) continue;
         let state;
@@ -110,6 +118,19 @@ async function evalRequirement(
                 false,
                 `缺少 ${missing.length} 位客户的表单：${missing.map((c) => c.name || "未命名").join("、")}`,
             );
+        }
+
+        case "forms_valid": {
+            if (customers.length === 0) return done(false, "尚无客户名单");
+            const checked = await evaluateCustomerForms(customers, stdData(order).forms || []);
+            const gaps: string[] = [];
+            for (const c of customers) {
+                const name = c.name || "未命名";
+                const hit = checked.get(c.id);
+                if (!hit?.submitted) gaps.push(`${name}尚未提交表单`);
+                else if (hit.result && !hit.result.ok) gaps.push(`${name}：${hit.result.reason}`);
+            }
+            return gaps.length === 0 ? done(true) : done(false, gaps.join("；"));
         }
 
         case "confirmations_signed": {

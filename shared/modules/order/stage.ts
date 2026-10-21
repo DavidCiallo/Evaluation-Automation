@@ -13,6 +13,7 @@ export type OrderRequirementKey =
     | "customers_present" // 已确认订单信息，且至少有一位客户
     | "customers_complete" // 每位客户的姓名/签证类型/出发地/目的地齐全
     | "forms_assigned" // 每位客户都已分配表单
+    | "forms_valid" // 已提交表单填写项数达标，且能提取出签证必备字段
     | "confirmations_signed" // 每位客户都已回签信息确认单
     | "accounts_allocated" // 每位客户都挂到了具体办签账号上
     | "accounts_registered" // 所有账号已注册且客户填表完成
@@ -45,7 +46,7 @@ export const ORDER_STAGES: OrderStageMeta[] = [
         description: "为每位客户分配表单并回收填写内容",
         optional: false,
         waivable: true,
-        requirements: ["forms_assigned"],
+        requirements: ["forms_assigned", "forms_valid"],
     },
     {
         id: "info_confirmation",
@@ -106,6 +107,7 @@ export const ORDER_REQUIREMENT_LABEL: Record<OrderRequirementKey, string> = {
     customers_present: "有客户名单（至少一位）",
     customers_complete: "客户签证要素齐全（类型/出发地/目的地）",
     forms_assigned: "每位客户都已分配表单",
+    forms_valid: "表单内容有效（填写项数达标且签证必备字段可提取）",
     confirmations_signed: "每位客户都已回签信息确认单",
     accounts_allocated: "每位客户都已分配到办签账号",
     accounts_registered: "所有账号已注册且客户填表完成",

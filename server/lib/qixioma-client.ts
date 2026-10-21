@@ -1,5 +1,8 @@
 import { getIntegration } from "./integration-settings";
 
+export const QIXIOMA_PRIVATE_TAB = 1;
+export const QIXIOMA_GROUP_TAB = 2;
+
 export interface QixiomaStatus {
     chatNames: number;
     contacts: number;
@@ -8,19 +11,22 @@ export interface QixiomaStatus {
     meta: number;
 }
 
-export interface QixiomaContact {
-    wxid: string;
-    name: string;
-    avatar: string | null;
+export interface QixiomaMessage {
+    speaker: string;
+    text: string;
+    /** 格式 "YYYY/MM/DD HH:mm"，以接口给的 timeMs 为准 */
+    time: string;
+    timeMs: number;
 }
 
-export interface QixiomaMessage {
-    msgid: string;
-    content: string;
-    sender: string | null;
-    chatName: string | null;
-    msgtime: number | null;
-    action: string | null;
+export interface QixiomaConversation {
+    /** 1 私聊，2 群聊 */
+    tab: number;
+    /** 企小码登录的客服微信号，也就是消息归属的座席 */
+    staff: string;
+    /** 私聊为客户备注，群聊为群名称 */
+    name: string;
+    messages: QixiomaMessage[];
 }
 
 class QixiomaClient {
@@ -46,32 +52,28 @@ class QixiomaClient {
         return json.data || null;
     }
 
-    async getContacts(): Promise<QixiomaContact[]> {
-        const json = await this.get<{ data?: Record<string, { name?: string; avatar?: string | null }> }>("/api/contacts");
-        const data = json.data || {};
-        return Object.entries(data).map(([wxid, v]) => ({
-            wxid,
-            name: String(v?.name || ""),
-            avatar: v?.avatar ?? null,
-        }));
-    }
-
-    async getMessages(opts?: { page?: number; limit?: number; sender?: string; keyword?: string }): Promise<{ list: QixiomaMessage[]; total: number }> {
-        const json = await this.get<{ data?: any[]; pagination?: { total?: number } }>("/api/messages", {
-            page: opts?.page || 1,
-            limit: opts?.limit || 100,
-            sender: opts?.sender,
-            keyword: opts?.keyword,
-        });
-        const list: QixiomaMessage[] = (json.data || []).map((m) => ({
-            msgid: String(m.msgid || ""),
-            content: String(m.content ?? ""),
-            sender: m.sender != null ? String(m.sender) : null,
-            chatName: m.chatName != null ? String(m.chatName) : null,
-            msgtime: m.msgtime != null ? Number(m.msgtime) : null,
-            action: m.action != null ? String(m.action) : null,
-        }));
-        return { list, total: json.pagination?.total ?? list.length };
+    /**
+     * 返回按会话聚合的消息。私聊在接口里是一条会话下同时挂着客户和座席的发言，
+     * 同一会话可能按 tab/staff 重复出现多条，以 name 作为会话标识。
+     */
+    async getConversations(): Promise<QixiomaConversation[]> {
+        const json = await this.get<{ data?: any[] }>("/api/messages");
+        const byName = new Map<string, QixiomaConversation>();
+        for (const c of json.data || []) {
+            const name = String(c.name ?? "").trim();
+            const tab = Number(c.tab);
+            if (!name || (tab !== QIXIOMA_PRIVATE_TAB && tab !== QIXIOMA_GROUP_TAB)) continue;
+            const conv = byName.get(name) || { tab, staff: String(c.staff ?? ""), name, messages: [] };
+            conv.staff = conv.staff || String(c.staff ?? "");
+            for (const m of c.messages || []) {
+                const timeMs = Number(m.timeMs);
+                const speaker = String(m.speaker ?? "").trim();
+                if (!Number.isFinite(timeMs) || !speaker) continue;
+                conv.messages.push({ speaker, text: String(m.text ?? ""), time: String(m.time ?? ""), timeMs });
+            }
+            byName.set(name, conv);
+        }
+        return [...byName.values()];
     }
 }
 

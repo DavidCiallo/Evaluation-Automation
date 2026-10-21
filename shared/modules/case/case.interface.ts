@@ -178,6 +178,18 @@ export class CaseCustomerResponse {
     }
 }
 
+export class CaseDeleteResponse {
+    public success: boolean;
+    public data?: { id: string };
+    public message?: string;
+
+    constructor(data: { success: boolean; data?: { id: string }; message?: string }) {
+        this.success = data.success;
+        this.data = data.data;
+        this.message = data.message;
+    }
+}
+
 export function validateSplitGroups(groups: CaseSplitGroup[] | undefined): CaseSplitGroup[] {
     if (!Array.isArray(groups) || groups.length === 0) throw new Error("拆分方案不能为空");
     const seen = new Set<string>();

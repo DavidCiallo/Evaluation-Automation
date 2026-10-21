@@ -496,41 +496,12 @@ async function pollOnceFromMock(): Promise<void> {
 }
 
 
-let qixiomaSkipped = 0;
-
 async function pollOnceFromQixioma(): Promise<void> {
     if (isPolling) return;
     isPolling = true;
     try {
-        const { qixiomaClient } = await import("../../lib/qixioma-client");
-        const { list } = await qixiomaClient.getMessages({ page: 1, limit: 100 });
-        let consecutiveKnown = 0;
-        for (const m of list) {
-            if (!m.msgid) continue;
-            const dup = await conversationRepo.findOne({ msg_id: m.msgid });
-            if (dup) {
-                consecutiveKnown++;
-                if (consecutiveKnown >= 3) break;
-                continue;
-            }
-            consecutiveKnown = 0;
-            if (!m.sender || !m.chatName) {
-                qixiomaSkipped++;
-                continue;
-            }
-            await ingestMessage({
-                msgid: m.msgid,
-                from: m.sender,
-                tolist: [],
-                roomid: `qixioma_${m.chatName}`,
-                msgtype: "text",
-                msgtime: m.msgtime || Date.now(),
-                text: { content: m.content },
-            });
-        }
-        if (qixiomaSkipped > 0 && qixiomaSkipped % 500 === 0) {
-            console.log(`[qixioma] ${qixiomaSkipped} message(s) skipped for missing sender/chatName (upstream data pending fix)`);
-        }
+        const { syncQixioma } = await import("./qixioma.ingest");
+        await syncQixioma();
     } catch (err) {
         console.error("[qixioma] poll failed:", err);
     } finally {

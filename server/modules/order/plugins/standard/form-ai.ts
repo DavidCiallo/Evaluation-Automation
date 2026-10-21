@@ -2,24 +2,58 @@ import { isLlmConfigured, llmChat, extractJson } from "../../../../lib/llm";
 import { getConfigValue } from "../../../config/config.service";
 import type { FormDataItem } from "../../../../lib/form-providers";
 
-const TRANSCRIBABLE_KEYS = ["name", "gender", "dob", "passport_no", "passport_expiry", "visa_country", "visa_type", "departure"] as const;
-export type TranscribableKey = (typeof TRANSCRIBABLE_KEYS)[number];
+export const REQUIRED_FORM_FIELDS = [
+    "name",
+    "gender",
+    "surname_pinyin",
+    "givenname_pinyin",
+    "passport_no",
+    "birth_date",
+    "passport_issue_date",
+    "passport_expiry",
+] as const;
+export type RequiredFormField = (typeof REQUIRED_FORM_FIELDS)[number];
 
-export interface TranscribeResult {
-    patch: Partial<Record<TranscribableKey, string>>;
-    confidence: "high" | "medium" | "low";
-    notes: string;
+export const REQUIRED_FORM_FIELD_LABEL: Record<RequiredFormField, string> = {
+    name: "姓名",
+    gender: "性别",
+    surname_pinyin: "姓拼音",
+    givenname_pinyin: "名拼音",
+    passport_no: "护照号",
+    birth_date: "出生日期",
+    passport_issue_date: "护照签发日期",
+    passport_expiry: "护照有效期",
+};
+
+export interface FormExtraction {
+    patch: Partial<Record<RequiredFormField, string>>;
+    filled_count: number;
+    min_items: number;
     used_llm: boolean;
+    error: string | null;
 }
 
-function usefulData(data: FormDataItem[], cap = 120): Array<{ name: string; value: string }> {
+export async function minFilledItems(): Promise<number> {
+    const v = Number(await getConfigValue<number>("form_min_items"));
+    return Number.isFinite(v) && v >= 0 ? v : 20;
+}
+
+export function countFilled(data: FormDataItem[]): number {
+    return data.filter((d) => {
+        if (d.field_type === "meta") return false;
+        if (/^(序号|提交时间|提交编号)$/.test(String(d.field_name || "").trim())) return false;
+        return String(d.field_value ?? "").trim() !== "";
+    }).length;
+}
+
+function usefulData(data: FormDataItem[]): Array<{ name: string; value: string }> {
     const out: Array<{ name: string; value: string }> = [];
     for (const d of data) {
         if (d.field_type === "meta") continue;
         const v = String(d.field_value ?? "").trim();
         if (!v) continue;
         out.push({ name: d.field_name, value: v.slice(0, 300) });
-        if (out.length >= cap) break;
+        if (out.length >= 200) break;
     }
     return out;
 }
@@ -34,105 +68,62 @@ export function normalizeDate(raw: string): string | null {
     return null;
 }
 
-const RULE_PATTERNS: Array<{ key: TranscribableKey; patterns: RegExp[] }> = [
-    { key: "name", patterns: [/申请人?中文姓名/, /^姓名$/, /^客户姓名$/, /^中文姓名$/, /申请人姓名/] },
-    { key: "gender", patterns: [/^性别$/, /^申请人性别$/] },
-    { key: "dob", patterns: [/出生日期/, /^生日$/] },
-    { key: "passport_no", patterns: [/护照号码/, /^护照号$/, /护照编号/] },
-    { key: "passport_expiry", patterns: [/护照有效期/, /护照失效日期/, /有效期至/] },
-    { key: "visa_country", patterns: [/递?哪个国家/, /目的(地)?国家/, /^国家$/, /前往国家/, /申请国家/] },
-    { key: "visa_type", patterns: [/签证类型/, /^类型$/, /办理类型/] },
-    { key: "departure", patterns: [/出发(地|城市)/, /递签城市/] },
-];
-
-function ruleTranscribe(rows: Array<{ name: string; value: string }>): Partial<Record<TranscribableKey, string>> {
-    const patch: Partial<Record<TranscribableKey, string>> = {};
-    for (const { key, patterns } of RULE_PATTERNS) {
-        if (patch[key]) continue;
-        for (const row of rows) {
-            if (patterns.some((p) => p.test(row.name.trim()))) {
-                if (key === "dob" || key === "passport_expiry") {
-                    const d = normalizeDate(row.value);
-                    if (d) patch[key] = d;
-                } else {
-                    patch[key] = row.value.trim();
-                }
-                break;
-            }
-        }
+export async function extractRequiredFields(data: FormDataItem[]): Promise<FormExtraction> {
+    const rows = usefulData(data);
+    const filled_count = countFilled(data);
+    const min_items = await minFilledItems();
+    const base = { filled_count, min_items, used_llm: false };
+    if (!isLlmConfigured()) {
+        return { ...base, patch: {}, error: "LLM 未配置，无法识别表单字段" };
     }
-    return patch;
+    if (rows.length === 0) {
+        return { ...base, patch: {}, error: "表单没有填写内容" };
+    }
+
+    const prompt = await getConfigValue<string>("form_transcribe_prompt");
+    let parsed: any;
+    try {
+        const raw = await llmChat(
+            [
+                { role: "system", content: prompt },
+                { role: "user", content: `表单数据：\n${JSON.stringify(rows, null, 0).slice(0, 20000)}` },
+            ],
+            { temperature: 0, maxTokens: 2000 },
+        );
+        parsed = extractJson(raw);
+    } catch (e) {
+        return { ...base, patch: {}, error: `LLM 调用失败：${e instanceof Error ? e.message : String(e)}` };
+    }
+    if (!parsed || typeof parsed !== "object") {
+        return { ...base, patch: {}, error: "LLM 未返回可解析的 JSON" };
+    }
+
+    const patch: Partial<Record<RequiredFormField, string>> = {};
+    for (const key of REQUIRED_FORM_FIELDS) {
+        const v = parsed[key];
+        if (v == null) continue;
+        let value = String(v).trim();
+        if (!value || value === "null") continue;
+        if (key === "gender") {
+            if (/^(男|m|male)$/i.test(value)) value = "男";
+            else if (/^(女|f|female)$/i.test(value)) value = "女";
+            else continue;
+        } else if (key === "surname_pinyin" || key === "givenname_pinyin") {
+            value = value.replace(/[^A-Za-z\s]/g, "").trim().toUpperCase();
+            if (!value) continue;
+        } else if (key === "passport_no") {
+            value = value.replace(/\s+/g, "").toUpperCase();
+            if (!/^[A-Z0-9]{5,20}$/.test(value)) continue;
+        } else if (key !== "name") {
+            const d = normalizeDate(value);
+            if (!d) continue;
+            value = d;
+        }
+        patch[key] = value;
+    }
+    return { ...base, patch, used_llm: true, error: null };
 }
 
-const DEFAULT_TRANSCRIBE_PROMPT = `你是签证业务数据录入助手。下面是一份客户填写的表单数据（字段名→值）。
-请把表单内容映射为签证申请人的结构化字段，只输出 JSON，不要解释文字。
-
-目标字段（值格式要求）：
-- name: 申请人中文姓名
-- gender: 性别（男/女）
-- dob: 出生日期（YYYY-MM-DD）
-- passport_no: 护照号码（仅护照号本身，不含其他文字）
-- passport_expiry: 护照有效期截止日（YYYY-MM-DD，只有年月时补 01 日）
-- visa_country: 申请签证的国家（如"西班牙"，去掉"签证"等后缀）
-- visa_type: 签证类型（如"旅游"）
-- departure: 出发地/递签城市（取城市名，如"上海"）
-
-规则：
-- 表单中没有的字段填 null，宁缺勿猜
-- 日期统一转成 YYYY-MM-DD
-- 只输出 JSON：{"name":..., "gender":..., "dob":..., "passport_no":..., "passport_expiry":..., "visa_country":..., "visa_type":..., "departure":..., "confidence":"high|medium|low", "notes":"一句话备注"}
-
-表单数据：
-{fields_json}`;
-
-export async function transcribeFormData(data: FormDataItem[]): Promise<TranscribeResult> {
-    const rows = usefulData(data);
-    const rulePatch = ruleTranscribe(rows);
-
-    let llmPatch: Partial<Record<TranscribableKey, string>> = {};
-    let confidence: "high" | "medium" | "low" = "low";
-    let notes = "";
-    let usedLlm = false;
-
-    if (isLlmConfigured() && rows.length > 0) {
-        try {
-            const prompt = await getConfigValue<string>("form_transcribe_prompt");
-            const raw = await llmChat(
-                [
-                    { role: "system", content: prompt },
-                    { role: "user", content: `表单数据：\n${JSON.stringify(rows, null, 0).slice(0, 8000)}` },
-                ],
-                { temperature: 0.1, maxTokens: 4000 },
-            );
-            const parsed = extractJson(raw);
-            if (parsed && typeof parsed === "object") {
-                usedLlm = true;
-                confidence = ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "medium";
-                notes = String(parsed.notes || "");
-                for (const key of TRANSCRIBABLE_KEYS) {
-                    const v = parsed[key];
-                    if (v == null || String(v).trim() === "" || String(v).trim() === "null") continue;
-                    let value = String(v).trim();
-                    if ((key === "dob" || key === "passport_expiry")) {
-                        const d = normalizeDate(value);
-                        if (!d) continue;
-                        value = d;
-                    }
-                    llmPatch[key] = value;
-                }
-            }
-        } catch (e) {
-            console.error("[form-ai] llm transcribe failed:", e);
-        }
-    }
-
-    const patch: Partial<Record<TranscribableKey, string>> = { ...rulePatch };
-    for (const key of TRANSCRIBABLE_KEYS) {
-        if (llmPatch[key]) patch[key] = llmPatch[key];
-    }
-    if (!usedLlm && Object.keys(rulePatch).length > 0) {
-        confidence = Object.keys(rulePatch).length >= 3 ? "medium" : "low";
-        notes = "（规则匹配结果，请人工核对）";
-    }
-    return { patch, confidence, notes, used_llm: usedLlm };
+export function missingRequired(patch: Partial<Record<RequiredFormField, string>>): RequiredFormField[] {
+    return REQUIRED_FORM_FIELDS.filter((k) => !String(patch[k] ?? "").trim());
 }

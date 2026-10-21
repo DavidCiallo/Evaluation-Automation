@@ -14,9 +14,10 @@ import { Badge } from "@/client/components/ui/badge"
 import { Button } from "@/client/components/ui/button"
 import { Skeleton } from "@/client/components/ui/skeleton"
 import { ConversationDTO } from "../../../shared/modules/conversation/conversation.entity"
-import { conversationApi, orderApi } from "@/client/api/instance"
+import { conversationApi, jobApi, orderApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
+import type { JobDTO } from "../../../shared/modules/job/job.entity"
 import type { FormAssignment } from "../../../shared/modules/order/plugins/standard.manifest"
 import { ensureClientPluginsRegistered } from "./plugins/index"
 import { getEnabledClientOrderPlugins } from "./plugin-registry"
@@ -24,7 +25,7 @@ import { FormDetailCard } from "./FormDetailCard"
 import { STANDARD_PLUGIN_ID } from "../../../shared/modules/order/plugins/standard.manifest"
 import { VISA_TYPES } from "../../../shared/modules/order/visa"
 import { OrderInfoCard, FormCollectionCard, ItineraryCard } from "./plugins/standard/DetailSection"
-import { OrderStageBar } from "./StageBar"
+import { OrderStageBar, fmtStamp } from "./StageBar"
 import { SendMaterialsDialog } from "./SendMaterialsDialog"
 import { ConfirmationCard } from "./ConfirmationCard"
 import { AccountPoolCard } from "./AccountPoolCard"
@@ -54,6 +55,9 @@ export function OrderDetailPage() {
     const [busy, setBusy] = useState(false)
     const [selForm, setSelForm] = useState<FormAssignment | null>(null)
     const [sendMailOpen, setSendMailOpen] = useState(false)
+    const [job, setJob] = useState<JobDTO | null>(null)
+    const [jobPending, setJobPending] = useState(false)
+    const [runningJob, setRunningJob] = useState(false)
 
     const load = async () => {
         if (!params.id) return
@@ -95,10 +99,52 @@ export function OrderDetailPage() {
         loadMessages(chatId)
     }
 
+    const loadJob = async () => {
+        if (!params.id) return
+        try {
+            const res: any = await jobApi.orderStatus({ order_id: params.id || "", auth })
+            setJob((res?.data?.latest as JobDTO) || null)
+            setJobPending(!!res?.data?.pending)
+        } catch {
+            /* 后台状态拿不到时不影响页面 */
+        }
+    }
+
+    const runJob = async () => {
+        if (!order) return
+        setRunningJob(true)
+        try {
+            await jobApi.runOrder({ order_id: order.id, auth })
+            await loadJob()
+        } catch (e: any) {
+            toast.error(e?.message || "评估任务创建失败")
+        } finally {
+            setRunningJob(false)
+        }
+    }
+
     useEffect(() => {
         load()
+        loadJob()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [params.id])
+
+    useEffect(() => {
+        if (!jobPending) return
+        const id = setInterval(async () => {
+            const before = job?.id
+            try {
+                const res: any = await jobApi.orderStatus({ order_id: params.id || "", auth })
+                setJob((res?.data?.latest as JobDTO) || null)
+                setJobPending(!!res?.data?.pending)
+                if (!res?.data?.pending && res?.data?.latest?.id !== before) load()
+            } catch {
+                /* 忽略单次失败，下一轮再试 */
+            }
+        }, 3000)
+        return () => clearInterval(id)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [jobPending, job?.id, params.id])
 
     const onAddRemark = async () => {
         if (!order || !remark.trim()) return
@@ -140,6 +186,27 @@ export function OrderDetailPage() {
                     </p>
                 </div>
                 {order.cancelled_at ? <Badge variant="destructive">已取消</Badge> : null}
+                <div className="text-muted-foreground flex items-center gap-2 text-xs">
+                    {jobPending ? (
+                        <Badge>评估中…</Badge>
+                    ) : job ? (
+                        <span>
+                            {job.status === "succeeded" ? "最近评估" : "最近评估失败"} {fmtStamp(job.finished_time || job.create_time)}
+                            {job.status === "succeeded" && job.pending_gaps > 0
+                                ? ` · 待办 ${job.pending_gaps}${job.action_gaps === 0 ? "（自动处理中）" : ""}`
+                                : job.status === "succeeded"
+                                  ? " · 无待办"
+                                  : job.error
+                                    ? ` · ${job.error}`
+                                    : ""}
+                        </span>
+                    ) : (
+                        <span>尚未评估</span>
+                    )}
+                    <Button variant="outline" size="sm" disabled={jobPending || runningJob} onClick={runJob}>
+                        {jobPending ? "评估中" : "立即评估"}
+                    </Button>
+                </div>
                 <select
                     className="border-input bg-background h-8 rounded-md border px-2 text-xs"
                     value={order.visa_type || ""}

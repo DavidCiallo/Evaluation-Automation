@@ -73,7 +73,13 @@ async function confirmSplit(request: CaseSplitConfirmRequest) {
     return { case: await svc.toDetail(entity.id) };
 }
 
+async function remove(request: CaseDetailRequest) {
+    const req = CaseDetailRequest.self(request);
+    await svc.deleteCase(req.id);
+    return { id: req.id };
+}
+
 export const caseMount = {
     routes: caseRoutes,
-    handlers: { list, detail, createFromChat, create, addCustomers, removeCustomer, setAgents, analyze, saveSplitPlan, confirmSplit },
+    handlers: { list, detail, createFromChat, create, addCustomers, removeCustomer, setAgents, analyze, saveSplitPlan, confirmSplit, delete: remove },
 };

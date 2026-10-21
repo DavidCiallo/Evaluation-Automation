@@ -136,7 +136,7 @@ export function AccountPoolCard({
 
                 {unassigned.length > 0 && accounts.length > 0 && (
                     <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
-                        还有 {unassigned.length} 位客户没挂到账号上：{unassigned.map((c) => c.name).join("、")}
+                        还有 {unassigned.length} 位客户未分配账号上：{unassigned.map((c) => c.name).join("、")}
                     </div>
                 )}
 

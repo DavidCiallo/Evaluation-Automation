@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { tryAutomationEvent } from "../job/event-bus";
 import Repository from "../../lib/repository";
 import type {
     OrderEntity,
@@ -14,9 +15,9 @@ import type { ConversationEntity } from "../../../shared/modules/conversation/co
 import { getOrderPlugin, getEnabledOrderPlugins, type PluginContext } from "./plugin-registry";
 import { STANDARD_PLUGIN_ID, effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
 import { getVisaType } from "../../../shared/modules/order/visa";
-import { agentLabel, isKnownAgent } from "../../../shared/modules/case/case.entity";
+import { AGENT_OPTIONS, agentLabel, isKnownAgent } from "../../../shared/modules/case/case.entity";
 
-const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
+export const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const chatRepo: Repository<ChatEntity> = Repository.instance("Chat");
 const memberRepo: Repository<ChatMemberEntity> = Repository.instance("ChatMember");
 const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
@@ -25,6 +26,12 @@ const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer")
 
 const PAGE_SIZE = 20;
 
+
+async function insertOrderAndNotify(fields: Parameters<typeof orderRepo.insert>[0]): Promise<OrderEntity> {
+    const order = await orderRepo.insert(fields);
+    void tryAutomationEvent(order.id, "order_created");
+    return order;
+}
 
 export async function findOrders(opts: {
     page: number;
@@ -149,6 +156,7 @@ export async function getRelatedChats(orderId: string): Promise<{
     const otherCustomerIds = mainGroupMembers
         .filter((m) => m.role === "customer" && m.wechat_id !== order.customer_id)
         .map((m) => m.wechat_id);
+    if (order.customer_id) otherCustomerIds.push(order.customer_id);
     const uniqueOtherCustomers = [...new Set(otherCustomerIds)];
 
     if (uniqueOtherCustomers.length > 0) {
@@ -259,7 +267,7 @@ export async function ensureOrderForChat(chatId: string): Promise<OrderEntity | 
         privateChatId = await findPrivateChatForCustomer(customer.wechat_id, agentIds);
     }
 
-    return orderRepo.insert({
+    return insertOrderAndNotify({
         order_name: chat?.name || customerRemark || customerName || "",
         source: "wecom",
         chat_id: chatId,
@@ -311,7 +319,7 @@ export async function createOrderFromChat(chatId: string, orderName?: string): P
     };
 
     if (chat.type !== "group") {
-        return orderRepo.insert({
+        return insertOrderAndNotify({
             order_name: orderName || customerRemark || customerName || "",
             source: "wecom",
             chat_id: "",
@@ -331,7 +339,7 @@ export async function createOrderFromChat(chatId: string, orderName?: string): P
         privateChatId = await findPrivateChatForCustomer(customer.wechat_id, agentIds);
     }
 
-    return orderRepo.insert({
+    return insertOrderAndNotify({
         order_name: orderName || chat?.name || customerRemark || customerName || "",
         source: "wecom",
         chat_id: chatId,
@@ -384,7 +392,7 @@ export async function createManualOrder(input: {
         },
     };
 
-    return orderRepo.insert({
+    return insertOrderAndNotify({
         order_name: input.order_name || customerName,
         source: input.source || "manual",
         chat_id: "",
@@ -418,7 +426,9 @@ export async function cancelOrder(id: string, reason: string, by: string): Promi
         });
         return { cancelled_at: Date.now(), cancel_reason: trimmed, cancelled_by: by || "", remarks, version: row.version + 1 };
     });
-    return orderRepo.findOne({ id });
+    const order = await orderRepo.findOne({ id });
+    if (order && order.cancelled_at) void tryAutomationEvent(id, "order_cancelled");
+    return order;
 }
 
 export async function reopenOrder(id: string, reason: string, by: string): Promise<OrderEntity | null> {
@@ -437,7 +447,9 @@ export async function reopenOrder(id: string, reason: string, by: string): Promi
         });
         return { cancelled_at: null, cancel_reason: null, cancelled_by: null, remarks, version: row.version + 1 };
     });
-    return orderRepo.findOne({ id });
+    const order = await orderRepo.findOne({ id });
+    if (order && !order.cancelled_at) void tryAutomationEvent(id, "order_reopened");
+    return order;
 }
 
 
@@ -459,6 +471,7 @@ export async function setOrderVisaType(orderId: string, visaType: string): Promi
     const value = String(visaType || "").trim();
     if (value && !getVisaType(value)) throw "未知的签证类型";
     await orderRepo.update({ id: orderId }, { visa_type: value });
+    void tryAutomationEvent(orderId, "visa_type_changed");
     return orderRepo.findOne({ id: orderId });
 }
 
@@ -523,6 +536,7 @@ export async function runMessageHooks(order: OrderEntity, msg: ConversationEntit
             console.error(`[order] plugin "${plugin.manifest.id}" onMessage failed:`, e);
         }
     }
+    void tryAutomationEvent(order.id, "message_received");
 }
 
 
@@ -535,7 +549,9 @@ async function resolveAgentNames(agentIds: string[]): Promise<Map<string, string
         if (a.wechat_id) map.set(a.wechat_id, a.name || a.wechat_id);
     }
     for (const id of unique) {
-        if (!map.has(id) && isKnownAgent(id)) map.set(id, agentLabel(id));
+        if (map.has(id)) continue;
+        if (isKnownAgent(id)) map.set(id, agentLabel(id));
+        else if (AGENT_OPTIONS.some((a) => a.label === id)) map.set(id, id);
     }
     return map;
 }

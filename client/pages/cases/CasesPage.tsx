@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Filter, Inbox, Plus } from "lucide-react"
+import { Filter, Inbox, Plus, Trash2 } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import { Card, CardHeader, CardContent } from "@/client/components/ui/card"
@@ -87,6 +87,17 @@ export function CasesPage() {
             toast.error(`加载失败: ${e?.message || ""}`)
         } finally {
             setLoading(false)
+        }
+    }
+
+    const onDelete = async (c: CaseDTO) => {
+        if (!window.confirm(`确定删除工单「${c.chat_name || c.id}」？`)) return
+        try {
+            await caseApi.delete({ id: c.id, auth })
+            toast.success("工单已删除")
+            await load()
+        } catch (e: any) {
+            toast.error(`删除失败: ${e?.message || ""}`)
         }
     }
 
@@ -186,8 +197,24 @@ export function CasesPage() {
                                                             : `建议 ${c.group_count} 单`}
                                                     </span>
                                                 </div>
-                                                <div className="text-muted-foreground text-[11px]">
-                                                    {new Date(c.create_time).toLocaleString("zh-CN", { hour12: false })}
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-muted-foreground text-[11px]">
+                                                        {new Date(c.create_time).toLocaleString("zh-CN", { hour12: false })}
+                                                    </span>
+                                                    {c.status !== "confirmed" && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 px-1.5 text-muted-foreground hover:text-destructive"
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                onDelete(c)
+                                                            }}
+                                                        >
+                                                            <Trash2 className="size-3.5" />
+                                                        </Button>
+                                                    )}
                                                 </div>
                                             </CardContent>
                                         </Card>

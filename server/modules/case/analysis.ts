@@ -71,17 +71,15 @@ const NAME_NOISE = [
     "一家", "家庭", "亲子", "夫妻", "同行", "顺路", "拼团", "拼单", "多人",
 ];
 
-export function parseNamesFromChatName(chatName: string): string[] {
+export function chatNameTokens(chatName: string): string[] {
     if (!chatName) return [];
     const cleaned = chatName
         .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, " ")
         .replace(/[A-Za-z0-9._\-+]+/g, " ")
         .replace(/[，,、;；:：|/\\()[\]{}<>《》「」【】]/g, " ");
-    const raw = cleaned.split(/\s+/).filter(Boolean);
-
     const out: string[] = [];
     const seen = new Set<string>();
-    for (const token of raw) {
+    for (const token of cleaned.split(/\s+/).filter(Boolean)) {
         if (!/^[\u4e00-\u9fa5]{2,4}$/.test(token)) continue;
         if (NAME_NOISE.some((w) => token === w || token.includes(w))) continue;
         if (seen.has(token)) continue;
@@ -89,6 +87,67 @@ export function parseNamesFromChatName(chatName: string): string[] {
         out.push(token);
     }
     return out;
+}
+
+function looksLikeName(token: string): boolean {
+    return /^[\u4e00-\u9fa5]{2,3}$/.test(token) || SURNAMES.some((s) => token.startsWith(s) || token.endsWith(s));
+}
+
+const SURNAMES = [
+    "欧阳", "司马", "上官", "诸葛", "东方", "皇甫", "尉迟", "公孙", "慕容", "长孙", "司徒", "令狐",
+    "王", "李", "张", "刘", "陈", "杨", "黄", "赵", "吴", "周", "徐", "孙", "马", "朱", "胡", "郭",
+    "何", "高", "林", "罗", "郑", "梁", "谢", "宋", "唐", "许", "韩", "冯", "邓", "曹", "彭", "曾",
+    "肖", "萧", "田", "董", "袁", "潘", "于", "蒋", "蔡", "余", "杜", "叶", "程", "苏", "魏", "吕",
+    "丁", "任", "沈", "姚", "卢", "姜", "崔", "钟", "谭", "陆", "汪", "范", "金", "石", "廖", "贾",
+    "夏", "韦", "付", "傅", "方", "白", "邹", "孟", "熊", "秦", "邱", "江", "尹", "薛", "闫", "阎",
+    "段", "雷", "侯", "龙", "史", "陶", "黎", "贺", "顾", "毛", "郝", "龚", "邵", "万", "钱", "严",
+    "覃", "武", "戴", "莫", "孔", "向", "汤", "常", "温", "康", "施", "文", "牛", "樊", "葛", "邢",
+    "安", "齐", "易", "乔", "伍", "庞", "颜", "倪", "庄", "聂", "章", "鲁", "岳", "翟", "殷", "詹",
+    "申", "欧", "耿", "关", "兰", "焦", "俞", "左", "柳", "甘", "祝", "包", "宁", "尚", "符", "舒",
+    "阮", "柯", "纪", "梅", "童", "凌", "毕", "单", "季", "裴", "霍", "涂", "成", "苗", "谷", "盛",
+    "曲", "翁", "冉", "骆", "蓝", "路", "游", "辛", "靳", "管", "柴", "蒙", "鲍", "华", "喻", "祁",
+    "蒲", "房", "滕", "屈", "饶", "解", "牟", "艾", "尤", "阳", "时", "穆", "农", "司", "卓", "古",
+    "吉", "缪", "简", "车", "项", "连", "芦", "麦", "褚", "娄", "窦", "戚", "岑", "景", "党", "宫",
+    "费", "卜", "冷", "晏", "席", "卫", "米", "柏", "宗", "瞿", "桂", "全", "佟", "应", "臧", "闵",
+    "苟", "邬", "边", "卞", "姬", "师", "和", "仇", "栾", "隋", "商", "刁", "沙", "荣", "巫", "寇",
+    "桑", "郎", "甄", "丛", "仲", "虞", "敖", "巩", "明", "佘", "池", "查", "麻", "苑", "迟", "邝",
+    "封", "谈", "匡", "鞠", "惠", "荆", "乐", "冀", "郁", "胥", "储", "来", "蓬", "谷梁", "轩辕",
+];
+
+function planFromChatNameInfer(parsed: any, tokens: string[]): string[] | null {
+    if (!parsed || !Array.isArray(parsed.names)) return null;
+    const allowed = new Set(tokens);
+    return (parsed.names as unknown[])
+        .map((n) => String(n))
+        .filter((n) => allowed.has(n));
+}
+
+export async function inferNamesFromChatName(chatName: string, tokens: string[]): Promise<string[]> {
+    const heuristic = tokens.filter(looksLikeName);
+    if (!isLlmConfigured() || tokens.length === 0) return heuristic;
+    try {
+        const raw = await llmChat(
+            [
+                {
+                    role: "system",
+                    content: [
+                        "从微信群名称中找出真实人名，排除签证类型、业务词、机构名、城市名、产品名、英文和表情。",
+                        "只能从给出的候选词中挑选，不要新增或改写。",
+                        "只输出 JSON：",
+                        '{"names":["候选词"]}',
+                        "",
+                        `群名称：${chatName}`,
+                        `候选词：${tokens.join("、")}`,
+                    ].join("\n"),
+                },
+            ],
+            { temperature: 0, maxTokens: 200 },
+        );
+        const picked = planFromChatNameInfer(extractJson(raw), tokens);
+        return picked ?? heuristic;
+    } catch {
+        return heuristic;
+    }
 }
 
 function mergeNameCandidates(
@@ -179,7 +238,7 @@ function planFromModel(raw: string, customers: CaseCustomerCandidate[]): { plan:
 
 export async function analyzeChat(input: AnalysisInput): Promise<AnalysisResult> {
     const chatName = input.chat.name || "";
-    const fromTitle = parseNamesFromChatName(chatName);
+    const fromTitle = await inferNamesFromChatName(chatName, chatNameTokens(chatName));
     const candidates = mergeNameCandidates(buildCandidates(input.members), fromTitle);
     const customers = customersOf(candidates);
 
