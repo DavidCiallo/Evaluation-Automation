@@ -53,20 +53,17 @@ async function knownStaffNames(staffs: string[]): Promise<Set<string>> {
     return new Set([...staffs, ...accounts.map((a) => a.name)].filter(Boolean));
 }
 
-let staffCache: Set<string> | null = null;
-
-async function ensureChat(conv: QixiomaConversation): Promise<ChatEntity> {
+async function ensureChat(conv: QixiomaConversation, staffKnown: Set<string>): Promise<ChatEntity> {
     const key = chatKeyOf(conv);
     const isGroup = conv.tab === QIXIOMA_GROUP_TAB;
-    if (!isGroup && !staffCache) staffCache = await knownStaffNames([conv.staff]);
 
     const customers = [...new Set(
-        (isGroup ? conv.messages.filter((m) => !isStaff(m.speaker, staffCache!)) : conv.messages)
+        (isGroup ? conv.messages.filter((m) => !isStaff(m.speaker, staffKnown)) : conv.messages)
             .map((m) => m.speaker)
             .filter(Boolean),
     )];
     const agents = [...new Set([
-        ...conv.messages.filter((m) => isStaff(m.speaker, staffCache!)).map((m) => m.speaker),
+        ...conv.messages.filter((m) => isStaff(m.speaker, staffKnown)).map((m) => m.speaker),
         conv.staff,
     ].filter(Boolean))];
 
@@ -201,7 +198,7 @@ export async function syncQixioma(): Promise<number> {
     syncing = true;
     try {
         const conversations = await qixiomaClient.getConversations();
-        const staffKnown = await knownStaffNames();
+        const staffKnown = await knownStaffNames(conversations.map((c) => c.staff));
         const cursorRow = await seqRepo.findOne({ id: CURSOR_ID });
         const cursors = parseCursor(cursorRow?.value);
         const touched = new Map<string, ChatEntity>();
