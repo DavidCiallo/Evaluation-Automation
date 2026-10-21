@@ -509,6 +509,17 @@ async function pollOnceFromQixioma(): Promise<void> {
     }
 }
 
+/** 手动触发一次拉取，返回新增消息条数；轮询器仍在跑时复用同一把锁，不会并发同步 */
+export async function refreshSync(): Promise<{ source: "sdk" | "qixioma"; inserted: number }> {
+    const source = syncSource();
+    if (source === "qixioma") {
+        const { syncQixioma } = await import("./qixioma.ingest");
+        return { source, inserted: await syncQixioma() };
+    }
+    await (hasLiveSdk() ? pollOnceFromSDK() : pollOnceFromMock());
+    return { source: "sdk", inserted: 0 };
+}
+
 export async function startPoller(): Promise<void> {
     if (intervalId) return;
     if (startPromise) return startPromise;

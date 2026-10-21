@@ -1,4 +1,4 @@
-import { SyncStatusResponse } from "./sync.interface";
+import { SyncStatusResponse, SyncRefreshResponse } from "./sync.interface";
 
 export const syncRoutes = {
     base: "/api",
@@ -7,5 +7,10 @@ export const syncRoutes = {
         path: "/status",
         request: {} as { auth?: string },
         response: {} as SyncStatusResponse,
+    },
+    refresh: {
+        path: "/refresh",
+        request: {} as { auth?: string },
+        response: {} as SyncRefreshResponse,
     },
 } as const;

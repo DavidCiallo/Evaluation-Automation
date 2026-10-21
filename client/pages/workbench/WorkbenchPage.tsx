@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/client/components/ui/badge"
 import { Button } from "@/client/components/ui/button"
 import { Input } from "@/client/components/ui/input"
-import { intentApi, orderApi, workbenchApi, exemptionApi } from "@/client/api/instance"
+import { intentApi, orderApi, workbenchApi, exemptionApi, syncApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import {
     STANDARD_PLUGIN_ID,
@@ -98,6 +98,7 @@ export function WorkbenchPage() {
     const [busyCreate, setBusyCreate] = useState(false)
     const [exempt, setExempt] = useState(false)
     const [busyExempt, setBusyExempt] = useState(false)
+    const [syncing, setSyncing] = useState(false)
     const [expandedMsgIds, setExpandedMsgIds] = useState<Set<string>>(new Set())
     const scrollRef = useRef<HTMLDivElement>(null)
     const nearBottomRef = useRef(true)
@@ -124,6 +125,25 @@ export function WorkbenchPage() {
         setChats(list)
         try { sessionStorage.setItem("workbench_chats", JSON.stringify(list)) } catch {}
     }, [auth])
+
+    const refreshFromSource = async () => {
+        if (syncing) return
+        setSyncing(true)
+        try {
+            const res: any = await syncApi.refresh({ auth })
+            if (res?.success === false) {
+                toast.error(res.message || "拉取会话失败")
+                return
+            }
+            const n = res?.data?.inserted ?? 0
+            toast.success(n > 0 ? `已拉取 ${n} 条新消息` : "没有新消息")
+            await loadChats()
+        } catch (e: any) {
+            toast.error(e?.message || "拉取会话失败")
+        } finally {
+            setSyncing(false)
+        }
+    }
 
     useEffect(() => {
         let alive = true
@@ -279,8 +299,20 @@ export function WorkbenchPage() {
                 <Card className="min-h-0 overflow-hidden py-0">
                     <div className="flex h-full flex-col">
                         <div className="border-b p-3 space-y-2">
-                            <div className="text-xs font-semibold uppercase text-muted-foreground">
-                                会话 ({filteredChats.length})
+                            <div className="flex items-center justify-between">
+                                <div className="text-xs font-semibold uppercase text-muted-foreground">
+                                    会话 ({filteredChats.length})
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={refreshFromSource}
+                                    disabled={syncing}
+                                    title="从企小码拉取最新消息"
+                                >
+                                    <RefreshCw className={`mr-1 size-3 ${syncing ? "animate-spin" : ""}`} /> 刷新会话
+                                </Button>
                             </div>
                             <Input
                                 placeholder="搜索会话..."
