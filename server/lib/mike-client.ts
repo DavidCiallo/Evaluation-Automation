@@ -29,6 +29,9 @@ export function parseMikeTime(s: string | null | undefined): number {
     return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])).getTime();
 }
 
+/** 按姓名找提交的时间窗。签证材料通常提前一两个月填，窗口太窄会匹配不到。 */
+const MATCH_WINDOW_DAYS = 60;
+
 class MikeClient {
     private config: MikeConfig | null = null;
     private configRevision = -1;
@@ -155,7 +158,7 @@ class MikeClient {
     }
 
     async findSubmissionsByName(formId: string, name: string): Promise<MikeSubmission[]> {
-        return this.search(name, { formId, withinDays: 7 });
+        return this.search(name, { formId, withinDays: MATCH_WINDOW_DAYS });
     }
 
     async listRecentSubmissions(formId: string, limit = 20): Promise<MikeSubmission[]> {
@@ -180,7 +183,7 @@ class MikeClient {
     }
 
     async findSubmissionsByNameAnyForm(name: string, limit = 100): Promise<MikeSubmission[]> {
-        return this.search(name, { withinDays: 7, limit });
+        return this.search(name, { withinDays: MATCH_WINDOW_DAYS, limit });
     }
 }
 

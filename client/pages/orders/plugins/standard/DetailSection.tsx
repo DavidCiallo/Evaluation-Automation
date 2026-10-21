@@ -496,7 +496,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                     {!loading && matches.length === 0 && (
                         <p className="text-muted-foreground p-2 text-xs">
                             {provider === "mike"
-                                ? "最近一周没有匹配到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。"
+                                ? "最近两个月没有匹配到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。"
                                 : "最近一周没有匹配到同名记录。点确认会新建一条填写链接发给客户。"}
                         </p>
                     )}

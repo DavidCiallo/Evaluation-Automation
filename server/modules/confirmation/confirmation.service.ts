@@ -21,6 +21,9 @@ const submissionRepo: Repository<SubmissionEntity> = Repository.instance("Submis
 
 const DEADLINE_DAYS = 7;
 
+/** 确认单正文只引用最近一周填的表单，更早的填写已经不可信。 */
+const CONTENT_WINDOW_DAYS = 7;
+
 const INTERNAL_MIN = 2;
 const INTERNAL_APPROVE_MIN = 1;
 
@@ -228,6 +231,10 @@ async function contentForCustomer(
         const hit = submissions.find((s) => s.key === a.item_id);
         if (!hit) {
             throw `订单里绑定的表单提交（${a.item_id || "无 item_id"}）在本地找不到，无法生成确认单正文`;
+        }
+        const since = Date.now() - CONTENT_WINDOW_DAYS * 86400000;
+        if ((hit.submit_time || 0) < since) {
+            throw `${name || "未命名"} 绑定的表单提交已超过 ${CONTENT_WINDOW_DAYS} 天，请让客户重新填写后再签发确认单`;
         }
         return await buildContent(hit.fields);
     }
