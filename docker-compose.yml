@@ -4,8 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      # 左边是宿主机端口（改这个即可），右边是容器内的 2900，必须与之固定对应。
-      # 不要用 ${SERVER_PORT}：那个变量会同时进入容器，两边一起漂移就对不上了。
       - "${HOST_PORT:-2900}:2900"
     volumes:
       - ./data:/app/data

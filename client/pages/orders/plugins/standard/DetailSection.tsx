@@ -488,7 +488,7 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                 <DialogHeader>
                     <DialogTitle>{provider === "mike" ? "选择麦客提交" : "选择简表记录"}</DialogTitle>
                     <DialogDescription>
-                        {customerName} 在「{formKey.length > 20 ? formKey.slice(0, 20) + "…" : formKey}」下最近一周的记录，默认推荐与订单时间最接近的一份。选中的记录会直接复用，不再让客户重填。
+                        {customerName} 在「{formKey.length > 20 ? formKey.slice(0, 20) + "…" : formKey}」下相关的的记录。
                     </DialogDescription>
                 </DialogHeader>
                 <div className="max-h-72 space-y-1.5 overflow-y-auto">
@@ -496,14 +496,13 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
                     {!loading && matches.length === 0 && (
                         <p className="text-muted-foreground p-2 text-xs">
                             {provider === "mike"
-                                ? "最近两个月没有匹配到同名提交。可先创建分配（状态=等待提交），之后点刷新重新匹配。"
-                                : "最近一周没有匹配到同名记录。点确认会新建一条填写链接发给客户。"}
+                                ? "最近两个月没有匹配到同名提交。"
+                                : "最近没有匹配到同名记录。可新建一条填写链接发给客户。"}
                         </p>
                     )}
                     {!loading && fallback && matches.length > 0 && (
                         <p className="text-muted-foreground p-2 text-xs">
-                            没搜到叫「{customerName}」的提交。下面是这个表单最近的 {matches.length} 条，
-                            客户可能用了别的名字填——认出来就勾上，没有就点「仍要创建分配」。
+                           在该表单最近的 {matches.length} 条记录中未找到「{customerName}」相关的提交
                         </p>
                     )}
                     {matches.map((m) => (

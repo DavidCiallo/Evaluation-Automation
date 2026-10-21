@@ -35,7 +35,7 @@ Server runs at http://localhost:2900（端口由 `SERVER_PORT` 决定，默认 2
 
 四个外围系统与会话源的入口都在界面上维护：**系统配置 → 外围系统接入**
 （`server/lib/integration-settings.ts` 解析，落库到 `Config` 集合的 `integrations` 键，
-即 `data/app.db`，不入仓库）。可配置项包括服务地址、登录账号/口令、启用开关、轮询间隔，
+即 `data/app.db`）。可配置项包括服务地址、登录账号/口令、启用开关、轮询间隔，
 以及会话源的消息源（企微 SDK / 企小码）与 SDK 地址。
 
 **优先级：界面设置 > 环境变量 > 内置默认值。** 环境变量只是首次部署的默认值；
@@ -51,17 +51,11 @@ Server runs at http://localhost:2900（端口由 `SERVER_PORT` 决定，默认 2
 | 企小码 chat | `QIXIOMA_BASE_URL` | 会话源（消息源切到「企小码」后从该地址增量拉取） |
 | 企微 SDK | `SDK_HOST / POLL_INTERVAL_MS / SYNC_POLLER / SYNC_SOURCE` | 会话摄入来源与开关 |
 
-口令类字段不回传明文：接口只返回 `has_secret` 与来源（`settings` / `env`），
 留空提交表示保持原值。改完设置在界面保存即生效，后台任务会自动重启，无需重启进程。
 ctrip 与麦客、邮箱一样需要鉴权：登录后 token 内存缓存，失效自动重登，
 改地址或密码会作废旧 token。
 
-确认单的签署状态**以服务端为准**：客户在确认单服务自己的页面上签字，
-本系统收不到任何推送（该服务没有 webhook），因此列表与阶段判定都会先调
-`/api/contract/signers` 核对再回写本地。签署链接也由服务端在签发时返回，
-本系统不自行拼接——否则会拼出指向本机的错误地址。
-签发时配置两位内部签署人，但只要求其中至少一位同意（`internal_min: 1`）；
-外部签署人的同意要求不变（`external_min: 1`）。
+确认单的签署状态**以服务端为准**。
 
 订单详情页三栏流程：
 
@@ -102,13 +96,12 @@ ctrip 与麦客、邮箱一样需要鉴权：登录后 token 内存缓存，失�
 ## 部署
 
 后端 `Bun.serve` 同时提供 API 和 `dist/` 静态文件，**只需一个进程、一个端口**，
-不需要额外的 nginx 或静态服务器（`server/app/index.ts` 先匹配 API，再交给 `mountstatic`）。
 
 ### 方式一：直接跑（推荐，本机/裸服务器）
 
 ```bash
 bun install
-bun run build          # 产出 dist/，必须先跑，否则页面 404
+bun run build          # 产出 dist
 cp .env.example .env   # 按需填写
 bun run serve          # 默认 2900
 ```
@@ -147,9 +140,6 @@ docker compose up -d --build
 HOST_PORT=8080 docker compose up -d --build
 ```
 
-`./data` 挂在宿主机上，**升级镜像不会丢数据**；备份就是备份这个目录
-（`app.db` 是单文件 SQLite，`.backup` 或停机拷贝均可）。
-
 > 注意：Dockerfile 与 compose 我改过端口映射（原先镜像内 3300、
 > 而 `.env` 的 `SERVER_PORT=2900` 会让容器实际监听 2900，对外映射 3300 就连不上）。
 > 本机没有 Docker，**这个修正未经实机构建验证**——首次部署请确认容器起来后
@@ -168,7 +158,6 @@ HOST_PORT=8080 docker compose up -d --build
 
 如果要挂域名 + HTTPS，把整个站点反代到 2900 即可，API 和页面同源，无需额外配置。
 注意两处：`idleTimeout` 已放宽到 255 秒（AI 生成类接口较慢），
-反代超时不要低于这个值；上传走 multipart，需要放开 body 大小限制。
 
 ## Layout
 

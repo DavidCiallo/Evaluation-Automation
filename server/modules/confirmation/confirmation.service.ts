@@ -19,10 +19,7 @@ const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const customerRepo: Repository<CustomerEntity> = Repository.instance("Customer");
 const submissionRepo: Repository<SubmissionEntity> = Repository.instance("Submission");
 
-const DEADLINE_DAYS = 7;
-
-/** 确认单正文只引用最近一周填的表单，更早的填写已经不可信。 */
-const CONTENT_WINDOW_DAYS = 7;
+const DEADLINE_DAYS = 3;
 
 const INTERNAL_MIN = 2;
 const INTERNAL_APPROVE_MIN = 1;
@@ -171,7 +168,7 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
     if (internals.length < INTERNAL_MIN) {
         throw `内部签署人不足：需要 ${INTERNAL_MIN} 位，当前配置为 ${internals.length} 位${
             internals.length ? `（${internals.join("、")}）` : ""
-        }。请在「系统配置 → 外围系统接入 → 确认单 → 内部签署人」中补全。`;
+        }。请在「系统配置 → 确认单」中补全。`;
     }
 
     const deadline = Date.now() + DEADLINE_DAYS * 86400000;
@@ -231,10 +228,6 @@ async function contentForCustomer(
         const hit = submissions.find((s) => s.key === a.item_id);
         if (!hit) {
             throw `订单里绑定的表单提交（${a.item_id || "无 item_id"}）在本地找不到，无法生成确认单正文`;
-        }
-        const since = Date.now() - CONTENT_WINDOW_DAYS * 86400000;
-        if ((hit.submit_time || 0) < since) {
-            throw `${name || "未命名"} 绑定的表单提交已超过 ${CONTENT_WINDOW_DAYS} 天，请让客户重新填写后再签发确认单`;
         }
         return await buildContent(hit.fields);
     }
