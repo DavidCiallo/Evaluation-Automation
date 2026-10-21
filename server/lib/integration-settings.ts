@@ -103,9 +103,9 @@ const META: Record<IntegrationProviderId, {
     },
     qixioma: {
         label: "企小码会话源",
-        hint: "会话源（Web2API）：把「消息源」设为企小码时从该地址增量拉取会话",
+        hint: "会话归档 API（只读）：按游标增量拉取私聊/群聊消息，作为「消息源 = 企小码」时的数据来源",
         accountLabel: null,
-        secretLabel: null,
+        secretLabel: "API Token",
         defaultIntervalMs: null,
     },
 };
@@ -149,7 +149,10 @@ function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { 
                 signers: process.env.CONTRACT_INTERNAL_SIGNERS || "",
             };
         case "qixioma":
-            return { base_url: process.env.QIXIOMA_BASE_URL || DEFAULT_BASE.qixioma };
+            return {
+                base_url: process.env.QIXIOMA_BASE_URL || DEFAULT_BASE.qixioma,
+                secret: process.env.QIXIOMA_API_TOKEN || "",
+            };
         case "sdk":
             return {
                 host: process.env.SDK_HOST || DEFAULT_SDK_HOST,

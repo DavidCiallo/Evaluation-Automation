@@ -1,5 +1,5 @@
 import Repository from "../../lib/repository";
-import { qixiomaClient, QIXIOMA_GROUP_TAB, type QixiomaConversation, type QixiomaMessage } from "../../lib/qixioma-client";
+import { qixiomaClient, QIXIOMA_GROUP_TAB, type QixiomaMessage } from "../../lib/qixioma-client";
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
@@ -15,12 +15,6 @@ const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const seqRepo: Repository<QixiomaSeqEntity> = Repository.instance("SyncSeq");
 
-export interface QixiomaChatCursor {
-    /** 企小码接口给出的时间精度是分钟，取已处理过的最新一条的时间 */
-    time: number;
-    /** 时间并列时，用已入库条数区分新消息 */
-    count: number;
-}
 interface QixiomaSeqEntity {
     id: string;
     value: string;
@@ -30,13 +24,14 @@ const PRIVATE_PREFIX = "qixioma_p_";
 const GROUP_PREFIX = "qixioma_g_";
 const CURSOR_ID = "qixioma";
 
-/** 企小码没有给消息 id；同分钟同文本的消息靠序号区分 */
-export function qixiomaMessageKey(name: string, msg: QixiomaMessage, ordinal: number): string {
-    return `qixioma_${name}_${msg.timeMs}_${ordinal}_${msg.text}`;
+/** 归档库给每条消息分配行号，直接用行号做键；游标保证不重读，这里再兜一层重复入库 */
+export function qixiomaMessageKey(msg: Pick<QixiomaMessage, "id">): string {
+    return `qixioma_${msg.id}`;
 }
 
-export function chatKeyOf(conv: Pick<QixiomaConversation, "tab" | "name">): string {
-    return (conv.tab === QIXIOMA_GROUP_TAB ? GROUP_PREFIX : PRIVATE_PREFIX) + conv.name;
+/** 私聊和群聊会重名，用归档库的会话 id 区分 */
+export function chatKeyOf(conv: Pick<QixiomaMessage, "tab" | "conversationId">): string {
+    return (conv.tab === QIXIOMA_GROUP_TAB ? GROUP_PREFIX : PRIVATE_PREFIX) + conv.conversationId;
 }
 
 export function isQixiomaTab(tab: number): boolean {
@@ -53,12 +48,20 @@ async function knownStaffNames(staffs: string[]): Promise<Set<string>> {
     return new Set([...staffs, ...accounts.map((a) => a.name)].filter(Boolean));
 }
 
-async function ensureChat(conv: QixiomaConversation, staffKnown: Set<string>): Promise<ChatEntity> {
-    const key = chatKeyOf(conv);
+interface ConversationGroup {
+    key: string;
+    tab: number;
+    staff: string;
+    name: string;
+    messages: QixiomaMessage[];
+}
+
+async function ensureChat(conv: ConversationGroup, staffKnown: Set<string>): Promise<ChatEntity> {
     const isGroup = conv.tab === QIXIOMA_GROUP_TAB;
 
     const customers = [...new Set(
-        (isGroup ? conv.messages.filter((m) => !isStaff(m.speaker, staffKnown)) : conv.messages)
+        conv.messages
+            .filter((m) => !isStaff(m.speaker, staffKnown))
             .map((m) => m.speaker)
             .filter(Boolean),
     )];
@@ -67,11 +70,11 @@ async function ensureChat(conv: QixiomaConversation, staffKnown: Set<string>): P
         conv.staff,
     ].filter(Boolean))];
 
-    let chat = await chatRepo.findOne({ chat_id: key });
+    let chat = await chatRepo.findOne({ chat_id: conv.key });
     if (!chat) {
         const name = isGroup ? conv.name : customers[0] || conv.name;
-        chat = await chatRepo.insert({ chat_id: key, name, type: isGroup ? "group" : "single", last_send_time: 0 });
-    } else if (chat.name !== conv.name && isGroup) {
+        chat = await chatRepo.insert({ chat_id: conv.key, name, type: isGroup ? "group" : "single", last_send_time: 0 });
+    } else if (isGroup && chat.name !== conv.name) {
         await chatRepo.update({ id: chat.id }, { name: conv.name });
         chat = { ...chat, name: conv.name };
     }
@@ -103,15 +106,16 @@ function isStaff(speaker: string, staffKnown: Set<string>): boolean {
     return staffKnown.has(speaker) || AGENT_OPTIONS.some((a) => a.label === speaker);
 }
 
-async function insertMessage(chat: ChatEntity, msg: QixiomaMessage, ordinal: number, staffKnown: Set<string>): Promise<{ created: boolean }> {
-    const msgId = qixiomaMessageKey(chat.chat_id, msg, ordinal);
+async function insertMessage(chat: ChatEntity, msg: QixiomaMessage, staffKnown: Set<string>): Promise<{ created: boolean }> {
+    const msgId = qixiomaMessageKey(msg);
     const dup = await conversationRepo.findOne({ msg_id: msgId });
     if (dup) return { created: false };
+    const staff = isStaff(msg.speaker, staffKnown);
     await conversationRepo.insert({
         msg_id: msgId,
         chat_id: chat.id,
-        from_id: isStaff(msg.speaker, staffKnown) ? agentIdOf(msg.speaker) : `qixioma_${msg.speaker}`,
-        from_role: isStaff(msg.speaker, staffKnown) ? "agent" : "customer",
+        from_id: staff ? agentIdOf(msg.speaker) : `qixioma_${msg.speaker}`,
+        from_role: staff ? "agent" : "customer",
         msg_type: "text",
         content: msg.text,
         send_time: msg.timeMs,
@@ -152,15 +156,6 @@ async function rebuildSnapshot(chat: ChatEntity): Promise<void> {
     if ((chat.last_send_time || 0) < tail.send_time) await chatRepo.update({ id: chat.id }, { last_send_time: tail.send_time });
 }
 
-function parseCursor(value: string | undefined): Map<string, QixiomaChatCursor> {
-    const map = new Map<string, QixiomaChatCursor>();
-    if (!value) return map;
-    try {
-        for (const [name, c] of Object.entries(JSON.parse(value) as Record<string, QixiomaChatCursor>)) map.set(name, c);
-    } catch { /* 游标损坏时从头处理，靠消息去重兜底 */ }
-    return map;
-}
-
 const LEGACY_PREFIX = "qixioma_";
 
 /** 旧版按 chatName 建会话、没有 tab 区分，私聊和群聊同名时混在一起；新版重新摄入后同步删除 */
@@ -191,40 +186,54 @@ async function migrateLegacyChats(): Promise<void> {
     console.log(`[qixioma] removed ${chatIds.length} legacy chat(s)`);
 }
 
+const PAGE_SIZE = 500;
+const MAX_PAGES = 200;
+
 let syncing = false;
 
 export async function syncQixioma(): Promise<number> {
     if (syncing) return 0;
     syncing = true;
     try {
-        const conversations = await qixiomaClient.getConversations();
-        const staffKnown = await knownStaffNames(conversations.map((c) => c.staff));
+        const staffKnown = await knownStaffNames([]);
         const cursorRow = await seqRepo.findOne({ id: CURSOR_ID });
-        const cursors = parseCursor(cursorRow?.value);
+        // 旧版游标是按会话名的 JSON，格式不兼容，直接从头读
+        let cursor = cursorRow?.value?.includes(":") ? cursorRow.value : null;
         const touched = new Map<string, ChatEntity>();
         let inserted = 0;
 
-        for (const conv of conversations) {
-            const cursor = cursors.get(conv.name);
-            const ordered = [...conv.messages].sort((a, b) => a.timeMs - b.timeMs);
-            let start = 0;
-            if (cursor) {
-                const earlier = ordered.filter((m) => m.timeMs < cursor.time).length;
-                start = earlier + cursor.count;
-            }
-            if (start >= ordered.length) continue;
+        for (let page = 0; page < MAX_PAGES; page++) {
+            const result = await qixiomaClient.listMessages({ after: cursor, limit: PAGE_SIZE });
+            for (const m of result.items) staffKnown.add(m.staff);
 
-            const chat = await ensureChat(conv, staffKnown);
-            let added = 0;
-            for (let i = start; i < ordered.length; i++) {
-                const r = await insertMessage(chat, ordered[i], i, staffKnown);
-                if (r?.created) added++;
+            const groups = new Map<string, ConversationGroup>();
+            for (const m of result.items) {
+                const key = chatKeyOf(m);
+                let g = groups.get(key);
+                if (!g) {
+                    g = { key, tab: m.tab, staff: m.staff, name: m.name, messages: [] };
+                    groups.set(key, g);
+                }
+                if (!g.staff && m.staff) g.staff = m.staff;
+                g.messages.push(m);
             }
-            cursors.set(conv.name, { time: ordered[ordered.length - 1].timeMs, count: ordered.length - start });
-            if (added > 0) {
+
+            for (const g of groups.values()) {
+                const chat = await ensureChat(g, staffKnown);
+                let added = 0;
+                for (const m of g.messages) {
+                    const r = await insertMessage(chat, m, staffKnown);
+                    if (r.created) added++;
+                }
+                if (added === 0) continue;
                 touched.set(chat.id, chat);
                 inserted += added;
             }
+
+            cursor = result.nextCursor;
+            if (!cursor) break;
+            if (cursorRow) await seqRepo.update({ id: CURSOR_ID }, { value: cursor });
+            else await seqRepo.insert({ id: CURSOR_ID, value: cursor });
         }
 
         await migrateLegacyChats();
@@ -232,8 +241,6 @@ export async function syncQixioma(): Promise<number> {
             await rebuildSnapshot(chat);
             await ensureOrder(chat.id);
         }
-        if (cursorRow) await seqRepo.update({ id: CURSOR_ID }, { value: JSON.stringify(Object.fromEntries(cursors)) });
-        else await seqRepo.insert({ id: CURSOR_ID, value: JSON.stringify(Object.fromEntries(cursors)) });
 
         if (inserted > 0) console.log(`[qixioma] ${inserted} new message(s) ingested`);
         return inserted;

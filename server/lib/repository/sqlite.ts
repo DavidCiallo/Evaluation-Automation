@@ -19,6 +19,8 @@ function getDb(): Database {
     db = new Database(DB_PATH);
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA synchronous = NORMAL;");
+    // 同步、麦客、邮件、指标几个定时任务共用这一条连接，写入撞车时等一会儿而不是直接抛 SQLITE_BUSY
+    db.exec("PRAGMA busy_timeout = 10000;");
     return db;
 }
 
