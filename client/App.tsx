@@ -35,7 +35,7 @@ function PrivateRoute() {
 
 export default function App() {
     return (
-        <ThemeProvider defaultTheme="dark">
+        <ThemeProvider defaultTheme="light">
             <Router>
                 <Routes>
                     <Route path="/auth" element={<AuthPage />} />
