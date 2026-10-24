@@ -233,8 +233,8 @@ export async function ingestMessage(ev: MockEvent): Promise<{ chatInternalId: st
     }
 
     try {
-        const { ensureOrderForChat, runMessageHooks } = await import("../order/order.service");
-        const order = await ensureOrderForChat(chatInternalId);
+        const { findOrderForChat, runMessageHooks } = await import("../order/order.service");
+        const order = await findOrderForChat(chatInternalId);
         if (order) await runMessageHooks(order, row as any);
     } catch (e) {
         console.error("[sync] order hook failed", e);

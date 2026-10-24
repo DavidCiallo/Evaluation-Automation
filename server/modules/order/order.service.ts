@@ -214,72 +214,9 @@ async function findPrivateChatForCustomer(customerWechatId: string, agentIds: st
     return "";
 }
 
-export async function ensureOrderForChat(chatId: string): Promise<OrderEntity | null> {
-    const chat = await chatRepo.findOne({ id: chatId });
-    if (!chat) return null;
-
-    if (chat.type !== "group") {
-        const members = await memberRepo.find({ chat_id: chatId });
-        const customer = members.find((m) => m.role === "customer");
-        const agentIds = [...new Set(members.filter((m) => m.role === "agent").map((m) => m.wechat_id))];
-        if (customer?.wechat_id) {
-            const groupChats = await chatRepo.find({ type: "group" });
-            for (const gc of groupChats) {
-                const gcMembers = await memberRepo.find({ chat_id: gc.id });
-                const gcHasCustomer = gcMembers.some((m) => m.role === "customer" && m.wechat_id === customer.wechat_id);
-                if (gcHasCustomer) {
-                    const order = await orderRepo.findOne({ chat_id: gc.id });
-                    if (order && !order.private_chat_id) {
-                        await orderRepo.update({ id: order.id }, { private_chat_id: chatId });
-                        return (await orderRepo.findOne({ id: order.id })) || order;
-                    }
-                    return order;
-                }
-            }
-        }
-        return null;
-    }
-
-    const members = await memberRepo.find({ chat_id: chatId });
-    const agentIds = [...new Set(members.filter((m) => m.role === "agent").map((m) => m.wechat_id))];
-    const customer = members.find((m) => m.role === "customer");
-    const snap = await snapshotRepo.findOne({ chat_id: chatId });
-    const customerName = snap?.customer_name || customer?.name || "";
-    const customerRemark = customer?.remark || "";
-
-    const existing = await orderRepo.findOne({ chat_id: chatId });
-    if (existing) {
-        const patch: Record<string, any> = {};
-        if (JSON.stringify(existing.agent_ids || []) !== JSON.stringify(agentIds)) patch.agent_ids = agentIds;
-        if (customerName && existing.customer_name !== customerName) patch.customer_name = customerName;
-        if (customerRemark && existing.customer_remark !== customerRemark) patch.customer_remark = customerRemark;
-        if (!existing.order_name && chat?.name) patch.order_name = chat.name;
-        if (!existing.private_chat_id && customer?.wechat_id) {
-            const pcId = await findPrivateChatForCustomer(customer.wechat_id, agentIds);
-            if (pcId) patch.private_chat_id = pcId;
-        }
-        if (Object.keys(patch).length > 0) await orderRepo.update({ id: existing.id }, patch);
-        return (await orderRepo.findOne({ id: existing.id })) || existing;
-    }
-
-    let privateChatId = "";
-    if (customer?.wechat_id) {
-        privateChatId = await findPrivateChatForCustomer(customer.wechat_id, agentIds);
-    }
-
-    return insertOrderAndNotify({
-        order_name: chat?.name || customerRemark || customerName || "",
-        source: "wecom",
-        chat_id: chatId,
-        private_chat_id: privateChatId,
-        customer_id: customer?.wechat_id || "",
-        customer_name: customerName,
-        customer_remark: customerRemark,
-        agent_ids: agentIds,
-        remarks: [],
-        data: {},
-        version: 1,
-    });
+/** 查会话对应的订单，没有就返回 null，不新建。群单为主键，私聊挂在 private_chat_id 上 */
+export async function findOrderForChat(chatId: string): Promise<OrderEntity | null> {
+    return (await orderRepo.findOne({ chat_id: chatId })) || (await orderRepo.findOne({ private_chat_id: chatId }));
 }
 
 

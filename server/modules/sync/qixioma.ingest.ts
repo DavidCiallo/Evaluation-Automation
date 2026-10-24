@@ -92,11 +92,6 @@ async function ensureChat(conv: ConversationGroup, staffKnown: Set<string>): Pro
     return chat;
 }
 
-async function ensureOrder(chatId: string): Promise<void> {
-    const { ensureOrderForChat } = await import("../order/order.service");
-    await ensureOrderForChat(chatId);
-}
-
 /** 说话人写的是显示名（「小柠」），落库统一成 agent 选项值 */
 export function agentIdOf(speaker: string): string {
     return AGENT_OPTIONS.find((a) => a.label === speaker)?.value || speaker;
@@ -239,7 +234,6 @@ export async function syncQixioma(): Promise<number> {
         await migrateLegacyChats();
         for (const chat of touched.values()) {
             await rebuildSnapshot(chat);
-            await ensureOrder(chat.id);
         }
 
         if (inserted > 0) console.log(`[qixioma] ${inserted} new message(s) ingested`);
