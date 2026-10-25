@@ -12,7 +12,7 @@ import { toast } from "@/client/methods/notify"
 
 export function AuthPage() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState("admin@Evaluation-Automation.local")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
 
