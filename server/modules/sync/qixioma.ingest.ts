@@ -1,5 +1,5 @@
 import Repository from "../../lib/repository";
-import { qixiomaClient, QIXIOMA_GROUP_TAB, type QixiomaMessage } from "../../lib/qixioma-client";
+import { qixiomaClient, QIXIOMA_GROUP_TAB, QIXIOMA_PRIVATE_TAB, type QixiomaMessage } from "../../lib/qixioma-client";
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
@@ -48,10 +48,26 @@ async function knownStaffNames(staffs: string[]): Promise<Set<string>> {
     return new Set([...staffs, ...accounts.map((a) => a.name)].filter(Boolean));
 }
 
+/** 消息流里不带座席字段，只能从会话列表的 staffs 里取；一分钟缓存一次，免得每次轮询都多打两个请求 */
+let staffCache: string[] = [];
+let staffCacheAt = 0;
+
+async function staffNamesFromConversations(): Promise<string[]> {
+    if (Date.now() - staffCacheAt < 60_000) return staffCache;
+    const names = new Set<string>();
+    for (const tab of [QIXIOMA_PRIVATE_TAB, QIXIOMA_GROUP_TAB]) {
+        for (const c of await qixiomaClient.listConversations({ limit: 100, tab })) {
+            for (const s of c.staffs) names.add(s);
+        }
+    }
+    staffCache = [...names];
+    staffCacheAt = Date.now();
+    return staffCache;
+}
+
 interface ConversationGroup {
     key: string;
     tab: number;
-    staff: string;
     name: string;
     messages: QixiomaMessage[];
 }
@@ -65,29 +81,36 @@ async function ensureChat(conv: ConversationGroup, staffKnown: Set<string>): Pro
             .map((m) => m.speaker)
             .filter(Boolean),
     )];
-    const agents = [...new Set([
-        ...conv.messages.filter((m) => isStaff(m.speaker, staffKnown)).map((m) => m.speaker),
-        conv.staff,
-    ].filter(Boolean))];
+    const agents = [...new Set(
+        conv.messages.filter((m) => isStaff(m.speaker, staffKnown)).map((m) => m.speaker).filter(Boolean),
+    )];
 
     let chat = await chatRepo.findOne({ chat_id: conv.key });
     if (!chat) {
-        const name = isGroup ? conv.name : customers[0] || conv.name;
-        chat = await chatRepo.insert({ chat_id: conv.key, name, type: isGroup ? "group" : "single", last_send_time: 0 });
-    } else if (isGroup && chat.name !== conv.name) {
+        chat = await chatRepo.insert({ chat_id: conv.key, name: conv.name, type: isGroup ? "group" : "single", last_send_time: 0 });
+    } else if (conv.name && chat.name !== conv.name) {
         await chatRepo.update({ id: chat.id }, { name: conv.name });
         chat = { ...chat, name: conv.name };
     }
 
+    // 同一个人可能在早期被误记成客户，这里按名字就地改回客服
     const members = await memberRepo.find({ chat_id: chat.id });
-    const existing = new Set(members.map((m) => m.wechat_id));
     for (const name of agents) {
-        if (existing.has(agentIdOf(name))) continue;
-        await memberRepo.insert({ chat_id: chat.id, wechat_id: agentIdOf(name), role: "agent", name, avatar: null });
+        const wechatId = agentIdOf(name);
+        const found = members.find((m) => m.wechat_id === wechatId || m.name === name);
+        if (!found) {
+            await memberRepo.insert({ chat_id: chat.id, wechat_id: wechatId, role: "agent", name, avatar: null });
+        } else if (found.role !== "agent" || found.wechat_id !== wechatId) {
+            await memberRepo.update({ id: found.id }, { role: "agent", wechat_id: wechatId, name });
+        }
     }
     for (const name of customers) {
-        if (existing.has(`qixioma_${name}`)) continue;
+        if (members.some((m) => m.name === name)) continue;
         await memberRepo.insert({ chat_id: chat.id, wechat_id: `qixioma_${name}`, role: "customer", name, avatar: null });
+    }
+    // 私聊里客户还没发过言时，会话名就是客户备注，补一条客户成员，否则这个会话在列表里会被过滤掉
+    if (!isGroup && customers.length === 0 && conv.name && !isStaff(conv.name, staffKnown) && !members.some((m) => m.name === conv.name)) {
+        await memberRepo.insert({ chat_id: chat.id, wechat_id: `qixioma_${conv.name}`, role: "customer", name: conv.name, avatar: null });
     }
     return chat;
 }
@@ -190,7 +213,7 @@ export async function syncQixioma(): Promise<number> {
     if (syncing) return 0;
     syncing = true;
     try {
-        const staffKnown = await knownStaffNames([]);
+        const staffKnown = await knownStaffNames(await staffNamesFromConversations());
         const cursorRow = await seqRepo.findOne({ id: CURSOR_ID });
         // 旧版游标是按会话名的 JSON，格式不兼容，直接从头读
         let cursor = cursorRow?.value?.includes(":") ? cursorRow.value : null;
@@ -199,17 +222,15 @@ export async function syncQixioma(): Promise<number> {
 
         for (let page = 0; page < MAX_PAGES; page++) {
             const result = await qixiomaClient.listMessages({ after: cursor, limit: PAGE_SIZE });
-            for (const m of result.items) staffKnown.add(m.staff);
 
             const groups = new Map<string, ConversationGroup>();
             for (const m of result.items) {
                 const key = chatKeyOf(m);
                 let g = groups.get(key);
                 if (!g) {
-                    g = { key, tab: m.tab, staff: m.staff, name: m.name, messages: [] };
+                    g = { key, tab: m.tab, name: m.name, messages: [] };
                     groups.set(key, g);
                 }
-                if (!g.staff && m.staff) g.staff = m.staff;
                 g.messages.push(m);
             }
 

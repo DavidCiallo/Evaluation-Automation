@@ -14,8 +14,6 @@ export interface QixiomaMessage {
     timeMs: number;
     /** 1 私聊，2 群聊 */
     tab: number;
-    /** 会话所属座席 */
-    staff: string;
     /** 私聊为客户备注，群聊为群名称 */
     name: string;
 }
@@ -24,8 +22,8 @@ export interface QixiomaConversation {
     id: number;
     /** 1 私聊，2 群聊 */
     tab: number;
-    /** 企小码登录的客服微信号，也就是消息归属的座席 */
-    staff: string;
+    /** 会话归属的座席显示名，接口给的是 staffs 数组 */
+    staffs: string[];
     /** 私聊为客户备注，群聊为群名称 */
     name: string;
     messageCount: number;
@@ -88,7 +86,6 @@ class QixiomaClient {
                 time: String(m.time ?? ""),
                 timeMs,
                 tab,
-                staff: String(m.staff ?? "").trim(),
                 name,
             });
         }
@@ -116,7 +113,7 @@ class QixiomaClient {
             out.push({
                 id: Number(c.id),
                 tab,
-                staff: String(c.staff ?? "").trim(),
+                staffs: Array.isArray(c.staffs) ? c.staffs.map((s: any) => String(s ?? "").trim()).filter(Boolean) : [],
                 name,
                 messageCount: Number(c.messageCount) || 0,
                 lastTimeMs: Number(c.lastTimeMs) || 0,
