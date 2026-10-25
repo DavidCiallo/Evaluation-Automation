@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { Check, Sparkles, RefreshCw, Send, MoreHorizontal, ChevronUp, ShieldOff, ShieldCheck, ExternalLink } from "lucide-react"
+import { Check, Sparkles, RefreshCw, Send, MoreHorizontal, ChevronUp, ShieldOff, ShieldCheck, ExternalLink, Users, User } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -87,6 +87,7 @@ export function WorkbenchPage() {
     })
     const [selectedId, setSelectedId] = useState<string | null>((params.chatId as string) || null)
     const [status, setStatus] = useState<"all" | "pending">("all")
+    const [kind, setKind] = useState<"all" | "group" | "single">("all")
     const [chatSearch, setChatSearch] = useState("")
     const [visibleCount, setVisibleCount] = useState(50)
     const [members, setMembers] = useState<Member[]>([])
@@ -219,12 +220,13 @@ export function WorkbenchPage() {
     const filteredChats = useMemo(() => {
         let list = chats
         if (status === "pending") list = list.filter((c) => c.pending)
+        if (kind !== "all") list = list.filter((c) => c.type === kind)
         if (chatSearch.trim()) {
             const q = chatSearch.trim().toLowerCase()
             list = list.filter((c) => c.name.toLowerCase().includes(q) || c.chat_id.toLowerCase().includes(q))
         }
         return list
-    }, [chats, status, chatSearch])
+    }, [chats, status, kind, chatSearch])
 
     const visibleChats = useMemo(() => filteredChats.slice(0, visibleCount), [filteredChats, visibleCount])
     const hasMore = visibleCount < filteredChats.length
@@ -284,15 +286,25 @@ export function WorkbenchPage() {
 
     return (
         <div className="flex flex-1 min-h-0 flex-col gap-3">
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-between">
                 <div className="flex gap-2">
-                    <Badge variant={status === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setStatus("all")}>
+                    <Badge variant={kind === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setKind("all")}>
                         全部
                     </Badge>
-                    <Badge variant={status === "pending" ? "default" : "outline"} className="cursor-pointer" onClick={() => setStatus("pending")}>
-                        待回复
+                    <Badge variant={kind === "group" ? "default" : "outline"} className="cursor-pointer" onClick={() => setKind("group")}>
+                        群聊
+                    </Badge>
+                    <Badge variant={kind === "single" ? "default" : "outline"} className="cursor-pointer" onClick={() => setKind("single")}>
+                        私聊
                     </Badge>
                 </div>
+                <Badge
+                    variant={status === "pending" ? "default" : "outline"}
+                    className="cursor-pointer"
+                    onClick={() => setStatus(status === "pending" ? "all" : "pending")}
+                >
+                    待回复
+                </Badge>
             </div>
 
             <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[320px_1fr_320px]">
@@ -334,6 +346,11 @@ export function WorkbenchPage() {
                                     }`}
                                 >
                                     <div className="flex items-center gap-2">
+                                        {c.type === "group" ? (
+                                            <Users className="text-muted-foreground/50 size-3.5 shrink-0" />
+                                        ) : (
+                                            <User className="text-muted-foreground/50 size-3.5 shrink-0" />
+                                        )}
                                         <span className="truncate text-sm font-medium">
                                             {c.name}
                                             {c.type === "single" && c.customer_remark && (
