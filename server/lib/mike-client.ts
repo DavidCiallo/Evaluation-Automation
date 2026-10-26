@@ -70,7 +70,7 @@ class MikeClient {
         const res = await fetch(`${cfg.baseUrl}/api/auth`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user: "evaluation-automation", password: cfg.password }),
+            body: JSON.stringify({ password: cfg.password }),
         });
         const json = await res.json() as any;
         if (!json.success || !json.token) {
@@ -113,6 +113,8 @@ class MikeClient {
             limit: opts?.limit || 50,
             from: opts?.from,
             to: opts?.to,
+            // 不传 fields 只返回索引，字段明细是空的
+            fields: "true",
         });
         const list: MikeSubmission[] = (json.data || []).map((s) => ({
             key: String(s.key ?? `${s.formId}|${s.name}|${s.submitTime}`),
