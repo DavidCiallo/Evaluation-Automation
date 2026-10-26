@@ -32,6 +32,21 @@ export function parseMikeTime(s: string | null | undefined): number {
 /** 按姓名找提交的时间窗。签证材料通常提前一两个月填，窗口太窄会匹配不到。 */
 const MATCH_WINDOW_DAYS = 60;
 
+function toSubmission(s: any, fallbackKey = ""): MikeSubmission {
+    return {
+        key: String(s.key ?? fallbackKey ?? `${s.formId}|${s.name}|${s.submitTime}`),
+        form_id: String(s.formId ?? s.form_id ?? ""),
+        form_name: String(s.formName ?? s.form_name ?? ""),
+        submitter_name: String(s.name ?? ""),
+        submit_time: parseMikeTime(s.submitTime),
+        fields: (s.fields || []).map((x: any) => ({
+            fieldId: String(x.fieldId ?? ""),
+            name: String(x.name ?? ""),
+            value: x.value == null ? "" : String(x.value),
+        })),
+    };
+}
+
 class MikeClient {
     private config: MikeConfig | null = null;
     private configRevision = -1;
@@ -116,18 +131,7 @@ class MikeClient {
             // 不传 fields 只返回索引，字段明细是空的
             fields: "true",
         });
-        const list: MikeSubmission[] = (json.data || []).map((s) => ({
-            key: String(s.key ?? `${s.formId}|${s.name}|${s.submitTime}`),
-            form_id: String(s.formId ?? s.form_id ?? ""),
-            form_name: String(s.formName ?? s.form_name ?? ""),
-            submitter_name: String(s.name ?? ""),
-            submit_time: parseMikeTime(s.submitTime),
-            fields: (s.fields || []).map((x: any) => ({
-                fieldId: String(x.fieldId ?? ""),
-                name: String(x.name ?? ""),
-                value: x.value == null ? "" : String(x.value),
-            })),
-        }));
+        const list: MikeSubmission[] = (json.data || []).map((s) => toSubmission(s, `${s.formId}|${s.name}|${s.submitTime}`));
         return { list, total: json.pagination?.total ?? list.length };
     }
 
@@ -174,14 +178,16 @@ class MikeClient {
     }
 
     async findSubmissionByKey(key: string): Promise<MikeSubmission | null> {
-        const formId = key.split("|")[0] || "";
-        for (let page = 1; page <= 5; page++) {
-            const { list } = await this.getSubmissions({ formId, page, limit: 100 });
-            const hit = list.find((s) => s.key === key);
-            if (hit) return hit;
-            if (list.length < 100) break;
-        }
-        return null;
+        const cfg = this.ensureConfig();
+        const token = await this.login();
+        // key 形如 maike|<提交ID>，整串是记录键而不是表单 ID，只能走详情接口
+        const res = await fetch(`${cfg.baseUrl}/api/submissions/${encodeURIComponent(key)}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.status === 404) return null;
+        const json = await res.json() as any;
+        if (!json.success || !json.data) return null;
+        return toSubmission(json.data, key);
     }
 
     async findSubmissionsByNameAnyForm(name: string, limit = 100): Promise<MikeSubmission[]> {
