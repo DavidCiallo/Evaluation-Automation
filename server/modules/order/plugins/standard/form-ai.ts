@@ -121,7 +121,18 @@ export async function extractRequiredFields(data: FormDataItem[]): Promise<FormE
         }
         patch[key] = value;
     }
+    if (!patch.name) {
+        const raw = rawName(rows);
+        if (raw) patch.name = raw;
+    }
     return { ...base, patch, used_llm: true, error: null };
+}
+
+/** 客户常把拼音填进「中文姓名」栏，模型会判定成无法确定而留空，这时直接取原文兜底 */
+function rawName(rows: Array<{ name: string; value: string }>): string {
+    const candidates = rows.filter((r) => /姓名/.test(r.name) && !/曾用名/.test(r.name));
+    const hit = candidates.find((r) => r.name.trim() === "姓名") || candidates[0];
+    return hit ? hit.value.trim() : "";
 }
 
 export function missingRequired(patch: Partial<Record<RequiredFormField, string>>): RequiredFormField[] {
