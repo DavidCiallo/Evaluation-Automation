@@ -44,10 +44,20 @@ export class AccountService {
     }
 
     static async backfillAgent(wechatId: string): Promise<{ chats: number }> {
+        // 未登记客服时入库的消息带着 qixioma_ 客户前缀，登记后要一起翻过来，否则历史消息永远算客户发言
+        const legacyId = `qixioma_${wechatId}`;
+        const affectedMembers = await memberRepo.find({ wechat_id: { $in: [wechatId, legacyId] } } as any);
         await conversationRepo.update({ from_id: wechatId } as any, { from_role: "agent" } as any);
+        await conversationRepo.update({ from_id: legacyId } as any, { from_id: wechatId, from_role: "agent" } as any);
+
+        for (const m of affectedMembers) {
+            if (m.wechat_id !== legacyId) continue;
+            const canon = await memberRepo.findOne({ chat_id: m.chat_id, wechat_id: wechatId } as any);
+            if (canon) await memberRepo.delete({ id: m.id });
+            else await memberRepo.update({ id: m.id }, { wechat_id: wechatId, role: "agent" } as any);
+        }
         await memberRepo.update({ wechat_id: wechatId } as any, { role: "agent" } as any);
 
-        const affectedMembers = await memberRepo.find({ wechat_id: wechatId } as any);
         const affectedChatIds = [...new Set(affectedMembers.map((m) => m.chat_id))];
         if (affectedChatIds.length === 0) return { chats: 0 };
 
