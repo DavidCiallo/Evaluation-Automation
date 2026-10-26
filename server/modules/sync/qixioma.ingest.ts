@@ -1,5 +1,5 @@
 import Repository from "../../lib/repository";
-import { qixiomaClient, QIXIOMA_GROUP_TAB, QIXIOMA_PRIVATE_TAB, type QixiomaMessage } from "../../lib/qixioma-client";
+import { qixiomaClient, QIXIOMA_GROUP_TAB, type QixiomaMessage } from "../../lib/qixioma-client";
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ChatEntity, ChatMemberEntity } from "../../../shared/modules/chat/chat.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
@@ -42,27 +42,10 @@ export function isQixiomaChat(chatId: string): boolean {
     return chatId.startsWith(PRIVATE_PREFIX) || chatId.startsWith(GROUP_PREFIX);
 }
 
-/** 会话页签上的 staff 就是座席本人，按会话记下；账号表里配了 wechat_id 的客服也一并算 */
-async function knownStaffNames(staffs: string[]): Promise<Set<string>> {
+/** 客服花名册以账号管理登记的为准，企微 ID 必填的才算 */
+async function knownStaffNames(): Promise<Set<string>> {
     const accounts = (await accountRepo.findAllIgnoreDelete()).filter((a) => a.wechat_id);
-    return new Set([...staffs, ...accounts.map((a) => a.name)].filter(Boolean));
-}
-
-/** 消息流里不带座席字段，只能从会话列表的 staffs 里取；一分钟缓存一次，免得每次轮询都多打两个请求 */
-let staffCache: string[] = [];
-let staffCacheAt = 0;
-
-async function staffNamesFromConversations(): Promise<string[]> {
-    if (Date.now() - staffCacheAt < 60_000) return staffCache;
-    const names = new Set<string>();
-    for (const tab of [QIXIOMA_PRIVATE_TAB, QIXIOMA_GROUP_TAB]) {
-        for (const c of await qixiomaClient.listConversations({ limit: 100, tab })) {
-            for (const s of c.staffs) names.add(s);
-        }
-    }
-    staffCache = [...names];
-    staffCacheAt = Date.now();
-    return staffCache;
+    return new Set(accounts.map((a) => a.name).filter(Boolean));
 }
 
 interface ConversationGroup {
@@ -121,7 +104,7 @@ export function agentIdOf(speaker: string): string {
 }
 
 function isStaff(speaker: string, staffKnown: Set<string>): boolean {
-    return staffKnown.has(speaker) || AGENT_OPTIONS.some((a) => a.label === speaker);
+    return staffKnown.has(speaker);
 }
 
 async function insertMessage(chat: ChatEntity, msg: QixiomaMessage, staffKnown: Set<string>): Promise<{ created: boolean }> {
@@ -213,7 +196,7 @@ export async function syncQixioma(): Promise<number> {
     if (syncing) return 0;
     syncing = true;
     try {
-        const staffKnown = await knownStaffNames(await staffNamesFromConversations());
+        const staffKnown = await knownStaffNames();
         const cursorRow = await seqRepo.findOne({ id: CURSOR_ID });
         // 旧版游标是按会话名的 JSON，格式不兼容，直接从头读
         let cursor = cursorRow?.value?.includes(":") ? cursorRow.value : null;
