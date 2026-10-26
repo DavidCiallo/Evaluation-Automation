@@ -184,10 +184,22 @@ class MikeClient {
         const res = await fetch(`${cfg.baseUrl}/api/submissions/${encodeURIComponent(key)}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
-        if (res.status === 404) return null;
-        const json = await res.json() as any;
-        if (!json.success || !json.data) return null;
-        return toSubmission(json.data, key);
+        if (res.status !== 404) {
+            const json = await res.json() as any;
+            if (json.success && json.data) return toSubmission(json.data, key);
+        }
+        return this.findByLegacyKey(key);
+    }
+
+    /** 旧 xlsx 键形如 <表单ID>|<姓名>|<提交时间>；mike 归一化后记录改挂到 maike|<id>，靠提交时间对上同一条 */
+    private async findByLegacyKey(key: string): Promise<MikeSubmission | null> {
+        const parts = key.split("|");
+        if (parts.length !== 3) return null;
+        const [formId, name, timeText] = parts;
+        const wantTime = parseMikeTime(timeText);
+        if (!formId || !wantTime) return null;
+        const { list } = await this.getSubmissions({ formId, keyword: name, limit: 100 });
+        return list.find((s) => s.submit_time === wantTime) || null;
     }
 
     async findSubmissionsByNameAnyForm(name: string, limit = 100): Promise<MikeSubmission[]> {
