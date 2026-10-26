@@ -201,6 +201,16 @@ export async function getRelatedChats(orderId: string): Promise<{
     return { chats: result };
 }
 
+/** 手工开单建出来的订单没有会话来源，由人工挑一个挂上去：群聊挂 chat_id，私聊挂 private_chat_id */
+export async function linkChat(orderId: string, chatId: string): Promise<OrderEntity | null> {
+    const order = await orderRepo.findOne({ id: orderId });
+    if (!order) return null;
+    const chat = await chatRepo.findOne({ id: chatId });
+    if (!chat) throw "chat not found";
+    await orderRepo.update({ id: orderId }, chat.type === "group" ? { chat_id: chatId } : { private_chat_id: chatId });
+    return orderRepo.findOne({ id: orderId });
+}
+
 
 async function findPrivateChatForCustomer(customerWechatId: string, agentIds: string[]): Promise<string> {
     if (!customerWechatId || agentIds.length === 0) return "";

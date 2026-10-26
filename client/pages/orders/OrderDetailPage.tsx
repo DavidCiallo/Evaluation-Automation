@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, MessageSquare, Users, MessageCircle, Send } from "lucide-react"
+import { ArrowLeft, Link2, MessageSquare, Users, MessageCircle, Send } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -13,8 +13,10 @@ import {
 import { Badge } from "@/client/components/ui/badge"
 import { Button } from "@/client/components/ui/button"
 import { Skeleton } from "@/client/components/ui/skeleton"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/client/components/ui/dialog"
+import { Input } from "@/client/components/ui/input"
 import { ConversationDTO } from "../../../shared/modules/conversation/conversation.entity"
-import { conversationApi, jobApi, orderApi } from "@/client/api/instance"
+import { conversationApi, jobApi, orderApi, workbenchApi } from "@/client/api/instance"
 import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
 import type { JobDTO } from "../../../shared/modules/job/job.entity"
@@ -42,6 +44,14 @@ type RelatedChat = {
     is_main: boolean
 }
 
+type PickChat = {
+    id: string
+    name: string
+    type: string
+    last_message?: string
+    msg_count?: number
+}
+
 export function OrderDetailPage() {
     const params = useParams()
     const auth = getAuth()
@@ -58,6 +68,47 @@ export function OrderDetailPage() {
     const [job, setJob] = useState<JobDTO | null>(null)
     const [jobPending, setJobPending] = useState(false)
     const [runningJob, setRunningJob] = useState(false)
+    const [linkOpen, setLinkOpen] = useState(false)
+    const [linkLoading, setLinkLoading] = useState(false)
+    const [linkChats, setLinkChats] = useState<PickChat[]>([])
+    const [linkQuery, setLinkQuery] = useState("")
+    const [linkingId, setLinkingId] = useState("")
+
+    const openLink = async () => {
+        setLinkOpen(true)
+        setLinkLoading(true)
+        try {
+            const res: any = await workbenchApi.home({ auth })
+            setLinkChats((res?.data?.chats as PickChat[]) || [])
+        } catch (e: any) {
+            toast.error(`加载会话失败: ${e?.message || ""}`)
+        } finally {
+            setLinkLoading(false)
+        }
+    }
+
+    const linkList = useMemo(() => {
+        const q = linkQuery.trim().toLowerCase()
+        if (!q) return linkChats
+        return linkChats.filter(
+            (c) => (c.name || "").toLowerCase().includes(q) || (c.last_message || "").toLowerCase().includes(q),
+        )
+    }, [linkChats, linkQuery])
+
+    const submitLink = async (chat: PickChat) => {
+        if (!params.id) return
+        setLinkingId(chat.id)
+        try {
+            await orderApi.linkChat({ id: params.id, chat_id: chat.id, auth })
+            toast.success(`已关联「${chat.name || "会话"}」`)
+            setLinkOpen(false)
+            await load()
+        } catch (e: any) {
+            toast.error(e?.message || "关联失败")
+        } finally {
+            setLinkingId("")
+        }
+    }
 
     const load = async () => {
         if (!params.id) return
@@ -456,6 +507,10 @@ export function OrderDetailPage() {
                         {relatedChats.length === 0 && (
                             <span className="text-muted-foreground text-xs">暂无关联会话</span>
                         )}
+                        <Button variant="outline" size="sm" className="ml-auto h-6 px-2 text-xs" onClick={openLink}>
+                            <Link2 className="size-3" />
+                            关联会话
+                        </Button>
                     </div>
                     {loadingMessages && <Skeleton className="h-32 w-full" />}
                     {!loadingMessages && messages.length === 0 && (
@@ -475,6 +530,54 @@ export function OrderDetailPage() {
                     )}
                 </CardContent>
             </Card>
+
+            <Dialog open={linkOpen} onOpenChange={(o) => !linkingId && setLinkOpen(o)}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>关联会话</DialogTitle>
+                        <DialogDescription>
+                            选一个群聊或私聊挂到这个订单上，消息记录和表单数据都以它为准。群聊挂到群聊、私聊挂到私聊。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2">
+                        <Input
+                            placeholder="搜索会话名或消息内容"
+                            value={linkQuery}
+                            onChange={(e) => setLinkQuery(e.target.value)}
+                        />
+                        <div className="max-h-[50vh] space-y-1 overflow-y-auto pr-1">
+                            {linkLoading && <p className="text-muted-foreground py-6 text-center text-sm">加载中…</p>}
+                            {!linkLoading && linkList.length === 0 && (
+                                <p className="text-muted-foreground py-6 text-center text-sm">没有匹配的会话</p>
+                            )}
+                            {linkList.map((c) => (
+                                <button
+                                    key={c.id}
+                                    type="button"
+                                    disabled={!!linkingId}
+                                    onClick={() => submitLink(c)}
+                                    className="hover:bg-accent disabled:opacity-50 flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left transition"
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <div className="truncate text-sm font-medium">{c.name || "(未命名会话)"}</div>
+                                        <div className="text-muted-foreground truncate text-xs">
+                                            {c.last_message || "(无消息)"}
+                                        </div>
+                                    </div>
+                                    <span className="text-muted-foreground shrink-0 text-[11px]">
+                                        {linkingId === c.id ? "关联中…" : c.type === "group" ? "群聊" : "私聊"}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setLinkOpen(false)} disabled={!!linkingId}>
+                            取消
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

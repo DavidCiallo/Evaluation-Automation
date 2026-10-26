@@ -332,3 +332,33 @@ export class OrderCreateResponse {
         this.message = data.message;
     }
 }
+
+export class OrderLinkChatRequest {
+    public id: string;
+    public chat_id: string;
+    public auth?: string;
+
+    constructor(data: any) {
+        if (!data.id) throw new Error("id is required");
+        if (!data.chat_id) throw new Error("chat_id is required");
+        this.id = data.id;
+        this.chat_id = data.chat_id;
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new OrderLinkChatRequest(data);
+    }
+}
+
+export class OrderLinkChatResponse {
+    public success: boolean;
+    public data?: { order: OrderDTO };
+    public message?: string;
+
+    constructor(data: { success: boolean; data?: { order: OrderDTO }; message?: string }) {
+        this.success = data.success;
+        this.data = data.data;
+        this.message = data.message;
+    }
+}

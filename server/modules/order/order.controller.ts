@@ -11,6 +11,7 @@ import {
     OrderCreateFromChatRequest,
     OrderCreateRequest,
     OrderRelatedChatsRequest,
+    OrderLinkChatRequest,
 } from "../../../shared/modules/order/order.interface";
 import * as svc from "./order.service";
 import { getIdentifyByVerify } from "../auth/auth.service";
@@ -105,6 +106,13 @@ async function relatedChats(request: OrderRelatedChatsRequest) {
     return await svc.getRelatedChats(req.id);
 }
 
+async function linkChat(request: OrderLinkChatRequest) {
+    const req = OrderLinkChatRequest.self(request);
+    const order = await svc.linkChat(req.id, req.chat_id);
+    if (!order) throw "order not found";
+    return { order: await svc.toDTO(order) };
+}
+
 async function typeformForms() {
     const list = await typeformClient.getForms();
     return { list };
@@ -112,6 +120,6 @@ async function typeformForms() {
 
 export const orderMount = {
     routes: orderRoutes,
-        handlers: { list, detail, cancel, reopen, pluginAction, updateCustomerRemark, remark, setVisaType, createFromChat, create, relatedChats, typeformForms },
+        handlers: { list, detail, cancel, reopen, pluginAction, updateCustomerRemark, remark, setVisaType, createFromChat, create, relatedChats, linkChat, typeformForms },
 
 };
