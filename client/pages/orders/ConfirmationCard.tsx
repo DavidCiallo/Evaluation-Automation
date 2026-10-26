@@ -105,6 +105,11 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
         setBusy(true)
         try {
             const res: any = await confirmationApi.issue({ order_id: orderId, auth })
+            // 签发失败时接口仍返回 200，只有 success:false 带原因
+            if (res?.success === false) {
+                toast.error(res?.message || "签发失败")
+                return
+            }
             const created = res?.data?.created || 0
             toast.success(created > 0 ? `已签发 ${created} 份确认单` : "所有客户均已有有效确认单")
             setList((res?.data?.list as ConfirmationDTO[]) || [])
