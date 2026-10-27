@@ -656,10 +656,17 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 completed_time: created.completed_time || undefined,
                 matched_name: created.matched_name,
             };
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: [...forms, assignment] });
+            const nextForms = [...forms, assignment];
             if (providerDef.id === "mike" && created.external_id) {
                 await claimSubmission(created.external_id, assignment.id).catch(() => {});
             }
+            // 阶段评估只读落库的识别结果，绑完不立刻识别就会一直停在「尚未识别」
+            if (assignment.status === "completed") {
+                const { forms: checked } = await refreshFormExtractions(customers, nextForms);
+                await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: checked });
+                return { assignment: checked.find((f) => f.id === assignment.id) || assignment };
+            }
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: nextForms });
             return { assignment };
         },
 
@@ -672,7 +679,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 return { list, live: true };
             } catch {
                 const submissionRepo: Repository<any> = Repository.instance("Submission");
-                const all = await submissionRepo.find({}, { limit: 200 });
+                const all = await submissionRepo.find({});
                 const filtered = kw
                     ? all.filter((s: any) => (s.submitter_name || "").includes(kw) || (s.form_name || "").includes(kw))
                     : all;
@@ -772,11 +779,17 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "update-form-status": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_id || !payload?.status) throw "form_id and status are required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
-            const forms = (std.forms || []).map((f) =>
+            const nextForms = (std.forms || []).map((f) =>
                 f.id === payload.form_id ? { ...f, status: payload.status } : f
             );
-            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms });
-            return { forms };
+            if (payload.status === "completed") {
+                const customers = std.draft?.customers || std.confirmed?.customers || [];
+                const { forms: checked } = await refreshFormExtractions(customers, nextForms);
+                await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: checked });
+                return { forms: checked };
+            }
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: nextForms });
+            return { forms: nextForms };
         },
 
         "check-form-completion": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
