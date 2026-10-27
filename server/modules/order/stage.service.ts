@@ -4,7 +4,7 @@ import type { OrderEntity } from "../../../shared/modules/order/order.entity";
 import type { MaterialLineEntity } from "../../../shared/modules/material/material.entity";
 import type { ConfirmationEntity } from "../../../shared/modules/confirmation/confirmation.entity";
 import type { PoolAccountEntity } from "../../../shared/modules/account-pool/account-pool.entity";
-import { evaluateCustomerForms } from "../form/form-check";
+import { evaluateStoredForms } from "../form/form-check";
 import { outputGaps, isRegistrationDone } from "../../../shared/modules/account-pool/account-pool.entity";
 import {
     ORDER_STAGES,
@@ -122,7 +122,7 @@ async function evalRequirement(
 
         case "forms_valid": {
             if (customers.length === 0) return done(false, "尚无客户名单");
-            const checked = await evaluateCustomerForms(customers, stdData(order).forms || []);
+            const checked = evaluateStoredForms(customers, stdData(order).forms || []);
             const gaps: string[] = [];
             for (const c of customers) {
                 const name = c.name || "未命名";

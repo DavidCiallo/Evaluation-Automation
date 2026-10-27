@@ -96,6 +96,36 @@ export async function evaluateCustomerForms(
     return out;
 }
 
+function evaluateStoredExtraction(ex: FormAssignment["extraction"] | undefined): { ok: boolean; reason: string | null } {
+    if (!ex) return { ok: false, reason: "表单内容尚未识别" };
+    if (ex.error) return { ok: false, reason: ex.error };
+    if ((ex.filled_count || 0) < (ex.min_items || 0)) {
+        return { ok: false, reason: `已填写 ${ex.filled_count || 0} 项，少于要求的 ${ex.min_items || 0} 项` };
+    }
+    const missing = ex.missing || [];
+    if (missing.length > 0) return { ok: false, reason: `缺少：${missing.join("、")}` };
+    return { ok: true, reason: null };
+}
+
+/** 阶段评估用：只读已落库的识别结果，绝不在请求里调模型 */
+export function evaluateStoredForms(
+    customers: OrderCustomerInfo[],
+    forms: FormAssignment[],
+): Map<string, { submitted: boolean; result: { ok: boolean; reason: string | null } | null }> {
+    const out = new Map<string, { submitted: boolean; result: { ok: boolean; reason: string | null } | null }>();
+    for (const c of customers) {
+        const submitted = forms
+            .filter((f) => f.customer_id === c.id && f.status === "completed")
+            .sort((a, b) => (b.completed_time || 0) - (a.completed_time || 0));
+        if (submitted.length === 0) {
+            out.set(c.id, { submitted: false, result: null });
+            continue;
+        }
+        out.set(c.id, { submitted: true, result: evaluateStoredExtraction(submitted[0].extraction) });
+    }
+    return out;
+}
+
 export async function refreshFormExtractions(
     customers: OrderCustomerInfo[],
     forms: FormAssignment[],
