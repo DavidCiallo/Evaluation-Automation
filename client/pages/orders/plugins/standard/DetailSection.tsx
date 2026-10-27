@@ -533,6 +533,17 @@ function MikeSubmitPicker({ open, onClose, order, auth, formKey, customerId, cus
     )
 }
 
+const REQUIRED_FIELD_INPUTS: Array<{ key: string; label: string }> = [
+    { key: "name", label: "姓名" },
+    { key: "gender", label: "性别" },
+    { key: "surname_pinyin", label: "姓拼音" },
+    { key: "givenname_pinyin", label: "名拼音" },
+    { key: "passport_no", label: "护照号" },
+    { key: "birth_date", label: "出生日期" },
+    { key: "passport_issue_date", label: "护照签发日期" },
+    { key: "passport_expiry", label: "护照有效期" },
+]
+
 function FormCollectionSection({
     order, std, auth, reload,
     selectedId, onSelectForm, bare,
@@ -549,6 +560,37 @@ function FormCollectionSection({
     const [formErrors, setFormErrors] = useState<Array<{ provider: string; message: string }>>([])
     const [loadingForms, setLoadingForms] = useState(false)
     const [picker, setPicker] = useState<{ formKey: string; customerId: string; customerName: string; provider: "survey" | "mike" } | null>(null)
+    const [overrideForm, setOverrideForm] = useState<FormAssignment | null>(null)
+    const [overrideValues, setOverrideValues] = useState<Record<string, string>>({})
+
+    const openOverride = (f: FormAssignment) => {
+        const fields = (f.extraction?.fields as Record<string, string> | undefined) || {}
+        const init: Record<string, string> = {}
+        for (const item of REQUIRED_FIELD_INPUTS) init[item.key] = fields[item.key] || ""
+        setOverrideValues(init)
+        setOverrideForm(f)
+    }
+
+    const saveOverride = async () => {
+        if (!overrideForm) return
+        setBusy(true)
+        try {
+            await orderApi.pluginAction({
+                id: order.id,
+                plugin_id: STANDARD_PLUGIN_ID,
+                action: "override-form-fields",
+                payload: { form_id: overrideForm.id, fields: overrideValues },
+                auth,
+            })
+            toast.success("已保存补全内容")
+            setOverrideForm(null)
+            reload()
+        } catch (e: any) {
+            toast.error(`保存失败: ${e?.message || ""}`)
+        } finally {
+            setBusy(false)
+        }
+    }
 
     const loadForms = () => {
         setLoadingForms(true)
@@ -739,6 +781,16 @@ function FormCollectionSection({
                                         <Button
                                             size="sm"
                                             variant="ghost"
+                                            className="size-6 p-0"
+                                            title="补全必备项"
+                                            onClick={(e) => { e.stopPropagation(); openOverride(f) }}
+                                            disabled={busy}
+                                        >
+                                            <Pencil className="size-3" />
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
                                             className="text-destructive size-6 p-0"
                                             onClick={(e) => { e.stopPropagation(); removeForm(f.id) }}
                                             disabled={busy}
@@ -770,6 +822,41 @@ function FormCollectionSection({
                         )
                     })}
                 </div>
+            )}
+
+            {overrideForm && (
+                <Dialog open onOpenChange={(o) => { if (!o) setOverrideForm(null) }}>
+                    <DialogContent className="max-w-lg">
+                        <DialogHeader>
+                            <DialogTitle>补全必备项</DialogTitle>
+                            <DialogDescription>
+                                识别不出或缺失的必备字段可以手动填，保存后立即生效，也会用于生成确认单正文。
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid max-h-[60vh] gap-2 overflow-y-auto pr-1">
+                            {REQUIRED_FIELD_INPUTS.map((item) => (
+                                <div key={item.key} className="grid grid-cols-[7rem_1fr] items-center gap-2">
+                                    <Label className="text-xs">{item.label}</Label>
+                                    <Input
+                                        className="h-8"
+                                        value={overrideValues[item.key] || ""}
+                                        onChange={(e) =>
+                                            setOverrideValues((prev) => ({ ...prev, [item.key]: e.target.value }))
+                                        }
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                        <DialogFooter>
+                            <Button size="sm" variant="outline" onClick={() => setOverrideForm(null)} disabled={busy}>
+                                取消
+                            </Button>
+                            <Button size="sm" onClick={saveOverride} disabled={busy}>
+                                {busy ? "保存中…" : "保存"}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             )}
 
             {picker && (

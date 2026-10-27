@@ -25,6 +25,7 @@ import { extractDraft, detectRemarkUpdates, loadRecentMessages, hasIntentSignal 
 import { getFormProvider, listAllForms, type FormDataItem } from "../../../../lib/form-providers";
 import { claimSubmission } from "../../../form/mike-ingest";
 import { checkFormAssignment, refreshFormExtractions, type FormCheckResult } from "../../../form/form-check";
+import { REQUIRED_FORM_FIELDS, REQUIRED_FORM_FIELD_LABEL } from "./form-ai";
 import { ctripClient } from "../../../../lib/ctrip-client";
 import { extractTripPrefill } from "../../../../lib/trip-prefill";
 import { saveToDisk, createFile as createFileRecord } from "../../../file/file.service";
@@ -830,8 +831,40 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             };
         },
 
-        "get-form-data": async (order: OrderEntity, payload: any) => {
+        /** 识别不出或没有的必备项，允许人工补；补完直接盖掉落库的识别结果 */
+        "override-form-fields": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             if (!payload?.form_id) throw "form_id is required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const forms = std.forms || [];
+            const form = forms.find((f) => f.id === payload.form_id);
+            if (!form) throw "form assignment not found";
+
+            const input = (payload.fields || {}) as Record<string, any>;
+            const prev = form.extraction;
+            const fields: Record<string, string> = { ...((prev?.fields as Record<string, string> | undefined) || {}) };
+            for (const key of REQUIRED_FORM_FIELDS) {
+                if (!(key in input)) continue;
+                const value = String(input[key] ?? "").trim();
+                if (value) fields[key] = value;
+                else delete fields[key];
+            }
+            const missing = REQUIRED_FORM_FIELDS.filter((k) => !String(fields[k] ?? "").trim()).map(
+                (k) => REQUIRED_FORM_FIELD_LABEL[k],
+            );
+            const extraction = {
+                fields,
+                filled_count: Math.max(prev?.filled_count || 0, Object.keys(fields).length),
+                min_items: prev?.min_items || 20,
+                missing,
+                checked_time: Date.now(),
+                error: null,
+            };
+            const next = forms.map((f) => (f.id === form.id ? { ...f, extraction } : f));
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: next });
+            return { extraction };
+        },
+
+        "get-form-data": async (order: OrderEntity, payload: any) => {            if (!payload?.form_id) throw "form_id is required";
             const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
             const form = (std.forms || [])
                 .filter((f) => f.id === payload.form_id && (payload.customer_id ? f.customer_id === payload.customer_id : true))
@@ -928,6 +961,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "update-form-status": { at: "form_collection" },
         "check-form-completion": { at: "form_collection" },
         "get-form-data": { at: "form_collection" },
+        "override-form-fields": { at: "form_collection" },
         "remove-form": { at: "form_collection" },
         "search-mike-submissions": { at: "form_collection" },
         "link-mike-submission": { at: "form_collection" },

@@ -139,6 +139,30 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
         }
     }
 
+    const reissue = async (c: ConfirmationDTO) => {
+        if (!window.confirm(`撤销并重新为「${c.customer_name || "该客户"}」签发确认单？`)) return
+        setBusy(true)
+        try {
+            await confirmationApi.revoke({ id: c.id, reason: "重新签发", auth })
+            const res: any = await confirmationApi.issue({
+                order_id: orderId,
+                customer_ids: [c.customer_id],
+                auth,
+            })
+            // 签发失败时接口仍返回 200，只有 success:false 带原因
+            if (res?.success === false) {
+                toast.error(res?.message || "重新签发失败")
+                return
+            }
+            toast.success(`已为「${c.customer_name || "该客户"}」重新签发`)
+            await load()
+        } catch (e: any) {
+            toast.error(e?.message || "重新签发失败")
+        } finally {
+            setBusy(false)
+        }
+    }
+
     const copy = async (customerName: string, url: string) => {
         const title = `NoWorry签证信息确认 - ${customerName || "未命名"}`
         const text = `${title}，${url}，该表单信息将用于签证约位账号注册，请仔细检查后在页面下方点击确认信息无误`
@@ -215,6 +239,16 @@ export function ConfirmationCard({ orderId }: { orderId: string }) {
                                         </Button>
                                     </>
                                 )}
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2"
+                                    onClick={() => reissue(c)}
+                                    disabled={busy}
+                                >
+                                    <Send className="size-3" />
+                                    重新签发
+                                </Button>
                                 <Button
                                     variant="ghost"
                                     size="sm"
