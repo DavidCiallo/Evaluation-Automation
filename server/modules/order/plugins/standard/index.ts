@@ -339,6 +339,11 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 raw: draft?.raw ?? null,
             };
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { draft: next });
+            // 订单名同时是列表和页头显示的字段，改完要回写顶层，否则两处对不上
+            if (next.order_name && next.order_name !== order.order_name) {
+                const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
+                await orderRepo.update({ id: order.id }, { order_name: next.order_name });
+            }
             return { draft: next };
         },
 
