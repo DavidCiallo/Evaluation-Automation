@@ -2,6 +2,7 @@ import { getFormProvider, type FormDataItem } from "../../lib/form-providers";
 import {
     extractRequiredFields,
     missingRequired,
+    REQUIRED_FORM_FIELDS,
     REQUIRED_FORM_FIELD_LABEL,
     type FormExtraction,
 } from "../order/plugins/standard/form-ai";
@@ -75,7 +76,24 @@ export async function checkFormAssignment(form: FormAssignment, customer: OrderC
 }
 
 function attachResult(form: FormAssignment, result: FormCheckResult): FormAssignment {
-    return { ...form, extraction: result.extraction };
+    const prev = form.extraction;
+    if (!prev?.overridden) return { ...form, extraction: result.extraction };
+
+    // 人工补全的优先级高于重新识别，否则点一次刷新就把人填的内容冲掉了
+    const fields: Record<string, string> = { ...result.extraction.fields, ...prev.fields };
+    const missing = REQUIRED_FORM_FIELDS.filter((k) => !String(fields[k] ?? "").trim()).map(
+        (k) => REQUIRED_FORM_FIELD_LABEL[k],
+    );
+    return {
+        ...form,
+        extraction: {
+            ...result.extraction,
+            fields,
+            missing,
+            overridden: true,
+            original_fields: prev.original_fields || {},
+        },
+    };
 }
 
 export async function evaluateCustomerForms(

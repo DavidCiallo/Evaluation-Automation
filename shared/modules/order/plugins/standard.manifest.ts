@@ -83,6 +83,8 @@ export interface FormAssignment {
         error: string | null;
         /** 人工补全过，重新识别会覆盖掉这个标记 */
         overridden?: boolean;
+        /** 人工改动前的自动识别值，按字段记录，用于界面显示差异 */
+        original_fields?: Record<string, string>;
     };
 }
 

@@ -807,6 +807,27 @@ function FormCollectionSection({
                                     客户：{cust?.name || "—"}
                                     {isMike && f.matched_name && f.matched_name !== cust?.name && `（匹配到：${f.matched_name}）`}
                                 </div>
+                                {overridden && (
+                                    <div className="space-y-0.5">
+                                        {REQUIRED_FIELD_INPUTS.filter((item) => {
+                                            const orig = f.extraction?.original_fields?.[item.key]
+                                            const cur = f.extraction?.fields?.[item.key] || ""
+                                            return orig !== undefined && orig !== cur
+                                        }).map((item) => {
+                                            const orig = f.extraction?.original_fields?.[item.key] || ""
+                                            const cur = f.extraction?.fields?.[item.key] || ""
+                                            return (
+                                                <div key={item.key} className="flex items-center gap-1.5">
+                                                    <span className="text-muted-foreground w-14 shrink-0">{item.label}</span>
+                                                    {orig && (
+                                                        <span className="text-muted-foreground line-through">{orig}</span>
+                                                    )}
+                                                    <span className="font-medium text-amber-600">{cur}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                )}
                                 {!!f.form_url && (
                                     <div className="flex items-center gap-1">
                                         <code className="text-muted-foreground flex-1 truncate">{f.form_url}</code>

@@ -847,11 +847,19 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             const input = (payload.fields || {}) as Record<string, any>;
             const prev = form.extraction;
             const fields: Record<string, string> = { ...((prev?.fields as Record<string, string> | undefined) || {}) };
+            const originals: Record<string, string> = { ...(prev?.original_fields || {}) };
             for (const key of REQUIRED_FORM_FIELDS) {
                 if (!(key in input)) continue;
                 const value = String(input[key] ?? "").trim();
+                const before = fields[key] || "";
+                if (value === before) continue;
+                // 第一次改某个字段时记下原值，之后再用作界面上的划线对比
+                if (!(key in originals)) originals[key] = before;
                 if (value) fields[key] = value;
                 else delete fields[key];
+            }
+            for (const key of Object.keys(originals)) {
+                if ((fields[key] || "") === originals[key]) delete originals[key];
             }
             const missing = REQUIRED_FORM_FIELDS.filter((k) => !String(fields[k] ?? "").trim()).map(
                 (k) => REQUIRED_FORM_FIELD_LABEL[k],
@@ -863,7 +871,8 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 missing,
                 checked_time: Date.now(),
                 error: null,
-                overridden: true,
+                overridden: Object.keys(originals).length > 0,
+                original_fields: originals,
             };
             const next = forms.map((f) => (f.id === form.id ? { ...f, extraction } : f));
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: next });
