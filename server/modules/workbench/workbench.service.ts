@@ -12,6 +12,9 @@ const orderRepo: Repository<OrderEntity> = Repository.instance("Order");
 const accountRepo: Repository<AccountEntity> = Repository.instance("Account");
 const snapshotRepo: Repository<ChatSnapshotEntity> = Repository.instance("ChatSnapshot");
 
+/** 「非企业客户群」是微信默认群名，多个不同的群都叫这个，列表里分不清谁是谁，先不显示 */
+const HIDDEN_CHAT_NAMES = new Set(["非企业客户群"]);
+
 export async function resolveAgent(identity: string): Promise<{ id: string; name: string; wechat_id: string; isAdmin?: boolean } | null> {
     const byEmail = await accountRepo.findOne({ email: identity });
     if (byEmail?.wechat_id) {
@@ -63,6 +66,7 @@ export async function getHome(agentIdentity: string) {
     for (const chatId of filteredIds) {
         const c = chatMap.get(chatId);
         if (!c) continue;
+        if (HIDDEN_CHAT_NAMES.has(c.name)) continue;
         const snap = snapshotMap.get(chatId);
 
         let displayName = c.name;
