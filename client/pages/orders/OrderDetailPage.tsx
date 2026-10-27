@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, Link2, MessageSquare, Users, MessageCircle, Send } from "lucide-react"
+import { ArrowLeft, Check, Link2, Merge, MessageSquare, Users, MessageCircle, Send } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -52,6 +52,13 @@ type PickChat = {
     msg_count?: number
 }
 
+type PickOrder = {
+    id: string
+    order_name: string
+    customer_name?: string
+    cancelled_at?: number | null
+}
+
 export function OrderDetailPage() {
     const params = useParams()
     const auth = getAuth()
@@ -73,6 +80,14 @@ export function OrderDetailPage() {
     const [linkChats, setLinkChats] = useState<PickChat[]>([])
     const [linkQuery, setLinkQuery] = useState("")
     const [linkingId, setLinkingId] = useState("")
+    const [mergeOpen, setMergeOpen] = useState(false)
+    const [mergeLoading, setMergeLoading] = useState(false)
+    const [mergeCandidates, setMergeCandidates] = useState<PickOrder[]>([])
+    const [mergeQuery, setMergeQuery] = useState("")
+    const [mergePicked, setMergePicked] = useState<string[]>([])
+    const [mergePage, setMergePage] = useState(1)
+    const [mergeTotal, setMergeTotal] = useState(0)
+    const [merging, setMerging] = useState(false)
 
     const openLink = async () => {
         setLinkOpen(true)
@@ -107,6 +122,57 @@ export function OrderDetailPage() {
             toast.error(e?.message || "关联失败")
         } finally {
             setLinkingId("")
+        }
+    }
+
+    const loadMergePage = async (page: number) => {
+        const res: any = await orderApi.list({ page, auth })
+        const list = (res?.data?.list as PickOrder[]) || []
+        setMergeTotal(res?.data?.total || 0)
+        setMergeCandidates((prev) => (page === 1 ? list : [...prev, ...list]))
+        setMergePage(page)
+    }
+
+    const openMerge = async () => {
+        setMergeOpen(true)
+        setMergePicked([])
+        setMergeQuery("")
+        setMergeLoading(true)
+        try {
+            await loadMergePage(1)
+        } catch (e: any) {
+            toast.error(`加载订单失败: ${e?.message || ""}`)
+        } finally {
+            setMergeLoading(false)
+        }
+    }
+
+    const mergeList = useMemo(() => {
+        const q = mergeQuery.trim().toLowerCase()
+        return mergeCandidates.filter((o) => {
+            if (o.id === order?.id || o.cancelled_at) return false
+            if (!q) return true
+            return (o.order_name || "").toLowerCase().includes(q) || (o.customer_name || "").toLowerCase().includes(q)
+        })
+    }, [mergeCandidates, mergeQuery, order?.id])
+
+    const submitMerge = async () => {
+        if (!order || mergePicked.length === 0) return
+        setMerging(true)
+        try {
+            const res: any = await orderApi.merge({ target_id: order.id, source_ids: mergePicked, auth })
+            if (res?.success === false) {
+                toast.error(res?.message || "合并失败")
+                return
+            }
+            toast.success(`已把 ${mergePicked.length} 个订单并入本单`)
+            setMergeOpen(false)
+            setMergePicked([])
+            await load()
+        } catch (e: any) {
+            toast.error(e?.message || "合并失败")
+        } finally {
+            setMerging(false)
         }
     }
 
@@ -282,6 +348,12 @@ export function OrderDetailPage() {
                         </option>
                     ))}
                 </select>
+                {!order.cancelled_at && (
+                    <Button variant="outline" size="sm" disabled={busy || merging} onClick={openMerge}>
+                        <Merge className="size-3" />
+                        合并订单
+                    </Button>
+                )}
                 {order.cancelled_at ? (
                     <Button
                         variant="outline"
@@ -530,6 +602,81 @@ export function OrderDetailPage() {
                     )}
                 </CardContent>
             </Card>
+
+            <Dialog open={mergeOpen} onOpenChange={(o) => !merging && setMergeOpen(o)}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>合并订单</DialogTitle>
+                        <DialogDescription>
+                            选中的订单会并入「{order?.order_name}」：客户、表单、备注、负责客服并进来，确认单、材料、账号池、任务改挂到本单，被并入的订单标记为已取消。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2">
+                        <Input
+                            placeholder="搜索订单名或客户名"
+                            value={mergeQuery}
+                            onChange={(e) => setMergeQuery(e.target.value)}
+                        />
+                        <div className="max-h-[50vh] space-y-1 overflow-y-auto pr-1">
+                            {mergeLoading && <p className="text-muted-foreground py-6 text-center text-sm">加载中…</p>}
+                            {!mergeLoading && mergeList.length === 0 && (
+                                <p className="text-muted-foreground py-6 text-center text-sm">没有可合并的订单</p>
+                            )}
+                            {mergeList.map((o) => {
+                                const picked = mergePicked.includes(o.id)
+                                return (
+                                    <button
+                                        key={o.id}
+                                        type="button"
+                                        disabled={merging}
+                                        onClick={() =>
+                                            setMergePicked((prev) =>
+                                                picked ? prev.filter((x) => x !== o.id) : [...prev, o.id],
+                                            )
+                                        }
+                                        className={`flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left transition ${
+                                            picked ? "border-primary bg-accent" : "hover:bg-accent"
+                                        }`}
+                                    >
+                                        <span
+                                            className={`flex size-4 shrink-0 items-center justify-center rounded border ${
+                                                picked ? "bg-primary text-primary-foreground border-primary" : ""
+                                            }`}
+                                        >
+                                            {picked && <Check className="size-3" />}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate text-sm font-medium">{o.order_name || "(未命名订单)"}</div>
+                                            <div className="text-muted-foreground truncate text-xs">
+                                                {o.customer_name || "—"}
+                                            </div>
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                        {mergeCandidates.length < mergeTotal && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="w-full"
+                                disabled={mergeLoading || merging}
+                                onClick={() => loadMergePage(mergePage + 1)}
+                            >
+                                加载更多（{mergeCandidates.length}/{mergeTotal}）
+                            </Button>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setMergeOpen(false)} disabled={merging}>
+                            取消
+                        </Button>
+                        <Button variant="destructive" onClick={submitMerge} disabled={merging || mergePicked.length === 0}>
+                            {merging ? "合并中…" : `并入本单（${mergePicked.length}）`}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={linkOpen} onOpenChange={(o) => !linkingId && setLinkOpen(o)}>
                 <DialogContent className="max-w-2xl">

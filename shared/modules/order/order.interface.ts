@@ -362,3 +362,32 @@ export class OrderLinkChatResponse {
         this.message = data.message;
     }
 }
+
+export class OrderMergeRequest {
+    public target_id: string;
+    public source_ids: string[];
+    public auth?: string;
+
+    constructor(data: any) {
+        if (!data.target_id) throw new Error("target_id is required");
+        this.target_id = data.target_id;
+        this.source_ids = Array.isArray(data.source_ids) ? data.source_ids.filter(Boolean) : [];
+        this.auth = data.auth;
+    }
+
+    static self(data: any) {
+        return new OrderMergeRequest(data);
+    }
+}
+
+export class OrderMergeResponse {
+    public success: boolean;
+    public data?: { order: OrderDTO };
+    public message?: string;
+
+    constructor(data: { success: boolean; data?: { order: OrderDTO }; message?: string }) {
+        this.success = data.success;
+        this.data = data.data;
+        this.message = data.message;
+    }
+}

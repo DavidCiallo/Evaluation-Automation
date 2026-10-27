@@ -13,7 +13,7 @@ import type { CustomerEntity } from "../../../shared/modules/customer/customer.e
 import type { ChatSnapshotEntity } from "../../../shared/modules/snapshot/snapshot.entity";
 import type { ConversationEntity } from "../../../shared/modules/conversation/conversation.entity";
 import { getOrderPlugin, getEnabledOrderPlugins, type PluginContext } from "./plugin-registry";
-import { STANDARD_PLUGIN_ID, effectiveCustomers } from "../../../shared/modules/order/plugins/standard.manifest";
+import { STANDARD_PLUGIN_ID, effectiveCustomers, type StandardPluginData } from "../../../shared/modules/order/plugins/standard.manifest";
 import { getVisaType } from "../../../shared/modules/order/visa";
 import { AGENT_OPTIONS, agentLabel, isKnownAgent } from "../../../shared/modules/case/case.entity";
 
@@ -211,6 +211,122 @@ export async function linkChat(orderId: string, chatId: string): Promise<OrderEn
     return orderRepo.findOne({ id: orderId });
 }
 
+/**
+ * 把若干订单并入目标订单。客户、表单、备注、客服、阶段豁免都在订单的 data.standard 里，
+ * 确认单、材料、账号池、任务则按 order_id 单独成表，要一起改挂过来。
+ */
+export async function mergeOrders(targetId: string, sourceIds: string[], by: string): Promise<OrderEntity | null> {
+    const target = await orderRepo.findOne({ id: targetId });
+    if (!target) throw "订单不存在";
+    if (target.cancelled_at) throw "目标订单已取消，不能作为合并结果";
+
+    const ids = [...new Set((sourceIds || []).filter((id) => id && id !== targetId))];
+    if (ids.length === 0) throw "请选择要并入的订单";
+
+    const sources: OrderEntity[] = [];
+    for (const id of ids) {
+        const o = await orderRepo.findOne({ id });
+        if (!o) throw "要并入的订单不存在";
+        if (o.cancelled_at) throw `订单「${o.order_name}」已取消，不能合并`;
+        sources.push(o);
+    }
+
+    const targetStd: StandardPluginData = (target.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+    const customers = [...effectiveCustomers(target)];
+    const forms = [...(targetStd.forms || [])];
+    const tripTasks = [...(targetStd.tripTasks || [])];
+    const materials = [...(targetStd.materials || [])];
+    const itineraries = [...(targetStd.itineraries || [])];
+    const waivers: Record<string, any> = { ...(targetStd.stageWaivers || {}) };
+    const remarks: RemarkEntry[] = [...(target.remarks || [])];
+    const agentIds = new Set(target.agent_ids || []);
+    const takenIds = new Set(customers.map((c) => c.id));
+    const seenCustomerIds = new Set(customers.map((c) => c.customer_id).filter(Boolean));
+
+    for (const src of sources) {
+        const srcStd = (src.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+        // 表单的 customer_id 指向客户行的本地 id，客户行换 id 时必须跟着换
+        const remap = new Map<string, string>();
+        for (const c of effectiveCustomers(src)) {
+            const same = c.customer_id ? customers.find((x) => x.customer_id === c.customer_id) : undefined;
+            if (same) {
+                remap.set(c.id, same.id);
+                continue;
+            }
+            let nextId = c.id;
+            while (takenIds.has(nextId)) nextId = nanoid(8);
+            takenIds.add(nextId);
+            if (nextId !== c.id) remap.set(c.id, nextId);
+            customers.push({ ...c, id: nextId });
+            if (c.customer_id) seenCustomerIds.add(c.customer_id);
+        }
+        for (const f of srcStd.forms || []) {
+            forms.push({ ...f, customer_id: remap.get(f.customer_id) || f.customer_id });
+        }
+        tripTasks.push(...(srcStd.tripTasks || []));
+        materials.push(...(srcStd.materials || []));
+        itineraries.push(...(srcStd.itineraries || []));
+        for (const [key, w] of Object.entries(srcStd.stageWaivers || {})) {
+            if (!waivers[key]) waivers[key] = w;
+        }
+        for (const a of src.agent_ids || []) agentIds.add(a);
+        remarks.push(...(src.remarks || []));
+        remarks.push({
+            id: nanoid(6),
+            time: Date.now(),
+            content: `【合并订单】「${src.order_name}」已并入本单${by ? `（${by}）` : ""}`,
+            source: "manual",
+        });
+    }
+
+    const nextStd: StandardPluginData = {
+        ...targetStd,
+        draft: { ...(targetStd.draft || { order_name: target.order_name || "", price: null, currency: null, customers: [], raw: null }), customers },
+        forms,
+        tripTasks,
+        materials,
+        itineraries,
+        stageWaivers: waivers as StandardPluginData["stageWaivers"],
+    };
+
+    await orderRepo.update({ id: target.id }, {
+        agent_ids: [...agentIds],
+        remarks,
+        chat_id: target.chat_id || sources.find((s) => s.chat_id)?.chat_id || "",
+        private_chat_id: target.private_chat_id || sources.find((s) => s.private_chat_id)?.private_chat_id || "",
+        data: { ...(target.data || {}), [STANDARD_PLUGIN_ID]: nextStd },
+        version: (target.version || 1) + 1,
+    });
+
+    const confirmationRepo: Repository<any> = Repository.instance("Confirmation");
+    const materialRepo: Repository<any> = Repository.instance("Material");
+    const accountPoolRepo: Repository<any> = Repository.instance("AccountPool");
+    const jobRepo: Repository<any> = Repository.instance("Job");
+    const robotTaskRepo: Repository<any> = Repository.instance("RobotTask");
+    const caseRepo: Repository<any> = Repository.instance("Case");
+
+    for (const src of sources) {
+        const where = { order_id: src.id };
+        const patch = { order_id: target.id };
+        await confirmationRepo.update(where, patch);
+        await materialRepo.update(where, patch);
+        await accountPoolRepo.update(where, patch);
+        await jobRepo.update(where, patch);
+        await robotTaskRepo.update(where, patch);
+    }
+
+    for (const src of sources) {
+        await cancelOrder(src.id, `已合并到「${target.order_name || target.id}」`, by);
+        const cid = src.case_id;
+        if (!cid) continue;
+        const kase = await caseRepo.findOne({ id: cid });
+        if (!kase) continue;
+        const nextOrderIds = (kase.order_ids || []).filter((x: string) => x !== src.id);
+        await caseRepo.update({ id: cid }, { order_ids: nextOrderIds, version: (kase.version || 1) + 1 });
+    }
+
+    return orderRepo.findOne({ id: target.id });
+}
 
 async function findPrivateChatForCustomer(customerWechatId: string, agentIds: string[]): Promise<string> {
     if (!customerWechatId || agentIds.length === 0) return "";

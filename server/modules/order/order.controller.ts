@@ -12,6 +12,7 @@ import {
     OrderCreateRequest,
     OrderRelatedChatsRequest,
     OrderLinkChatRequest,
+    OrderMergeRequest,
 } from "../../../shared/modules/order/order.interface";
 import * as svc from "./order.service";
 import { getIdentifyByVerify } from "../auth/auth.service";
@@ -113,6 +114,14 @@ async function linkChat(request: OrderLinkChatRequest) {
     return { order: await svc.toDTO(order) };
 }
 
+async function merge(request: OrderMergeRequest) {
+    const req = OrderMergeRequest.self(request);
+    const by = req.auth ? getIdentifyByVerify(req.auth) || "" : "";
+    const order = await svc.mergeOrders(req.target_id, req.source_ids, by);
+    if (!order) throw "order not found";
+    return { order: await svc.toDTO(order) };
+}
+
 async function typeformForms() {
     const list = await typeformClient.getForms();
     return { list };
@@ -120,6 +129,6 @@ async function typeformForms() {
 
 export const orderMount = {
     routes: orderRoutes,
-        handlers: { list, detail, cancel, reopen, pluginAction, updateCustomerRemark, remark, setVisaType, createFromChat, create, relatedChats, linkChat, typeformForms },
+        handlers: { list, detail, cancel, reopen, pluginAction, updateCustomerRemark, remark, setVisaType, createFromChat, create, relatedChats, linkChat, merge, typeformForms },
 
 };

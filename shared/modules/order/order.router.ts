@@ -8,6 +8,7 @@ import {
     OrderCreateResponse,
     OrderRelatedChatsResponse,
     OrderLinkChatResponse,
+    OrderMergeResponse,
 } from "./order.interface";
 
 export const orderRoutes = {
@@ -86,6 +87,11 @@ export const orderRoutes = {
         path: "/link-chat",
         request: {} as { id: string; chat_id: string; auth?: string },
         response: {} as OrderLinkChatResponse,
+    },
+    merge: {
+        path: "/merge",
+        request: {} as { target_id: string; source_ids: string[]; auth?: string },
+        response: {} as OrderMergeResponse,
     },
     typeformForms: {
         path: "/typeform-forms",
