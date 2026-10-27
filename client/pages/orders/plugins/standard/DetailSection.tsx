@@ -752,14 +752,18 @@ function FormCollectionSection({
                         const cust = customers.find((c) => c.id === f.customer_id)
                         const isSelected = selectedId === f.id
                         const isMike = f.provider === "mike"
+                        const overridden = !!f.extraction?.overridden
                         return (
                             <div
                                 key={f.id}
                                 onClick={() => onSelectForm?.(f)}
-                                className={`cursor-pointer space-y-1.5 rounded-md border p-2 text-xs transition ${isSelected
-                                    ? "border-primary ring-primary/30 bg-primary/5 ring-1"
-                                    : "border-border hover:bg-muted/40"
-                                    }`}
+                                className={`cursor-pointer space-y-1.5 rounded-md border p-2 text-xs transition ${
+                                    overridden
+                                        ? "border-amber-400 bg-amber-50/60"
+                                        : isSelected
+                                            ? "border-primary bg-primary/5"
+                                            : "border-border hover:bg-muted/40"
+                                } ${isSelected ? "ring-primary/30 ring-1" : ""}`}
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex min-w-0 items-center gap-1.5">

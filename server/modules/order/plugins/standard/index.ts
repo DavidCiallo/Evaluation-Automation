@@ -858,6 +858,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 missing,
                 checked_time: Date.now(),
                 error: null,
+                overridden: true,
             };
             const next = forms.map((f) => (f.id === form.id ? { ...f, extraction } : f));
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: next });

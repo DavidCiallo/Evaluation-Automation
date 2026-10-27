@@ -1,4 +1,5 @@
 import { isLlmConfigured, llmChat } from "../../lib/llm";
+import { REQUIRED_FORM_FIELD_LABEL, type RequiredFormField } from "../order/plugins/standard/form-ai";
 
 function rawRows(fields: Array<{ name: string; value: string }>): Array<{ name: string; value: string }> {
     const rows: Array<{ name: string; value: string }> = [];
@@ -31,19 +32,31 @@ const SYSTEM_PROMPT = `你在为出国签证代办业务整理「客户信息确
 8. 「本人承诺信息真实」「已阅读并同意免责声明」这类勾选确认项不要写进正文——
    那是客户自己刚做过的表态，不是需要他核对的信息。`;
 
-export async function buildContent(fields: Array<{ name: string; value: string }>): Promise<string> {
+export async function buildContent(
+    fields: Array<{ name: string; value: string }>,
+    overrides?: Record<string, string> | null,
+): Promise<string> {
     const rows = rawRows(fields);
-    if (rows.length === 0) throw "该提交没有任何字段内容，无法生成确认单正文";
+    const manual = Object.entries(overrides || {})
+        .map(([key, value]) => ({
+            name: REQUIRED_FORM_FIELD_LABEL[key as RequiredFormField] || key,
+            value: String(value ?? "").trim(),
+        }))
+        .filter((r) => r.value);
+    if (rows.length === 0 && manual.length === 0) throw "该提交没有任何字段内容，无法生成确认单正文";
 
     if (!isLlmConfigured()) {
         throw "LLM 未配置（LLM_API_KEY / LLM_BASE_URL / LLM_MODEL），无法生成确认单正文，已拒绝签发";
     }
 
     const payload = rows.map((r) => `${r.name}：${r.value}`).join("\n");
+    const manualText = manual.length
+        ? `\n\n以下是人工核对后更正的值，和上面的内容冲突时一律以这里为准：\n${manual.map((r) => `${r.name}：${r.value}`).join("\n")}`
+        : "";
     const raw = await llmChat(
         [
             { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: `以下是客户填写的内容：\n\n${payload}` },
+            { role: "user", content: `以下是客户填写的内容：\n\n${payload}${manualText}` },
         ],
         { temperature: 0 },
     );

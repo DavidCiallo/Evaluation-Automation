@@ -172,8 +172,12 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
     }
 
     const deadline = Date.now() + DEADLINE_DAYS * 86400000;
-    const submissions = await submissionRepo.find({}, { limit: 500 });
     const assignments = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData | undefined)?.forms || [];
+    const itemIds = assignments
+        .filter((a) => a.status === "completed")
+        .map((a) => a.item_id)
+        .filter((x): x is string => Boolean(x));
+    const submissions = itemIds.length ? await submissionRepo.find({ key: { $in: itemIds } }) : [];
 
     let created = 0;
     for (const c of targets) {
@@ -229,7 +233,9 @@ async function contentForCustomer(
         if (!hit) {
             throw `订单里绑定的表单提交（${a.item_id || "无 item_id"}）在本地找不到，无法生成确认单正文`;
         }
-        return await buildContent(hit.fields);
+        // 人工补全过的字段覆盖表单原文，避免确认单正文和已核对的内容对不上
+        const manual = a.extraction?.overridden ? a.extraction.fields : null;
+        return await buildContent(hit.fields, manual);
     }
 
     let profile: CustomerEntity | null = null;

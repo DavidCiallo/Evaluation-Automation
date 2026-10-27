@@ -81,6 +81,8 @@ export interface FormAssignment {
         missing: string[];
         checked_time: number;
         error: string | null;
+        /** 人工补全过，重新识别会覆盖掉这个标记 */
+        overridden?: boolean;
     };
 }
 
