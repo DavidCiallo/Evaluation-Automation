@@ -17,11 +17,7 @@ export async function ingestMikeSubmissions(
     events: { notifySubmissions?: boolean } = {},
 ): Promise<number> {
     if (!mikeClient.isConfigured()) return 0;
-    const beforeKeys = new Set(
-        events.notifySubmissions
-            ? (await submissionRepo.find({}, { limit: 500 })).map((s) => s.key)
-            : [],
-    );
+    const freshKeys: string[] = [];
     let inserted = 0;
     for (let page = 1; page <= pages; page++) {
         let list: Awaited<ReturnType<typeof mikeClient.getSubmissions>>["list"];
@@ -47,6 +43,7 @@ export async function ingestMikeSubmissions(
                 claimed_by: null,
                 version: 1,
             });
+            freshKeys.push(s.key);
             inserted++;
         }
         if (list.length < 100) break;
@@ -55,7 +52,7 @@ export async function ingestMikeSubmissions(
         console.log(`[mike-ingest] ${inserted} new submission(s) stored`);
         if (events.notifySubmissions) {
             const { triggerForNewSubmissions } = await import("./submission-sync.service");
-            void triggerForNewSubmissions(beforeKeys);
+            void triggerForNewSubmissions(freshKeys);
         }
     }
     return inserted;

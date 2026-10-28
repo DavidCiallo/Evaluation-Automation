@@ -37,7 +37,7 @@ export async function syncSubmissionsToContracts(maxAgeMinutes: number | null = 
         throw new Error("确认单服务未配置（API Key），请在「系统配置 → 外围系统接入」中补全");
     }
 
-    const all = await submissionRepo.find({}, { limit: 500 });
+    const all = await submissionRepo.find({});
     const cutoff = maxAgeMinutes == null ? 0 : Date.now() - maxAgeMinutes * 60000;
     const pending = all.filter((s) => s.form_id && !isDone(s) && (s.submit_time || 0) >= cutoff);
 
@@ -99,7 +99,7 @@ export async function clearContractMarks(submissionKeys: string[]): Promise<numb
 export async function listGeneratedContracts(): Promise<
     Array<{ name: string; title: string; submission_key: string; contract_id: string }>
 > {
-    const all = await submissionRepo.find({}, { limit: 500 });
+    const all = await submissionRepo.find({});
     return all
         .filter((s) => typeof s.claimed_by === "string" && s.claimed_by.startsWith("contract:"))
         .map((s) => ({
@@ -110,11 +110,9 @@ export async function listGeneratedContracts(): Promise<
         }));
 }
 
-export async function triggerForNewSubmissions(before: Set<string>): Promise<void> {
-    const all = await submissionRepo.find({}, { limit: 500 });
-    const fresh = all.filter((s) => !before.has(s.key));
-    if (fresh.length === 0) return;
-    const keys = new Set(fresh.map((s) => s.key));
+export async function triggerForNewSubmissions(keys: string[]): Promise<void> {
+    if (keys.length === 0) return;
+    const keyset = new Set(keys);
 
     const { ensurePluginsRegistered } = await import("../order/plugins/index");
     const { getEnabledOrderPlugins } = await import("../order/plugin-registry");
@@ -125,7 +123,7 @@ export async function triggerForNewSubmissions(before: Set<string>): Promise<voi
     for (const order of await orderRepo.find({}, { limit: 5000 })) {
         if (order.cancelled_at || order.delete_time) continue;
         const linked = plugins.flatMap((p) => p.automationLinks(order));
-        if (linked.some((k) => keys.has(k))) void tryAutomationEvent(order.id, "form_submitted");
+        if (linked.some((k) => keyset.has(k))) void tryAutomationEvent(order.id, "form_submitted");
     }
 }
 
