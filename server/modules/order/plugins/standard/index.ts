@@ -373,6 +373,8 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 departure: payload.departure || null,
                 requirements: typeof payload.requirements === "string" ? payload.requirements : null,
             };
+            const stageNote = String(((order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {}).stageNotes?.materials || "").trim();
+            if (stageNote) input.requirements = [input.requirements, stageNote].filter(Boolean).join("\n");
             const { title, rows } = await generateItineraryRows(input);
             return { title, rows };
         },
@@ -923,6 +925,18 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             return { forms };
         },
 
+        /** 阶段备注：客服写给客服自己看的，同时作为 AI 生成的上下文 */
+        "save-stage-note": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
+            if (!payload?.stage) throw "stage is required";
+            const std: StandardPluginData = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData) || {};
+            const notes = { ...((std.stageNotes as Record<string, string> | undefined) || {}) };
+            const content = String(payload.content ?? "").trim();
+            if (content) notes[String(payload.stage)] = content;
+            else delete notes[String(payload.stage)];
+            await ctx.setPluginData(STANDARD_PLUGIN_ID, { stageNotes: notes as StandardPluginData["stageNotes"] });
+            return { stageNotes: notes };
+        },
+
         "generate-draft": async (order: OrderEntity, payload: any, ctx: PluginContext) => {
             const messages = await loadRecentMessages(order.chat_id, 20);
             const { draft } = await extractDraft(messages);
@@ -1009,6 +1023,7 @@ export const standardOrderPlugin: ServerOrderPlugin = {
         "prefill-trip-task": { at: "materials" },
 
         "waive-stage": {},
+        "save-stage-note": {},
         "unwaive-stage": {},
         "eval-stages": {},
         "generate-draft": {},

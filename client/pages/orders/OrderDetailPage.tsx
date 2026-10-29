@@ -44,6 +44,72 @@ type RelatedChat = {
     is_main: boolean
 }
 
+const STAGE_NOTE_LABEL: Record<string, string> = {
+    order_info: "订单信息",
+    form_collection: "表单收集",
+    info_confirmation: "信息确认",
+    account_allocation: "账号分配",
+    appointment: "预约位置",
+    materials: "材料制作",
+}
+
+function StageNote({
+    order,
+    stage,
+    auth,
+    reload,
+}: {
+    order: OrderDTO
+    stage: string
+    auth: string
+    reload: () => void
+}) {
+    const current = String(((order.data?.standard as any)?.stageNotes || {})[stage] || "")
+    const [value, setValue] = useState(current)
+    const [saving, setSaving] = useState(false)
+
+    useEffect(() => {
+        setValue(current)
+    }, [current])
+
+    const save = async () => {
+        const next = value.trim()
+        if (next === current) return
+        setSaving(true)
+        try {
+            await orderApi.pluginAction({
+                id: order.id,
+                plugin_id: "standard",
+                action: "save-stage-note",
+                payload: { stage, content: next },
+                auth,
+            })
+            toast.success(`${STAGE_NOTE_LABEL[stage] || stage}备注已保存`)
+            reload()
+        } catch (e: any) {
+            toast.error(`备注保存失败: ${e?.message || ""}`)
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    return (
+        <div className="border-border bg-muted/20 rounded-b-lg border border-t-0 px-3 py-2">
+            <div className="text-muted-foreground mb-1 flex items-center gap-2 text-[11px]">
+                <span>备注 · 客服可见，也会作为 AI 生成的参考</span>
+                {saving && <span>保存中…</span>}
+            </div>
+            <textarea
+                className="border-input bg-background min-h-[52px] w-full resize-y rounded-md border px-2 py-1.5 text-xs"
+                placeholder="例如：表单里的姓名已更正过；这个账号要先激活邮箱；行程避开红眼航班…（失焦即保存）"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onBlur={save}
+            />
+        </div>
+    )
+}
+
 type PickChat = {
     id: string
     name: string
@@ -407,6 +473,7 @@ export function OrderDetailPage() {
             </div>
 
             <OrderInfoCard order={order} auth={auth} reload={load} />
+            <StageNote order={order} stage="order_info" auth={auth} reload={load} />
 
             <div className="space-y-4">
                 <div className="grid items-stretch gap-4 lg:grid-cols-2">
@@ -437,7 +504,10 @@ export function OrderDetailPage() {
                     </Card>
                 </div>
 
+                <StageNote order={order} stage="form_collection" auth={auth} reload={load} />
+
                 <ConfirmationCard orderId={order.id} />
+                <StageNote order={order} stage="info_confirmation" auth={auth} reload={load} />
 
                 <AccountPoolCard
                     orderId={order.id}
@@ -446,12 +516,15 @@ export function OrderDetailPage() {
                     stages={order.stages}
                     reload={load}
                 />
+                <StageNote order={order} stage="account_allocation" auth={auth} reload={load} />
 
                 <AppointmentCard orderId={order.id} reload={load} />
+                <StageNote order={order} stage="appointment" auth={auth} reload={load} />
 
                 <div className="grid items-stretch gap-4 lg:grid-cols-3">
                     <div className="lg:col-span-2">
                         <ItineraryCard order={order} auth={auth} reload={load} />
+                        <StageNote order={order} stage="materials" auth={auth} reload={load} />
                     </div>
                     <Card>
                         <CardHeader>

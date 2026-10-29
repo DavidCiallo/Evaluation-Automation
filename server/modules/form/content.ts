@@ -35,6 +35,7 @@ const SYSTEM_PROMPT = `你在为出国签证代办业务整理「客户信息确
 export async function buildContent(
     fields: Array<{ name: string; value: string }>,
     overrides?: Record<string, string> | null,
+    notes?: string | null,
 ): Promise<string> {
     const rows = rawRows(fields);
     const manual = Object.entries(overrides || {})
@@ -53,10 +54,13 @@ export async function buildContent(
     const manualText = manual.length
         ? `\n\n以下是人工核对后更正的值，和上面的内容冲突时一律以这里为准：\n${manual.map((r) => `${r.name}：${r.value}`).join("\n")}`
         : "";
+    const noteText = String(notes || "").trim()
+        ? `\n\n客服备注（人工补充的说明，需要让客户注意到的地方要写进正文）：\n${String(notes).trim()}`
+        : "";
     const raw = await llmChat(
         [
             { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: `以下是客户填写的内容：\n\n${payload}${manualText}` },
+            { role: "user", content: `以下是客户填写的内容：\n\n${payload}${manualText}${noteText}` },
         ],
         { temperature: 0 },
     );

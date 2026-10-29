@@ -172,7 +172,13 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
     }
 
     const deadline = Date.now() + DEADLINE_DAYS * 86400000;
-    const assignments = (order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData | undefined)?.forms || [];
+    const stdData = order.data?.[STANDARD_PLUGIN_ID] as StandardPluginData | undefined;
+    const assignments = stdData?.forms || [];
+    // 表单收集/信息确认两个阶段的备注，是客服关于这份资料最关键的说明
+    const stageNotes = [stdData?.stageNotes?.form_collection, stdData?.stageNotes?.info_confirmation]
+        .map((x) => String(x || "").trim())
+        .filter(Boolean)
+        .join("\n");
     const itemIds = assignments
         .filter((a) => a.status === "completed")
         .map((a) => a.item_id)
@@ -184,7 +190,7 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
         const name = c.name || "";
         let content: string;
         try {
-            content = await contentForCustomer(name, c, submissions, assignments);
+            content = await contentForCustomer(name, c, submissions, assignments, stageNotes);
         } catch (e) {
             throw `未能为「${name || "未命名"}」生成确认单正文：${e instanceof Error ? e.message : String(e)}。已拒绝签发。`;
         }
@@ -226,6 +232,7 @@ async function contentForCustomer(
     customer: OrderCustomerInfo,
     submissions: SubmissionEntity[],
     assignments: FormAssignment[],
+    notes: string,
 ): Promise<string> {
     for (const a of assignments) {
         if (a.customer_id !== customer.id || a.status !== "completed") continue;
@@ -235,7 +242,7 @@ async function contentForCustomer(
         }
         // 人工补全过的字段覆盖表单原文，避免确认单正文和已核对的内容对不上
         const manual = a.extraction?.overridden ? a.extraction.fields : null;
-        return await buildContent(hit.fields, manual);
+        return await buildContent(hit.fields, manual, notes);
     }
 
     let profile: CustomerEntity | null = null;

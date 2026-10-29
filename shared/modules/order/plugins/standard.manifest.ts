@@ -212,6 +212,8 @@ export interface StandardPluginData {
     itineraries?: ItineraryEntry[];
     tripTasks?: TripTask[];
     stageWaivers?: Partial<Record<OrderStageId, StageWaiver>>;
+    /** 每个阶段的自由备注：给客服看，也作为 AI 生成的上下文 */
+    stageNotes?: Partial<Record<OrderStageId, string>>;
 }
 
 export const standardManifest: OrderPluginManifest = {
