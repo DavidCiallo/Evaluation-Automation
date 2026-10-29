@@ -424,6 +424,7 @@ export function AccountPoolCard({
                                 })
                             }
                             uploadedBy="pool-voucher"
+                            label="办签凭证"
                             disabled={busy || !!poolBlocked}
                             emptyHint={poolBlocked || undefined}
                         />

@@ -136,6 +136,7 @@ export function AppointmentCard({
                             value={a.vouchers || []}
                             onChange={(next) => save(a.id, { vouchers: next })}
                             uploadedBy="appointment-voucher"
+                            label="预约凭证"
                             disabled={busy}
                         />
                     </div>

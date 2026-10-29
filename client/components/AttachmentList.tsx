@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { Paperclip, X } from "lucide-react"
+import { ImagePlus, Paperclip, X } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import { Button } from "@/client/components/ui/button"
@@ -68,10 +68,13 @@ export function AttachmentList({
 
     const upload = async (files: FileList | null) => {
         if (!files || files.length === 0) return
+        const images = Array.from(files).filter((f) => f.type.startsWith("image/"))
+        if (images.length < files.length) toast.error(`${label}只能上传图片`)
+        if (images.length === 0) return
         setUploading(true)
         try {
             const added: Attachment[] = []
-            for (const f of Array.from(files)) added.push(await uploadAttachment(f, uploadedBy))
+            for (const f of images) added.push(await uploadAttachment(f, uploadedBy))
             await onChange([...value, ...added])
         } catch (e: any) {
             toast.error(`上传失败: ${e?.message || ""}`)
@@ -87,29 +90,33 @@ export function AttachmentList({
             <span className="text-muted-foreground text-xs">{label}</span>
             <div className="flex flex-wrap items-center gap-2">
                 {value.map((v, i) => (
-                    <span key={v.file_id || i} className="flex items-center">
+                    <span key={v.file_id || i} className="relative">
                         <a
-                            href={
-                                isImage(v.filename)
-                                    ? `/api/media/${v.storage_name}`
-                                    : `/api/media/${v.storage_name}?download=1&name=${encodeURIComponent(v.filename)}`
-                            }
+                            href={`/api/media/${v.storage_name}`}
                             target="_blank"
                             rel="noreferrer"
                             title={v.filename}
-                            className="hover:bg-muted flex h-8 items-center gap-1.5 rounded-l-md border px-2.5 text-xs"
+                            className="block"
                         >
-                            <Paperclip className="size-3.5" />
-                            {label}
-                            {i + 1}
+                            {isImage(v.filename) ? (
+                                <img
+                                    src={`/api/media/${v.storage_name}`}
+                                    alt={v.filename}
+                                    className="border-border size-16 rounded-md border object-cover"
+                                />
+                            ) : (
+                                <span className="border-border text-muted-foreground flex size-16 items-center justify-center rounded-md border">
+                                    <Paperclip className="size-5" />
+                                </span>
+                            )}
                         </a>
                         <button
                             disabled={locked}
-                            title={`删除这份${label}`}
-                            className="text-muted-foreground hover:text-destructive flex h-8 items-center rounded-r-md border border-l-0 px-1.5 disabled:opacity-50"
+                            title={`删除这张${label}`}
+                            className="bg-background text-muted-foreground hover:text-destructive absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border disabled:opacity-50"
                             onClick={() => setPendingDelete(i)}
                         >
-                            <X className="size-3.5" />
+                            <X className="size-3" />
                         </button>
                     </span>
                 ))}
@@ -122,6 +129,7 @@ export function AttachmentList({
                     ref={input}
                     type="file"
                     multiple
+                    accept="image/*"
                     className="hidden"
                     onChange={(e) => {
                         upload(e.target.files)
@@ -135,7 +143,7 @@ export function AttachmentList({
                     disabled={locked || uploading}
                     onClick={() => input.current?.click()}
                 >
-                    <Paperclip className="size-3.5" />
+                    <ImagePlus className="size-3.5" />
                     {uploading ? "上传中…" : `上传${label}`}
                 </Button>
             </div>
