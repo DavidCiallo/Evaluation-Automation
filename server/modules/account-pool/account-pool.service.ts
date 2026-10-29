@@ -119,6 +119,7 @@ export async function planAccounts(orderId: string): Promise<PoolAccountEntity[]
         expected_place: "",
         actual_place: "",
         vouchers: [],
+        appointment_vouchers: [],
         remark: null,
         error: null,
         task_id: null,
@@ -142,6 +143,7 @@ export async function upsertAccount(
         expected_place?: string;
         actual_place?: string;
         vouchers?: PoolVoucher[];
+        appointment_vouchers?: PoolVoucher[];
         remark?: string;
     },
 ): Promise<PoolAccountEntity> {
@@ -163,6 +165,9 @@ export async function upsertAccount(
     if (patch.expected_place !== undefined) await repo.update({ id }, { expected_place: patch.expected_place });
     if (patch.actual_place !== undefined) await repo.update({ id }, { actual_place: patch.actual_place });
     if (patch.vouchers !== undefined) await repo.update({ id }, { vouchers: patch.vouchers });
+    if (patch.appointment_vouchers !== undefined) {
+        await repo.update({ id }, { appointment_vouchers: patch.appointment_vouchers });
+    }
     if (patch.password !== undefined) await repo.update({ id }, { password: patch.password });
     if (patch.label !== undefined) await repo.update({ id }, { label: patch.label });
     if (patch.remark !== undefined) await repo.update({ id }, { remark: patch.remark });

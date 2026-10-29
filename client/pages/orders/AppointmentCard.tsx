@@ -133,8 +133,8 @@ export function AppointmentCard({
                         </div>
 
                         <AttachmentList
-                            value={a.vouchers || []}
-                            onChange={(next) => save(a.id, { vouchers: next })}
+                            value={a.appointment_vouchers || []}
+                            onChange={(next) => save(a.id, { appointment_vouchers: next })}
                             uploadedBy="appointment-voucher"
                             label="预约凭证"
                             disabled={busy}

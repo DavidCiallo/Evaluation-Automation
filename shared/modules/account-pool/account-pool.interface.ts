@@ -69,6 +69,7 @@ export class AccountPoolUpsertRequest {
     public expected_place?: string;
     public actual_place?: string;
     public vouchers?: PoolVoucher[];
+    public appointment_vouchers?: PoolVoucher[];
     public remark?: string;
     public auth?: string;
 
@@ -98,6 +99,16 @@ export class AccountPoolUpsertRequest {
         if (data.vouchers !== undefined) {
             if (!Array.isArray(data.vouchers)) throw new Error("vouchers 必须是数组");
             this.vouchers = data.vouchers.map((v: any) => ({
+                file_id: String(v?.file_id || ""),
+                filename: String(v?.filename || ""),
+                storage_name: String(v?.storage_name || ""),
+                content_type: String(v?.content_type || ""),
+                upload_time: Number(v?.upload_time || Date.now()),
+            }));
+        }
+        if (data.appointment_vouchers !== undefined) {
+            if (!Array.isArray(data.appointment_vouchers)) throw new Error("appointment_vouchers 必须是数组");
+            this.appointment_vouchers = data.appointment_vouchers.map((v: any) => ({
                 file_id: String(v?.file_id || ""),
                 filename: String(v?.filename || ""),
                 storage_name: String(v?.storage_name || ""),

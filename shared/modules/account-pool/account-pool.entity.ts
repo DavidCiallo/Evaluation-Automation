@@ -96,6 +96,8 @@ export interface PoolAccountEntity {
     expected_place: string;
     actual_place: string;
     vouchers: PoolVoucher[];
+    /** 预约位置的凭证，和注册办签的 vouchers 分开 */
+    appointment_vouchers: PoolVoucher[];
     remark: string | null;
     error: string | null;
     task_id: string | null;
@@ -122,6 +124,7 @@ export interface PoolAccountDTO {
     expected_place: string;
     actual_place: string;
     vouchers: PoolVoucher[];
+    appointment_vouchers: PoolVoucher[];
     outputs_ready: boolean;
     outputs_missing: string[];
     remark: string | null;
@@ -159,6 +162,7 @@ export function toPoolAccountDTO(e: PoolAccountEntity, withSecret = false, custo
         expected_place: e.expected_place || "",
         actual_place: e.actual_place || "",
         vouchers: (e.vouchers || []).map((v) => ({ ...v })),
+        appointment_vouchers: (e.appointment_vouchers || []).map((v) => ({ ...v })),
         outputs_ready: gaps.length === 0,
         outputs_missing: gaps,
         remark: e.remark ?? null,
