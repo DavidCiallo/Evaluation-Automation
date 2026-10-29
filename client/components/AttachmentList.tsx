@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { ImagePlus, Paperclip, X } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
@@ -55,7 +55,19 @@ export function AttachmentList({
     const [uploading, setUploading] = useState(false)
     const [busy, setBusy] = useState(false)
     const [pendingDelete, setPendingDelete] = useState<number | null>(null)
+    const [preview, setPreview] = useState<{ src: string; x: number; y: number } | null>(null)
     const input = useRef<HTMLInputElement | null>(null)
+
+    // 预览用 fixed 定位，避免被卡片的圆角/滚动容器裁掉
+    const showPreview = (v: Attachment, e: ReactMouseEvent<HTMLElement>) => {
+        if (!isImage(v.filename)) return
+        const r = e.currentTarget.getBoundingClientRect()
+        setPreview({
+            src: `/api/media/${v.storage_name}`,
+            x: Math.max(8, Math.min(r.right + 8, window.innerWidth - 460)),
+            y: Math.max(8, Math.min(r.top - 8, window.innerHeight - 420)),
+        })
+    }
 
     const run = async (next: Attachment[]) => {
         setBusy(true)
@@ -91,10 +103,9 @@ export function AttachmentList({
             <div className="flex flex-wrap items-center gap-2">
                 {value.map((v, i) => (
                     <span key={v.file_id || i} className="relative">
-                        <a
-                            href={`/api/media/${v.storage_name}`}
-                            target="_blank"
-                            rel="noreferrer"
+                        <span
+                            onMouseEnter={(e) => showPreview(v, e)}
+                            onMouseLeave={() => setPreview(null)}
                             title={v.filename}
                             className="block"
                         >
@@ -109,7 +120,7 @@ export function AttachmentList({
                                     <Paperclip className="size-5" />
                                 </span>
                             )}
-                        </a>
+                        </span>
                         <button
                             disabled={locked}
                             title={`删除这张${label}`}
@@ -147,6 +158,15 @@ export function AttachmentList({
                     {uploading ? "上传中…" : `上传${label}`}
                 </Button>
             </div>
+
+            {preview && (
+                <img
+                    src={preview.src}
+                    alt=""
+                    style={{ left: preview.x, top: preview.y }}
+                    className="border-border bg-background pointer-events-none fixed z-[100] max-h-[26rem] w-auto rounded-md border shadow-lg"
+                />
+            )}
 
             <Dialog open={pendingDelete !== null} onOpenChange={(v) => { if (!v) setPendingDelete(null) }}>
                 <DialogContent className="max-w-sm">
