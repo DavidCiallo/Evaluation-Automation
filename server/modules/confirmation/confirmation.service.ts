@@ -242,7 +242,11 @@ async function contentForCustomer(
         }
         // 人工补全过的字段覆盖表单原文，避免确认单正文和已核对的内容对不上
         const manual = a.extraction?.overridden ? a.extraction.fields : null;
-        return await buildContent(hit.fields, manual, notes);
+        return await buildContent(hit.fields, {
+            overrides: manual,
+            fieldOverrides: a.extraction?.field_overrides || null,
+            notes,
+        });
     }
 
     let profile: CustomerEntity | null = null;

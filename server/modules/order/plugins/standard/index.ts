@@ -863,6 +863,20 @@ export const standardOrderPlugin: ServerOrderPlugin = {
             for (const key of Object.keys(originals)) {
                 if ((fields[key] || "") === originals[key]) delete originals[key];
             }
+
+            // 必备项之外，任意原始字段也能改：按字段名覆盖，确认单正文直接用改后的值
+            const fieldOverrides: Record<string, { from: string; to: string }> = {
+                ...((prev?.field_overrides as Record<string, { from: string; to: string }> | undefined) || {}),
+            };
+            for (const item of Array.isArray(payload?.raw_overrides) ? payload.raw_overrides : []) {
+                const name = String(item?.name || "").trim();
+                if (!name) continue;
+                const from = String(item?.from ?? "");
+                const to = String(item?.to ?? "").trim();
+                if (to === from) delete fieldOverrides[name];
+                else fieldOverrides[name] = { from, to };
+            }
+
             const missing = REQUIRED_FORM_FIELDS.filter((k) => !String(fields[k] ?? "").trim()).map(
                 (k) => REQUIRED_FORM_FIELD_LABEL[k],
             );
@@ -873,8 +887,9 @@ export const standardOrderPlugin: ServerOrderPlugin = {
                 missing,
                 checked_time: Date.now(),
                 error: null,
-                overridden: Object.keys(originals).length > 0,
+                overridden: Object.keys(originals).length > 0 || Object.keys(fieldOverrides).length > 0,
                 original_fields: originals,
+                field_overrides: fieldOverrides,
             };
             const next = forms.map((f) => (f.id === form.id ? { ...f, extraction } : f));
             await ctx.setPluginData(STANDARD_PLUGIN_ID, { forms: next });

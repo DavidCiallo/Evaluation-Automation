@@ -92,6 +92,7 @@ function attachResult(form: FormAssignment, result: FormCheckResult): FormAssign
             missing,
             overridden: true,
             original_fields: prev.original_fields || {},
+            field_overrides: prev.field_overrides || {},
         },
     };
 }

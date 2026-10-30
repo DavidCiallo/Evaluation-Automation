@@ -85,6 +85,8 @@ export interface FormAssignment {
         overridden?: boolean;
         /** 人工改动前的自动识别值，按字段记录，用于界面显示差异 */
         original_fields?: Record<string, string>;
+        /** 必备项之外的人工修改，按表单原始字段名 */
+        field_overrides?: Record<string, { from: string; to: string }>;
     };
 }
 

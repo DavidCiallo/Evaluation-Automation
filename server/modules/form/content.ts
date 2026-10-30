@@ -34,11 +34,20 @@ const SYSTEM_PROMPT = `你在为出国签证代办业务整理「客户信息确
 
 export async function buildContent(
     fields: Array<{ name: string; value: string }>,
-    overrides?: Record<string, string> | null,
-    notes?: string | null,
+    opts?: {
+        overrides?: Record<string, string> | null;
+        fieldOverrides?: Record<string, { from: string; to: string }> | null;
+        notes?: string | null;
+    },
 ): Promise<string> {
-    const rows = rawRows(fields);
-    const manual = Object.entries(overrides || {})
+    // 按原始字段名的人工修改直接替换值，模型看到的就是改后的内容，不用靠提示词纠偏
+    const rows = rawRows(fields).map((r) => ({ ...r }));
+    for (const [name, o] of Object.entries(opts?.fieldOverrides || {})) {
+        const hit = rows.find((r) => String(r.name).trim() === name);
+        if (hit) hit.value = o.to;
+        else if (o.to) rows.push({ name, value: o.to });
+    }
+    const manual = Object.entries(opts?.overrides || {})
         .map(([key, value]) => ({
             name: REQUIRED_FORM_FIELD_LABEL[key as RequiredFormField] || key,
             value: String(value ?? "").trim(),
@@ -54,8 +63,8 @@ export async function buildContent(
     const manualText = manual.length
         ? `\n\n以下是人工核对后更正的值，和上面的内容冲突时一律以这里为准：\n${manual.map((r) => `${r.name}：${r.value}`).join("\n")}`
         : "";
-    const noteText = String(notes || "").trim()
-        ? `\n\n客服备注（人工核对后的结论，不是附注）：\n${String(notes).trim()}\n
+    const noteText = String(opts?.notes || "").trim()
+        ? `\n\n客服备注（人工核对后的结论，不是附注）：\n${String(opts?.notes).trim()}\n
 使用规则：
 1. 备注和上面的字段内容冲突时，一律按备注修正正文，不要把两种说法同时留在正文里。
 2. 如果备注直接给出了某个字段的结论（例如有效期是否足够），就用备注的结论改写那一项，不要再出现相反的旧值。

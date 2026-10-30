@@ -562,27 +562,62 @@ function FormCollectionSection({
     const [picker, setPicker] = useState<{ formKey: string; customerId: string; customerName: string; provider: "survey" | "mike" } | null>(null)
     const [overrideForm, setOverrideForm] = useState<FormAssignment | null>(null)
     const [overrideValues, setOverrideValues] = useState<Record<string, string>>({})
+    const [rawFields, setRawFields] = useState<Array<{ name: string; value: string }>>([])
+    const [rawValues, setRawValues] = useState<Record<string, string>>({})
+    const [rawLoading, setRawLoading] = useState(false)
 
-    const openOverride = (f: FormAssignment) => {
+    const openOverride = async (f: FormAssignment) => {
         const fields = (f.extraction?.fields as Record<string, string> | undefined) || {}
         const init: Record<string, string> = {}
         for (const item of REQUIRED_FIELD_INPUTS) init[item.key] = fields[item.key] || ""
         setOverrideValues(init)
+        setRawFields([])
+        setRawValues({})
         setOverrideForm(f)
+        setRawLoading(true)
+        try {
+            const res: any = await orderApi.pluginAction({
+                id: order.id,
+                plugin_id: STANDARD_PLUGIN_ID,
+                action: "get-form-data",
+                payload: { form_id: f.id },
+                auth,
+            })
+            const data: Array<{ name?: string; value?: string }> = res?.data?.result?.data || []
+            const overrides = (f.extraction?.field_overrides as Record<string, { to: string }> | undefined) || {}
+            const rows: Array<{ name: string; value: string }> = []
+            const values: Record<string, string> = {}
+            for (const row of data) {
+                const name = String(row.name || "").trim()
+                if (!name) continue
+                const value = String(row.value ?? "")
+                rows.push({ name, value })
+                values[name] = overrides[name]?.to ?? value
+            }
+            setRawFields(rows)
+            setRawValues(values)
+        } catch (e: any) {
+            toast.error(`加载表单字段失败: ${e?.message || ""}`)
+        } finally {
+            setRawLoading(false)
+        }
     }
 
     const saveOverride = async () => {
         if (!overrideForm) return
         setBusy(true)
         try {
+            const changed = rawFields
+                .filter((r) => (rawValues[r.name] ?? "") !== r.value)
+                .map((r) => ({ name: r.name, from: r.value, to: rawValues[r.name] ?? "" }))
             await orderApi.pluginAction({
                 id: order.id,
                 plugin_id: STANDARD_PLUGIN_ID,
                 action: "override-form-fields",
-                payload: { form_id: overrideForm.id, fields: overrideValues },
+                payload: { form_id: overrideForm.id, fields: overrideValues, raw_overrides: changed },
                 auth,
             })
-            toast.success("已保存补全内容")
+            toast.success(changed.length ? `已保存，改了 ${changed.length} 个字段` : "已保存补全内容")
             setOverrideForm(null)
             reload()
         } catch (e: any) {
@@ -786,7 +821,7 @@ function FormCollectionSection({
                                             size="sm"
                                             variant="ghost"
                                             className="size-6 p-0"
-                                            title="补全必备项"
+                                            title="修改表单内容"
                                             onClick={(e) => { e.stopPropagation(); openOverride(f) }}
                                             disabled={busy}
                                         >
@@ -828,6 +863,19 @@ function FormCollectionSection({
                                         })}
                                     </div>
                                 )}
+                                {Object.entries((f.extraction?.field_overrides as Record<string, { from: string; to: string }> | undefined) || {}).map(
+                                    ([name, o]) => (
+                                        <div key={name} className="flex items-center gap-1.5">
+                                            <span className="text-muted-foreground w-24 shrink-0 truncate" title={name}>
+                                                {name}
+                                            </span>
+                                            {o.from && (
+                                                <span className="text-muted-foreground truncate line-through">{o.from}</span>
+                                            )}
+                                            <span className="shrink-0 font-medium text-amber-600">{o.to || "（清空）"}</span>
+                                        </div>
+                                    ),
+                                )}
                                 {!!f.form_url && (
                                     <div className="flex items-center gap-1">
                                         <code className="text-muted-foreground flex-1 truncate">{f.form_url}</code>
@@ -853,24 +901,52 @@ function FormCollectionSection({
                 <Dialog open onOpenChange={(o) => { if (!o) setOverrideForm(null) }}>
                     <DialogContent className="max-w-lg">
                         <DialogHeader>
-                            <DialogTitle>补全必备项</DialogTitle>
+                            <DialogTitle>修改表单内容</DialogTitle>
                             <DialogDescription>
-                                识别不出或缺失的必备字段可以手动填，保存后立即生效，也会用于生成确认单正文。
+                                必备项和其他任何字段都能改。保存后立即生效，确认单正文用的是改后的值。
                             </DialogDescription>
                         </DialogHeader>
-                        <div className="grid max-h-[60vh] gap-2 overflow-y-auto pr-1">
-                            {REQUIRED_FIELD_INPUTS.map((item) => (
-                                <div key={item.key} className="grid grid-cols-[7rem_1fr] items-center gap-2">
-                                    <Label className="text-xs">{item.label}</Label>
-                                    <Input
-                                        className="h-8"
-                                        value={overrideValues[item.key] || ""}
-                                        onChange={(e) =>
-                                            setOverrideValues((prev) => ({ ...prev, [item.key]: e.target.value }))
-                                        }
-                                    />
+                        <div className="max-h-[70vh] space-y-2 overflow-y-auto pr-1">
+                            <div className="text-muted-foreground text-[11px]">必备项</div>
+                            <div className="grid gap-2">
+                                {REQUIRED_FIELD_INPUTS.map((item) => (
+                                    <div key={item.key} className="grid grid-cols-[7rem_1fr] items-center gap-2">
+                                        <Label className="text-xs">{item.label}</Label>
+                                        <Input
+                                            className="h-8"
+                                            value={overrideValues[item.key] || ""}
+                                            onChange={(e) =>
+                                                setOverrideValues((prev) => ({ ...prev, [item.key]: e.target.value }))
+                                            }
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+
+                            {rawLoading && <p className="text-muted-foreground text-xs">加载表单字段…</p>}
+                            {!rawLoading && rawFields.length > 0 && (
+                                <div className="border-t pt-2">
+                                    <div className="text-muted-foreground mb-1 text-[11px]">
+                                        其他字段（{rawFields.length} 项，改了哪个就存哪个）
+                                    </div>
+                                    <div className="grid gap-2">
+                                        {rawFields.map((r) => (
+                                            <div key={r.name} className="grid grid-cols-[9rem_1fr] items-center gap-2">
+                                                <span className="text-muted-foreground truncate text-[11px]" title={r.name}>
+                                                    {r.name}
+                                                </span>
+                                                <Input
+                                                    className="h-8"
+                                                    value={rawValues[r.name] ?? ""}
+                                                    onChange={(e) =>
+                                                        setRawValues((prev) => ({ ...prev, [r.name]: e.target.value }))
+                                                    }
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
-                            ))}
+                            )}
                         </div>
                         <DialogFooter>
                             <Button size="sm" variant="outline" onClick={() => setOverrideForm(null)} disabled={busy}>
