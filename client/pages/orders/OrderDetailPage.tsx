@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, Check, Link2, Merge, MessageSquare, Users, MessageCircle, Send } from "lucide-react"
+import { ArrowLeft, Check, Link2, Merge, MessageSquare, RefreshCw, Users, MessageCircle, Send } from "lucide-react"
 import { toast } from "@/client/components/ui/sonner"
 
 import {
@@ -242,9 +242,11 @@ export function OrderDetailPage() {
         }
     }
 
-    const load = async () => {
+    const load = async (opts: { silent?: boolean } = {}) => {
         if (!params.id) return
-        setLoading(true)
+        // 已经有数据时默认静默刷新：整页变骨架屏会丢失滚动位置，改完一个字段就被拽回顶部
+        const silent = opts.silent ?? !!order
+        if (!silent) setLoading(true)
         try {
             const res: any = await orderApi.detail({ id: params.id, auth })
             const d = res?.data
@@ -253,7 +255,8 @@ export function OrderDetailPage() {
                 const chatsRes: any = await orderApi.relatedChats({ id: d.order.id, auth })
                 const chats = (chatsRes?.data?.chats as RelatedChat[]) || []
                 setRelatedChats(chats)
-                if (chats.length > 0) {
+                // 静默刷新不动聊天面板，否则每次保存都会跳回第一个会话
+                if (!silent && chats.length > 0) {
                     setActiveChatId(chats[0].id)
                     loadMessages(chats[0].id)
                 }
@@ -261,7 +264,7 @@ export function OrderDetailPage() {
         } catch (e: any) {
             toast.error(`加载失败: ${e?.message || ""}`)
         } finally {
-            setLoading(false)
+            if (!silent) setLoading(false)
         }
     }
 
@@ -386,6 +389,10 @@ export function OrderDetailPage() {
                     ) : (
                         <span>尚未评估</span>
                     )}
+                    <Button variant="outline" size="sm" onClick={() => load()}>
+                        <RefreshCw className="size-3" />
+                        刷新
+                    </Button>
                     <Button variant="outline" size="sm" disabled={jobPending || runningJob} onClick={runJob}>
                         {jobPending ? "评估中" : "立即评估"}
                     </Button>
