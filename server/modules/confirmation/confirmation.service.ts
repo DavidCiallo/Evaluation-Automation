@@ -227,6 +227,30 @@ export async function issueForOrder(orderId: string, customerIds?: string[]): Pr
     return { list: await listByOrder(orderId), created };
 }
 
+/**
+ * 绑定表单走的是麦克线上接口，本地 c_submission 可能还没轮到这条，
+ * 签发时按需回源一次并入库，否则新绑的表单永远签不出确认单。
+ */
+async function ensureSubmission(key: string | undefined): Promise<SubmissionEntity | null> {
+    if (!key) return null;
+    const local = await submissionRepo.findOne({ key });
+    if (local) return local;
+    const { mikeClient } = await import("../../lib/mike-client");
+    if (!mikeClient.isConfigured()) return null;
+    const found = await mikeClient.findSubmissionByKey(key).catch(() => null);
+    if (!found || (found.fields || []).length === 0) return null;
+    await submissionRepo.insert({
+        key: found.key,
+        form_id: found.form_id,
+        submitter_name: found.submitter_name,
+        submit_time: found.submit_time,
+        fields: found.fields,
+        claimed_by: null,
+        version: 1,
+    });
+    return submissionRepo.findOne({ key });
+}
+
 async function contentForCustomer(
     name: string,
     customer: OrderCustomerInfo,
@@ -236,9 +260,9 @@ async function contentForCustomer(
 ): Promise<string> {
     for (const a of assignments) {
         if (a.customer_id !== customer.id || a.status !== "completed") continue;
-        const hit = submissions.find((s) => s.key === a.item_id);
+        const hit = submissions.find((s) => s.key === a.item_id) || (await ensureSubmission(a.item_id));
         if (!hit) {
-            throw `订单里绑定的表单提交（${a.item_id || "无 item_id"}）在本地找不到，无法生成确认单正文`;
+            throw `订单里绑定的表单提交（${a.item_id || "无 item_id"}）在本地和麦克都没有，无法生成确认单正文`;
         }
         // 人工补全过的字段覆盖表单原文，避免确认单正文和已核对的内容对不上
         const manual = a.extraction?.overridden ? a.extraction.fields : null;
