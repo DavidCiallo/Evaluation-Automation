@@ -23,6 +23,8 @@ export const orderRoutes = {
             /** 客服多选（任一命中） */
             agent_ids?: string[];
             visa_types?: string[];
+            /** 当前阶段多选（任一命中） */
+            stages?: string[];
             customer?: string;
             start?: number;
             end?: number;

@@ -6,6 +6,8 @@ export class OrderListRequest {
     public agent_id: string | null;
     public agent_ids: string[] | null;
     public visa_types: string[] | null;
+    /** 当前阶段多选，任一命中 */
+    public stages: string[] | null;
     public customer: string | null;
     public start: number | null;
     public end: number | null;
@@ -19,6 +21,7 @@ export class OrderListRequest {
         this.agent_id = data.agent_id || null;
         this.agent_ids = toArray(data.agent_ids);
         this.visa_types = toArray(data.visa_types);
+        this.stages = toArray(data.stages);
         this.customer = data.customer || null;
         this.start = data.start ? Number(data.start) : null;
         this.end = data.end ? Number(data.end) : null;

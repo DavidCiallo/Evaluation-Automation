@@ -17,6 +17,7 @@ import { getAuth } from "@/client/methods/auth"
 import type { OrderDTO } from "../../../shared/modules/order/order.entity"
 import { AGENT_OPTIONS } from "../../../shared/modules/case/case.entity"
 import { VISA_TYPES } from "../../../shared/modules/order/visa"
+import { ORDER_STAGES } from "../../../shared/modules/order/stage"
 import { OrderStageBar, fmtDuration, fmtStamp, timeScaleMsPerPercent } from "./StageBar"
 import { ensureClientPluginsRegistered } from "./plugins/index"
 import { getEnabledClientOrderPlugins } from "./plugin-registry"
@@ -41,12 +42,13 @@ interface SavedFilters {
     status: string
     agents: string[]
     visaTypes: string[]
+    stages: string[]
     view: ViewMode
 }
 
 const FILTER_STORAGE_KEY = "orders.filters.v1"
 
-const DEFAULT_FILTERS: SavedFilters = { status: "active", agents: [], visaTypes: [], view: "card" }
+const DEFAULT_FILTERS: SavedFilters = { status: "active", agents: [], visaTypes: [], stages: [], view: "card" }
 
 function loadFilters(): SavedFilters {
     try {
@@ -57,6 +59,7 @@ function loadFilters(): SavedFilters {
             status: STATUS_TABS.some((t) => t.key === p?.status) ? p.status : DEFAULT_FILTERS.status,
             agents: Array.isArray(p?.agents) ? p.agents.filter((x: any) => typeof x === "string") : [],
             visaTypes: Array.isArray(p?.visaTypes) ? p.visaTypes.filter((x: any) => typeof x === "string") : [],
+            stages: Array.isArray(p?.stages) ? p.stages.filter((x: any) => typeof x === "string") : [],
             view: VIEW_TABS.some((t) => t.key === p?.view) ? p.view : DEFAULT_FILTERS.view,
         }
     } catch {
@@ -150,6 +153,7 @@ export function OrdersPage() {
     const [status, setStatus] = useState(saved.status)
     const [agents, setAgents] = useState<string[]>(saved.agents)
     const [visaTypes, setVisaTypes] = useState<string[]>(saved.visaTypes)
+    const [stages, setStages] = useState<string[]>(saved.stages)
     const [customer, setCustomer] = useState("")
     const [page, setPage] = useState(1)
     const [orders, setOrders] = useState<OrderDTO[]>([])
@@ -160,8 +164,8 @@ export function OrdersPage() {
     const needsStages = view !== "card"
 
     useEffect(() => {
-        saveFilters({ status, agents, visaTypes, view })
-    }, [status, agents, visaTypes, view])
+        saveFilters({ status, agents, visaTypes, stages, view })
+    }, [status, agents, visaTypes, stages, view])
 
     const load = async () => {
         setLoading(true)
@@ -172,6 +176,7 @@ export function OrdersPage() {
                 customer,
                 agent_ids: agents,
                 visa_types: visaTypes,
+                stages,
                 with_stages: needsStages,
                 with_counts: true,
                 auth,
@@ -189,7 +194,7 @@ export function OrdersPage() {
     useEffect(() => {
         load()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page, status, view, agents, visaTypes])
+    }, [page, status, view, agents, visaTypes, stages])
 
     const totalPages = useMemo(() => Math.max(1, Math.ceil(total / 20)), [total])
     const typeOptions = useMemo(
@@ -199,6 +204,7 @@ export function OrdersPage() {
                 .map((v) => ({ ...v, label: `${v.label}（${typeCounts[v.value] || 0}）` })),
         [typeCounts],
     )
+    const stageOptions = useMemo(() => ORDER_STAGES.map((s) => ({ value: s.id, label: s.label })), [])
     const clientPlugins = useMemo(() => getEnabledClientOrderPlugins(), [])
     const timeScale = useMemo(() => timeScaleMsPerPercent(orders), [orders])
 
@@ -251,6 +257,15 @@ export function OrdersPage() {
                             selected={visaTypes}
                             onChange={(v) => {
                                 setVisaTypes(v)
+                                setPage(1)
+                            }}
+                        />
+                        <MultiSelect
+                            label="当前阶段"
+                            options={stageOptions}
+                            selected={stages}
+                            onChange={(v) => {
+                                setStages(v)
                                 setPage(1)
                             }}
                         />

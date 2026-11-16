@@ -40,6 +40,8 @@ export async function findOrders(opts: {
     agent_ids?: string[] | null;
     /** 签证类型多选，任一命中 */
     visa_types?: string[] | null;
+    /** 当前阶段多选，任一命中 */
+    stages?: string[] | null;
     customer?: string | null;
     start?: number | null;
     end?: number | null;
@@ -65,6 +67,17 @@ export async function findOrders(opts: {
 
     if (opts.status === "cancelled") all = all.filter((o) => !!o.cancelled_at);
     else if (opts.status !== "all") all = all.filter((o) => !o.cancelled_at);
+
+    // 阶段要在分页之前筛，否则只能筛到当前这一页；没有这个条件时不额外算阶段
+    if (opts.stages && opts.stages.length > 0) {
+        const want = new Set(opts.stages);
+        const kept: OrderEntity[] = [];
+        for (const o of all) {
+            const ev = await computeStages(o);
+            if (ev.current && want.has(ev.current)) kept.push(o);
+        }
+        all = kept;
+    }
 
     const visa_type_counts: Record<string, number> = {};
     if (opts.with_counts) {
