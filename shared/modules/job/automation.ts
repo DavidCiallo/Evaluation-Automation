@@ -100,6 +100,20 @@ export const DEFAULT_AUTOMATION_TASKS: AutomationTask[] = [
         update_time: null,
         delete_time: null,
     },
+    {
+        // 请求路径里不再跑识别之后，没人点就不会有表单被匹配，靠这个任务兜底
+        id: "form-autosync",
+        name: "表单自动匹配（每小时）",
+        enabled: true,
+        hooks: ["bind_forms"],
+        triggers: [],
+        schedule_minutes: 60,
+        // 必须每轮都扫：上次跑成功不代表以后没有新提交
+        only_pending: false,
+        create_time: 0,
+        update_time: null,
+        delete_time: null,
+    },
 ];
 
 function orderedBy(keys: string[], meta: Array<{ key: string }>): string[] {

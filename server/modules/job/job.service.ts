@@ -263,11 +263,19 @@ export async function getTasks(): Promise<AutomationTask[]> {
     return listTasks();
 }
 
+const AUTOSYNC_TASK_ID = "form-autosync";
+
 async function listTasks(): Promise<AutomationTask[]> {
     const rows = await taskRepo.find({}, { limit: 500 });
     if (rows.length === 0) {
         for (const t of DEFAULT_AUTOMATION_TASKS) await taskRepo.insert({ ...t });
         return DEFAULT_AUTOMATION_TASKS.map((t) => ({ ...t }));
+    }
+    // 老库已经播过种子，新加的默认任务要单独补，否则升级后不会自动跑
+    const autosync = DEFAULT_AUTOMATION_TASKS.find((t) => t.id === AUTOSYNC_TASK_ID);
+    if (autosync && !rows.some((r) => r.id === AUTOSYNC_TASK_ID)) {
+        await taskRepo.insert({ ...autosync });
+        rows.push({ ...autosync, create_time: Date.now() } as AutomationTask);
     }
     return rows.sort((a, b) => a.create_time - b.create_time);
 }
