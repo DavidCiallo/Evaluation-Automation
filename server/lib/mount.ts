@@ -7,7 +7,7 @@ export interface RouteMount {
     handlers: Record<string, Function>;
 }
 
-const PUBLIC_PATHS = new Set<string>([
+export const PUBLIC_PATHS = new Set<string>([
     "/api/auth/login",
     "/api/auth/alive",
     "/api/confirmation/fetch",

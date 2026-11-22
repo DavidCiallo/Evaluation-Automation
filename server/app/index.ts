@@ -123,6 +123,46 @@ Bun.serve({
             return fileMount.uploadMultipart(req);
         }
 
+        if (pathName === "/docs" || pathName === "/api/docs" || pathName === "/api/docs.json") {
+            const { collectApiRoutes, collectPluginActions, renderApiDocs, apiDocsJson } = await import("./api-docs");
+            const serverMounts = [
+                authMount,
+                accountMount,
+                chatMount,
+                conversationMount,
+                caseMount,
+                confirmationMount,
+                accountPoolMount,
+                robotTaskMount,
+                formMount,
+                orderMount,
+                customerMount,
+                fileMount,
+                materialMount,
+                metricMount,
+                intentMount,
+                workbenchMount,
+                configMount,
+                integrationMount,
+                syncMount,
+                exemptionMount,
+                emailMount,
+                backupMount,
+                jobMount,
+            ];
+            const routes = collectApiRoutes(serverMounts);
+            if (pathName === "/api/docs.json") {
+                const pluginActions = await collectPluginActions();
+                return new Response(apiDocsJson(routes, pluginActions), {
+                    headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" },
+                });
+            }
+            const pluginActions = await collectPluginActions();
+            return new Response(renderApiDocs(routes, pluginActions), {
+                headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+        }
+
         const apiResponse = await mounthttp(req, [
             authMount,
             accountMount,
