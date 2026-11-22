@@ -22,15 +22,16 @@ export function AppointmentCard({
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
 
-    const load = async () => {
-        setLoading(true)
+    // 保存后的重取要静默，否则整张卡被「加载中」替换，输入框跟着消失
+    const load = async (silent = false) => {
+        if (!silent) setLoading(true)
         try {
             const res: any = await accountPoolApi.list({ order_id: orderId, auth })
             setAccounts((res?.data?.list as PoolAccountDTO[]) || [])
         } catch (e: any) {
             toast.error(`加载账号失败: ${e?.message || ""}`)
         } finally {
-            setLoading(false)
+            if (!silent) setLoading(false)
         }
     }
 
@@ -43,7 +44,7 @@ export function AppointmentCard({
         setBusy(true)
         try {
             await accountPoolApi.upsert({ id, ...patch, auth } as any)
-            await load()
+            await load(true)
             reload?.()
         } catch (e: any) {
             toast.error(`保存失败: ${e?.message || ""}`)

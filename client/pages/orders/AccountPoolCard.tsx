@@ -37,15 +37,16 @@ export function AccountPoolCard({
     const needsFv = (a: PoolAccountDTO) => a.platforms.some((p) => PLATFORM_OUTPUT[p] === "fv_number")
     const needsTls = (a: PoolAccountDTO) => a.platforms.some((p) => PLATFORM_OUTPUT[p] === "tls_link")
 
-    const load = async () => {
-        setLoading(true)
+    // 保存后的重取要静默：一旦置 loading，整张卡会被「加载中」替换，正在编辑的输入框就没了
+    const load = async (silent = false) => {
+        if (!silent) setLoading(true)
         try {
             const a: any = await accountPoolApi.list({ order_id: orderId, auth })
             setAccounts((a?.data?.list as PoolAccountDTO[]) || [])
         } catch (e: any) {
             toast.error(`加载账号失败: ${e?.message || ""}`)
         } finally {
-            setLoading(false)
+            if (!silent) setLoading(false)
         }
     }
 
@@ -60,13 +61,27 @@ export function AccountPoolCard({
             const res: any = await fn()
             if (okMsg) toast.success(okMsg)
             if (res?.data?.list) setAccounts(res.data.list)
-            else await load()
+            else await load(true)
             reload?.()
         } catch (e: any) {
             toast.error(e?.message || "操作失败")
         } finally {
             setBusy(false)
         }
+    }
+
+    // 回车和失焦都提交，和卡片里其他链接的失焦保存保持一致
+    const commitLink = (a: PoolAccountDTO, value: string) => {
+        const v = value.trim()
+        if (!v) return
+        setNewLink((s) => ({ ...s, [a.id]: "" }))
+        run(() =>
+            accountPoolApi.upsert({
+                id: a.id,
+                tls_links: [...a.tls_links, v],
+                auth,
+            }),
+        )
     }
 
     const reveal = async (id: string) => {
@@ -385,22 +400,13 @@ export function AccountPoolCard({
                                         <span />
                                         <Input
                                             value={newLink[a.id] ?? ""}
-                                            placeholder="+ 加入链接，回车确认"
+                                            placeholder="+ 加入链接，回车或点别处确认"
                                             className="h-8 w-full max-w-[36rem]"
                                             disabled={busy || !!poolBlocked}
                                             onChange={(e) => setNewLink((s) => ({ ...s, [a.id]: e.target.value }))}
+                                            onBlur={(e) => commitLink(a, e.target.value)}
                                             onKeyDown={(e) => {
-                                                if (e.key !== "Enter") return
-                                                const v = e.currentTarget.value.trim()
-                                                if (!v) return
-                                                setNewLink((s) => ({ ...s, [a.id]: "" }))
-                                                run(() =>
-                                                    accountPoolApi.upsert({
-                                                        id: a.id,
-                                                        tls_links: [...a.tls_links, v],
-                                                        auth,
-                                                    }),
-                                                )
+                                                if (e.key === "Enter") commitLink(a, e.currentTarget.value)
                                             }}
                                         />
                                     </div>
