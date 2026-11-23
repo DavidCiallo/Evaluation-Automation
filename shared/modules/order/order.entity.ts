@@ -1,12 +1,13 @@
 import type { OrderStageId, OrderStageView } from "./stage";
 import { visaTypeLabel } from "./visa";
 
-export type OrderSource = "wecom" | "email" | "manual";
+export type OrderSource = "wecom" | "email" | "manual" | "visago";
 
 export const ORDER_SOURCE_LABEL: Record<OrderSource, string> = {
     wecom: "企微",
     email: "邮件",
     manual: "手动",
+    visago: "VisaGo",
 };
 
 export interface RemarkEntry {
@@ -47,6 +48,8 @@ export interface OrderEntity {
     delete_time: number | null;
     order_name: string;
     source: OrderSource;
+    /** 外部系统的订单 id，用于同步去重（目前是 VisaGo 的订单 id） */
+    external_id?: string;
     case_id?: string;
     order_seq?: number;
     chat_id: string;

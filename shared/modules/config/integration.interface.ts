@@ -1,5 +1,5 @@
 
-export type IntegrationProviderId = "survey" | "mike" | "ctrip" | "email" | "contract" | "qixioma";
+export type IntegrationProviderId = "survey" | "mike" | "ctrip" | "email" | "contract" | "qixioma" | "visago";
 
 export type IntegrationTargetId = IntegrationProviderId | "sdk";
 

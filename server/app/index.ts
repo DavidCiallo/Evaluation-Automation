@@ -36,6 +36,7 @@ import { startMetricsJob } from "../modules/metric/metric.service";
 import { startMikeIngest } from "../modules/form/mike-ingest";
 import { startEmailLinkJob } from "../modules/email/email.service";
 import { startJobScheduler } from "../modules/job/job.service";
+import { startVisagoSync } from "../modules/visago/visago-sync";
 import { isWxConfigured } from "../lib/wx";
 import { isWecomSeeded, seedFromWecomDb } from "../lib/seed-wecom";
 import { ensureIntegrationSettings, getIntegration } from "../lib/integration-settings";
@@ -74,6 +75,7 @@ startMetricsJob();
 startMikeIngest();
 startEmailLinkJob();
 startJobScheduler();
+startVisagoSync();
 
 // @ts-ignore
 Bun.serve({

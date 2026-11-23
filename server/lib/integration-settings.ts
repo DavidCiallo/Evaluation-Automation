@@ -25,6 +25,7 @@ const DEFAULT_BASE: Record<IntegrationProviderId, string> = {
     email: "https://email.noworrytourism.cn",
     contract: "https://contract.noworrytourism.cn",
     qixioma: "https://chat.noworrytourism.cn",
+    visago: "https://visago.noworrytourism.cn",
 };
 
 const DEFAULT_SDK_HOST = "http://127.0.0.1:8899";
@@ -108,6 +109,13 @@ const META: Record<IntegrationProviderId, {
         secretLabel: "API Token",
         defaultIntervalMs: null,
     },
+    visago: {
+        label: "VisaGo 下单门户",
+        hint: "客户自助下单系统（只读）：按创建时间拉取订单，自动建成这里的订单",
+        accountLabel: "管理员邮箱",
+        secretLabel: "登录密码",
+        defaultIntervalMs: null,
+    },
 };
 
 function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { secret?: string; account?: string } {
@@ -133,6 +141,12 @@ function envDefaults(id: IntegrationTargetId): StoredEntry & StoredSdkEntry & { 
             return {
                 base_url: process.env.CTRIP_BASE_URL || DEFAULT_BASE.ctrip,
                 secret: process.env.CTRIP_PASSWORD || "",
+            };
+        case "visago":
+            return {
+                base_url: process.env.VISAGO_BASE_URL || DEFAULT_BASE.visago,
+                account: process.env.VISAGO_EMAIL || "",
+                secret: process.env.VISAGO_PASSWORD || "",
             };
         case "email":
             return {
